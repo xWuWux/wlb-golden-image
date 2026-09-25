@@ -29,7 +29,8 @@ NFT_PREFIX = re.compile(r'log prefix "([^"]+)"')
 AUDIT_KEY = re.compile(r"\s-k\s+(\S+)")
 KV_FIELD = re.compile(r"(?<![A-Za-z0-9_])([a-z_][a-z0-9_]*)=")
 
-RFC5424 = re.compile(r"^<\d+>1 \S+ (?P<host>\S+) (?P<app>\S+) \S+ \S+ (?:-|\[.*?\]) ?(?P<msg>.*)$")
+# rsyslog (RSYSLOG_SyslogProtocol23Format) wstawia przed treścią dwie spacje, logger(1) jedną — stąd \s*
+RFC5424 = re.compile(r"^<\d+>1 \S+ (?P<host>\S+) (?P<app>\S+) \S+ \S+ (?:-|\[.*?\])\s*(?P<msg>.*)$")
 RFC3164 = re.compile(r"^(?:<\d+>)?\w{3} [ \d]\d [\d:]{8} (?P<host>\S+) (?P<app>[^:\[\s]+)(?:\[\d+\])?: ?(?P<msg>.*)$")
 
 

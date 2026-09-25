@@ -39,15 +39,20 @@ LOG_DIR=${GUARD_LOG_DIR:-build/ci-logs}
 RUNBOOK=${GUARD_RUNBOOK:-docs/ci-runbook.md}
 mkdir -p "$LOG_DIR"
 
-# Limit pamięci: cgroup przez systemd-run (użytkownika albo przez sudo, jak na runnerach GitHub)
-limiter=()
+# Limit pamięci: cgroup przez systemd-run (użytkownika albo przez sudo, jak na runnerach GitHub).
+# Jednostka ma nazwę, żeby po zakończeniu odczytać jej wynik: OOM rozpoznajemy po Result=oom-kill,
+# bo po zabiciu procesu systemd dobija resztę SIGTERM i kod wyjścia bywa 143, a nie 137.
+limiter=() ctl=()
+unit="guard-$$-$RANDOM"
 if [[ -n $MEMORY && ${GUARD_NO_CGROUP:-0} != 1 ]]; then
   if systemd-run --user --scope -q -p MemoryMax=64M true 2>/dev/null; then
-    limiter=(systemd-run --user --scope -q -p "MemoryMax=$MEMORY" -p MemorySwapMax=0)
+    limiter=(systemd-run --user --scope -q --unit="$unit" -p "MemoryMax=$MEMORY" -p MemorySwapMax=0)
+    ctl=(systemctl --user)
   elif sudo -n systemd-run --scope -q -p MemoryMax=64M true 2>/dev/null; then
     # sudo czyści PATH/HOME i zawsze usuwa LD_* (Python z setup-python potrzebuje LD_LIBRARY_PATH) —
     # przekazujemy je jawnie i wracamy do bieżącego użytkownika
-    limiter=(sudo -n --preserve-env systemd-run --scope -q -p "MemoryMax=$MEMORY" -p MemorySwapMax=0
+    ctl=(sudo -n systemctl)
+    limiter=(sudo -n --preserve-env systemd-run --scope -q --unit="$unit" -p "MemoryMax=$MEMORY" -p MemorySwapMax=0
       --uid="$(id -u)" --gid="$(id -g)" env "PATH=$PATH" "HOME=$HOME"
       ${LD_LIBRARY_PATH:+"LD_LIBRARY_PATH=$LD_LIBRARY_PATH"})
   else
@@ -67,6 +72,11 @@ case $code in
   *) status=FAIL ;;
 esac
 [[ $status == OOM && -z ${limiter[*]} ]] && status=FAIL # bez cgroup SIGKILL nie oznacza OOM
+if ((${#ctl[@]})); then
+  result=$("${ctl[@]}" show -p Result --value "$unit.scope" 2>/dev/null)
+  "${ctl[@]}" reset-failed "$unit.scope" 2>/dev/null
+  [[ $result == oom-kill ]] && status=OOM
+fi
 
 printf '{"name": "%s", "status": "%s", "exit_code": %d, "seconds": %d, "timeout": "%s", "memory": "%s", "optional": %s}\n' \
   "$NAME" "$status" "$code" "$elapsed" "$TIMEOUT" "${MEMORY:-brak}" "$([[ $OPTIONAL == 1 ]] && echo true || echo false)" \

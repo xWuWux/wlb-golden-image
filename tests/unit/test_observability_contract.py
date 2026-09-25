@@ -177,6 +177,18 @@ def test_niepoprawne_wartosci_i_brakujace_zdarzenia():
     assert rows["audit:wlb_exec"][0] == "BRAK"
 
 
+def test_format_prawdziwego_rsyslog_z_vm():
+    # linie z odbiornika SIEM w CI (przebieg #6): rsyslog daje dwie spacje przed treścią
+    lines = [
+        "<13>1 2026-09-25T23:54:33.903441+02:00 lab-test01 wlb-firstboot - - -  Laboratorium lab-test01 skonfigurowane",
+        "<85>1 2026-09-25T23:54:51.490111+02:00 lab-test01 wlb-sluza-out - - -  export_request user=jupyter-tester1 "
+        f"uid=10000 entry=wynik-test.csv sha256={SHA} queued_as=20260925T215451Z_jupyter-tester1_wynik-test.csv",
+    ]
+    rows = {name: status for name, status, _ in oc.verify_log(oc.load_contract(REPO_ROOT), lines)[0]}
+    assert rows["firstboot.done"] == "OK"
+    assert rows["sluza_out.export_request"] == "OK"
+
+
 def test_parse_kv_wartosc_ze_spacjami():
     assert oc.parse_kv("user=jupyter-a session=1-2 cwd=/w cmd=cat /data-mart/a b.csv") == {
         "user": "jupyter-a",

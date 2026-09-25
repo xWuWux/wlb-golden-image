@@ -399,6 +399,15 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
     serwer HashiCorp), a diagnoza uznała to za błąd testu
     -> Packer instalowany przez ci/install-tools.sh (SHA-256, curl --retry-all-errors) jak reszta
        narzędzi; przejściowe błędy sieci (5xx, timeout, DNS, limit API) = kategoria infra (ponowienie).
+42. Kontrakt SIEM w CI: 7/9 zdarzeń OK, brak firstboot.done i sluza_out.export_request, choć dotarły
+    -> rsyslog (RSYSLOG_SyslogProtocol23Format) wstawia DWIE spacje przed treścią, logger(1) jedną;
+       parser zakładał jedną, więc wzorce zakotwiczone na początku nie pasowały. Test na prawdziwej
+       linii z VM w tests/unit/test_observability_contract.py.
+43. Strażnik sklasyfikował OOM jako FAIL (kod 143/15): po zabiciu procesu systemd dobija resztę SIGTERM
+    -> OOM rozpoznawany po wyniku jednostki systemd (Result=oom-kill), nie po kodzie wyjścia.
+44. Przyczyna OOM osv-scannera zawężona bisekcją do JEDNEGO pakietu: linux-libc-dev (źródło: linux).
+    Sam ten pakiet: > 6 GB w 160 s; 294 pozostałe pakiety: 1,2 GB w 7 s; bazowy ubuntu:24.04: 86 MB.
+    Zgłoszone do google/osv-scanner; u nas issue #2.
 
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).
