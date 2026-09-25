@@ -96,7 +96,14 @@ PY
   else
     echo "nft -c wymaga sudo — pomijam (w CI wykonywane)"
   fi
-  if command -v rsyslogd >/dev/null; then
+  if command -v rsyslogd >/dev/null && sudo -n true 2>/dev/null; then
+    # AppArmor (Ubuntu) pozwala rsyslogd czytać konfigurację tylko z /etc/rsyslog* — sprawdzamy tam
+    local check=/etc/rsyslog.d/zz-wlb-ci-check.conf rc=0
+    sudo cp "$OUT/60-wlb-siem.conf" "$check"
+    sudo rsyslogd -N1 -f "$check" || rc=$?
+    sudo rm -f "$check"
+    return $rc
+  elif command -v rsyslogd >/dev/null; then
     rsyslogd -N1 -f "$OUT/60-wlb-siem.conf"
   else
     echo "rsyslogd niedostępny — pomijam"
