@@ -28,7 +28,7 @@ validate: keys ## Walidacja Packera, składni Ansible i skryptów
 	packer validate $(PACKER_VARS) packer/
 	cd ansible && ansible-playbook -i localhost, --syntax-check site.yml
 	bash -n tests/*.sh packer/scripts/*.sh ansible/roles/*/files/wlb-firstboot ansible/roles/*/files/wlb-sluza-out-mover
-	python3 -m py_compile ansible/roles/tljh/files/wlb-hub-user
+	python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" ansible/roles/tljh/files/wlb-hub-user
 
 build: keys ## Buduje golden image -> output/<nazwa>-<wersja>-<data>/
 	@test -w /dev/kvm || { echo "Brak dostępu do /dev/kvm — dodaj się do grupy kvm i zrestartuj WSL (wsl --shutdown)"; exit 1; }

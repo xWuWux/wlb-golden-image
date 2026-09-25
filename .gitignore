@@ -16,3 +16,6 @@ lab.env
 .vscode/
 .idea/
 *.swp
+
+# Python
+__pycache__/
