@@ -6,7 +6,7 @@
     state: directory
     mode: "0755"
 
-- name: journald — trwałe logi i przekazywanie do rsyslog
+- name: Journald — trwałe logi i przekazywanie do rsyslog
   ansible.builtin.copy:
     dest: /etc/systemd/journald.conf.d/60-wlb.conf
     mode: "0644"

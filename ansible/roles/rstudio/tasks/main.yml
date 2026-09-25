@@ -11,6 +11,6 @@
     enabled: false
     state: stopped
 
-- name: jupyter-rsession-proxy w środowisku użytkowników
+- name: Instalacja jupyter-rsession-proxy w środowisku użytkowników
   ansible.builtin.command: /opt/tljh/user/bin/pip install {{ rstudio_rsession_proxy_spec }}
   changed_when: true

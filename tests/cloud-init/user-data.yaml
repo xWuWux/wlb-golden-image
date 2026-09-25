@@ -7,7 +7,7 @@ fqdn: lab-test01.wlb.local
 
 users:
   - name: wlbadmin
-    uid: "1001"
+    uid: 1001
     groups: [sudo, wlb-platform-admins]
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     shell: /bin/bash

@@ -4,6 +4,10 @@
     dest: /etc/apt/keyrings/cran.asc
     mode: "0644"
 
+- name: Biblioteka python3-debian (wymagana przez deb822_repository)
+  ansible.builtin.apt:
+    name: python3-debian
+
 - name: Repozytorium CRAN (R 4.x)
   ansible.builtin.deb822_repository:
     name: cran

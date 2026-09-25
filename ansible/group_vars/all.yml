@@ -23,6 +23,7 @@ wlb_researcher_group: jupyterhub-users   # grupa nadawana przez TLJH każdemu u�
 # --- Struktura katalogów (§10 Regulaminu WLB) -------------------------------
 wlb_directories:
   - { path: /workspace, owner: root, group: root, mode: "0711" }                     # katalogi domowe; badacz widzi tylko swój
+  - { path: /workspace/.wlb-hub, owner: root, group: root, mode: "0700" }            # baza huba (konta), objęta backupem
   - { path: /sluza-in, owner: root, group: jupyterhub-users, mode: "0750" }          # tylko odczyt
   - { path: /sluza-out, owner: root, group: jupyterhub-users, mode: "1730" }         # tylko zapis, bez listowania
   - { path: /data-mart, owner: root, group: jupyterhub-users, mode: "0750" }         # tylko odczyt
@@ -32,6 +33,9 @@ wlb_export_queue_dir: /var/spool/wlb/export-queue
 
 # --- The Littlest JupyterHub -------------------------------------------------
 tljh_version: "2.0.0"
+# Baza huba na dysku roboczym: konta badaczy przeżywają wymianę dysku systemowego
+# (nowa wersja obrazu) i są objęte backupem razem z /workspace.
+tljh_hub_db_path: /workspace/.wlb-hub/jupyterhub.sqlite
 tljh_idle_timeout_seconds: 1800        # 30 min bezczynności
 tljh_max_session_seconds: 43200        # §9.5: twardy limit 12 h
 tljh_cull_every_seconds: 60

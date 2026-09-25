@@ -1,0 +1,271 @@
+# Pipeline golden image WLB. Etapy w kolejności: każdy startuje dopiero po sukcesie poprzedniego.
+#   1. Lint, format i skan sekretów       ci/lint.sh
+#   2. Build test                          ci/build-check.sh
+#   3. Security & compliance               ci/security.sh
+#   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
+#   5. Integracja i migracja (KVM)         ci/integration.sh    — gdy zmiana dotyczy obrazu
+#   6. Benchmarki / wdrożenie tymczasowe   ci/perf.sh, ci/ephemeral-openstack.sh — na żądanie
+#   => "Gotowe do code review" (wymagany status check dla main)
+# Logika jest w skryptach ci/*.sh — działa tak samo lokalnie (make ci) i łatwo ją przenieść do GitLab CI.
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 5 * * 1" # poniedziałki: etapy 1–4 (nowe CVE w zamrożonych wersjach, zmiany licencji)
+  workflow_dispatch:
+    inputs:
+      perf:
+        description: "Stage 6a: benchmarki wydajności"
+        type: boolean
+        default: false
+      ephemeral:
+        description: "Stage 6b: wdrożenie tymczasowe na OpenStack"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  TOOLS_DIR: ${{ github.workspace }}/.tools
+  PACKER_VERSION: "1.16.1"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: "1. Lint, format i sekrety"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      image: ${{ steps.changes.outputs.image }}
+      perf: ${{ steps.changes.outputs.perf }}
+      ephemeral: ${{ steps.changes.outputs.ephemeral }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks skanuje całą historię
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: ${{ env.PACKER_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-lint-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-lint.txt') }}
+      - run: ci/install-tools.sh lint
+      - run: ci/lint.sh
+      - name: Które etapy 5–6 uruchomić
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          IN_PERF: ${{ inputs.perf }}
+          IN_EPHEMERAL: ${{ inputs.ephemeral }}
+        run: ci/changes.sh | tee -a "$GITHUB_OUTPUT"
+
+  build-check:
+    name: "2. Build test"
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: ${{ env.PACKER_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-lint-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-lint.txt') }}
+      - name: Walidatory systemowe (cloud-init, R, nftables, rsyslog)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends cloud-init r-base-core nftables rsyslog
+      - run: ci/install-tools.sh lint
+      - run: ci/build-check.sh
+
+  security:
+    name: "3. Security & compliance"
+    needs: build-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-security-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-security.txt') }}
+      - run: ci/install-tools.sh security
+      - run: ci/security.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: build/sca/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  unit:
+    name: "4. Testy jednostkowe + pokrycie"
+    needs: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # kcov (pokrycie skryptów powłoki) jest w Ubuntu od 26.04 — ten sam system co stacje deweloperskie
+    container: ubuntu:26.04
+    env:
+      CI: "true"
+    steps:
+      - name: Zależności testów
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+            ca-certificates curl git kcov psmisc python3 python3-venv
+      - uses: actions/checkout@v4
+      - run: ci/install-tools.sh unit
+      - run: ci/unit.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: build/coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  integration:
+    name: "5. Integracja i migracja"
+    needs: [lint, unit]
+    if: needs.lint.outputs.image == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Miejsce na dysku (obraz + VM testowe)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - name: Dostęp do KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -w /dev/kvm
+      - name: QEMU i narzędzia obrazu
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: ${{ env.PACKER_VERSION }}
+      - run: ci/install-tools.sh lint security
+      - run: ci/integration.sh
+        env:
+          IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-logs
+          path: |
+            build/ci-logs/
+            build/artifacts/
+            build/sca/
+            output/*/*.sha256
+            output/*/packer-manifest.json
+          if-no-files-found: ignore
+          retention-days: 30
+      # obraz dla etapu 6 (za duży na artefakt — przekazywany przez cache)
+      - uses: actions/cache/save@v4
+        if: needs.lint.outputs.perf == 'true' || needs.lint.outputs.ephemeral == 'true'
+        with:
+          path: output/
+          key: image-${{ github.run_id }}
+
+  perf:
+    name: "6a. Benchmarki wydajności"
+    needs: [lint, integration]
+    if: needs.lint.outputs.perf == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: output/
+          key: image-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Dostęp do KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage
+      - run: ci/perf.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf
+          path: build/perf/
+          if-no-files-found: ignore
+
+  ephemeral:
+    name: "6b. Wdrożenie tymczasowe (OpenStack)"
+    needs: [lint, integration]
+    # wymaga skonfigurowania: vars.OPENSTACK_EPHEMERAL=true, runner z dostępem do chmury testowej,
+    # environment "openstack-test" z sekretem OPENSTACK_CLOUDS_YAML
+    if: needs.lint.outputs.ephemeral == 'true' && vars.OPENSTACK_EPHEMERAL == 'true'
+    runs-on: ${{ vars.OPENSTACK_RUNNER || 'ubuntu-24.04' }}
+    environment: openstack-test
+    timeout-minutes: 90
+    env:
+      OS_CLOUD: ${{ vars.OS_CLOUD }}
+      OS_TEST_FLAVOR: ${{ vars.OS_TEST_FLAVOR }}
+      OS_TEST_NETWORK: ${{ vars.OS_TEST_NETWORK }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: output/
+          key: image-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - name: Klient OpenStack
+        env:
+          CLOUDS_YAML: ${{ secrets.OPENSTACK_CLOUDS_YAML }}
+        run: |
+          python3 -m pip install --user -q python-openstackclient
+          mkdir -p ~/.config/openstack
+          umask 077
+          printf '%s\n' "$CLOUDS_YAML" > ~/.config/openstack/clouds.yaml
+      - run: ci/ephemeral-openstack.sh
+
+  ready:
+    name: "Gotowe do code review"
+    needs: [lint, build-check, security, unit, integration, perf, ephemeral]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: ci/ready.sh
+        env:
+          NEEDS: ${{ toJSON(needs) }}

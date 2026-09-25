@@ -1,28 +1,11 @@
-#!/usr/bin/env bash
-# Kryteria akceptacji MVP — wykonywane wewnątrz VM testowej jako root (przez tests/acceptance.sh).
+# shellcheck shell=bash
+# Kryteria akceptacji MVP — wykonywane wewnątrz VM testowej jako root (przez tests/acceptance.sh,
+# z funkcjami z tests/lib/remote-common.sh).
 # Numeracja odpowiada liście kryteriów w specyfikacji.
 set -uo pipefail
 
-HUB=http://127.0.0.1
 R1=tester1
 R2=tester2
-PASS=0 FAIL=0 SKIP=0
-ok()   { echo "  PASS  $*"; PASS=$((PASS + 1)); }
-ko()   { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
-skip() { echo "  SKIP  $*"; SKIP=$((SKIP + 1)); }
-expect_ok()   { local d=$1; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else ko "$d"; fi; }
-expect_fail() { local d=$1; shift; if "$@" >/dev/null 2>&1; then ko "$d"; else ok "$d"; fi; }
-as() { local u=$1; shift; (cd / && sudo -u "jupyter-$u" -H "$@"); }
-
-# Logowanie do huba formularzem Native Authenticator; zwraca kod HTTP (302 = sukces)
-hub_login() {
-  local user=$1 pass=$2 jar=/tmp/wlb-test-$1.jar xsrf
-  rm -f "$jar"
-  xsrf=$(curl -s -c "$jar" -b "$jar" "$HUB/hub/login" | grep -oP 'name="_xsrf"\s+value="\K[^"]+' | head -1)
-  curl -s -o /dev/null -w '%{http_code}' -c "$jar" -b "$jar" \
-    --data-urlencode "_xsrf=$xsrf" --data-urlencode "username=$user" --data-urlencode "password=$pass" \
-    "$HUB/hub/login"
-}
 
 echo "== Przygotowanie: konta testowe w hubie =="
 declare -A PW
@@ -30,11 +13,11 @@ for u in $R1 $R2; do PW[$u]=$(/usr/local/sbin/wlb-hub-user "$u"); done
 
 echo "== 1. Logowanie do TLJH i izolacja katalogów domowych =="
 expect_ok "Hub odpowiada" curl -sf "$HUB/hub/api"
-[[ $(hub_login $R1 "${PW[$R1]}") == 302 ]] && ok "Logowanie $R1 poprawnym hasłem" || ko "Logowanie $R1 poprawnym hasłem"
-[[ $(hub_login $R2 "zle-haslo-123456") != 302 ]] && ok "Odmowa przy błędnym haśle" || ko "Odmowa przy błędnym haśle"
+expect_ok "Logowanie $R1 poprawnym hasłem" test "$(hub_login $R1 "${PW[$R1]}")" = 302
+expect_fail "Odmowa przy błędnym haśle" test "$(hub_login $R2 "zle-haslo-123456")" = 302
 hub_login $R2 "${PW[$R2]}" >/dev/null
-for u in $R1 $R2; do curl -s -o /dev/null -b /tmp/wlb-test-$u.jar -c /tmp/wlb-test-$u.jar -L "$HUB/hub/spawn"; done
-for _ in $(seq 1 60); do id jupyter-$R1 &>/dev/null && id jupyter-$R2 &>/dev/null && break; sleep 2; done
+hub_spawn $R1
+hub_spawn $R2
 expect_ok "Serwer notebooków uruchomiony ($R1)" systemctl is-active --quiet jupyter-$R1
 expect_ok "Katalog domowy w /workspace" test "$(getent passwd jupyter-$R1 | cut -d: -f6)" = /workspace/jupyter-$R1
 expect_ok "Badacz widzi własny katalog" as $R1 ls /workspace/jupyter-$R1
@@ -114,6 +97,4 @@ else
   skip "Log centralny (SIEM) — brak SIEM_HOST w teście lokalnym"
 fi
 
-echo
-echo "Wynik: $PASS PASS, $FAIL FAIL, $SKIP SKIP"
-[[ $FAIL -eq 0 ]]
+summary

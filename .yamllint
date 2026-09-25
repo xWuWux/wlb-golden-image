@@ -1,0 +1,26 @@
+extends: default
+
+ignore: |
+  .tools/
+  build/
+  output/
+
+rules:
+  line-length:
+    max: 160
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+    ignore: |
+      **/user-data*.yaml
+      cloud-init/*.yaml
+  comments-indentation: disable
+  truthy:
+    allowed-values: ["true", "false", "yes", "no"]
+    check-keys: false   # "on:" w GitHub Actions
+  braces:
+    max-spaces-inside: 1
+  commas:
+    max-spaces-after: -1   # wyrównane kolumny w group_vars
+  octal-values:
+    forbid-implicit-octal: true

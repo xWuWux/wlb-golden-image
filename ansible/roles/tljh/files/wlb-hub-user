@@ -3,12 +3,15 @@
 
     wlb-hub-user LOGIN                   # generuje hasło i wypisuje je na stdout
     wlb-hub-user LOGIN --password-stdin  # hasło z pierwszej linii stdin
+    wlb-hub-user LOGIN --if-missing      # tylko gdy konta nie ma (istniejące: bez zmian, bez wyjścia)
 
 Uprawnienia administratora huba nadaje wyłącznie lista users.admin w tljh-config.
-Hub musi być uruchomiony co najmniej raz, żeby baza istniała.
+Hub musi być uruchomiony co najmniej raz, żeby baza istniała. Baza leży na dysku
+roboczym (c.JupyterHub.db_url w 10-wlb.py); WLB_HUB_DB_URL nadpisuje ścieżkę.
 """
 
 import argparse
+import os
 import re
 import secrets
 import sys
@@ -18,16 +21,17 @@ from nativeauthenticator.orm import UserInfo
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
-DB_URL = "sqlite:////opt/tljh/state/jupyterhub.sqlite"
+DEFAULT_DB_URL = "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 MIN_PASSWORD_LENGTH = 12
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("login")
     parser.add_argument("--password-stdin", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--if-missing", action="store_true")
+    args = parser.parse_args(argv)
 
     login = args.login.lower()
     if not LOGIN_RE.match(login):
@@ -40,7 +44,7 @@ def main():
     else:
         password = secrets.token_urlsafe(18)
 
-    engine = create_engine(DB_URL)
+    engine = create_engine(os.environ.get("WLB_HUB_DB_URL", DEFAULT_DB_URL))
     if not inspect(engine).has_table("users"):
         sys.exit("Baza JupyterHub nie jest zainicjalizowana — uruchom najpierw hub")
     UserInfo.__table__.create(engine, checkfirst=True)
@@ -48,6 +52,8 @@ def main():
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
     with Session(engine) as db:
         info = db.query(UserInfo).filter_by(username=login).first()
+        if info is not None and args.if_missing:
+            return
         if info is None:
             db.add(UserInfo(username=login, password=hashed, is_authorized=True))
         else:
@@ -59,5 +65,5 @@ def main():
         print(password)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

@@ -26,7 +26,10 @@ ansible/                playbook i role instalujące zawartość obrazu
 envs/python/            environment.yml (+ environment.lock.yml po zamrożeniu)
 envs/r/                 hades-packages.txt, renv.lock, skrypt instalacji
 cloud-init/             przykładowy user-data i opis zmiennych Laboratorium (lab.env)
-tests/                  lokalne uruchomienie obrazu i kryteria akceptacji MVP
+tests/                  lokalne uruchomienie obrazu, kryteria akceptacji MVP, test migracji
+tests/unit/             testy jednostkowe (bats: skrypty powłoki, pytest: Python)
+ci/                     etapy pipeline'u CI (te same skrypty lokalnie i w GitHub Actions)
+.github/workflows/      GitHub Actions: kolejność etapów, KVM, artefakty
 ```
 
 ## Wymagania (WSL2 / Linux)
@@ -74,6 +77,35 @@ Hasło początkowe administratora huba (`admin-klienta`) leży w VM w
 
 W teście nie ma udziałów sieciowych, proxy ani SIEM. Katalogi §10 są lokalne, a
 `EGRESS_ALLOW` wskazuje nieistniejący adres, więc każde wyjście badacza musi się nie udać.
+
+## Pipeline CI
+
+Każdy PR przechodzi etapy po kolei. Następny etap startuje dopiero wtedy, gdy poprzedni się powiedzie.
+Logika jest w `ci/*.sh`, więc lokalnie uruchamia się ją tak samo (`make tools`, potem `make ci`).
+
+| Etap | Skrypt | Co sprawdza | Kiedy |
+|---|---|---|---|
+| 1. Lint, format, sekrety | `ci/lint.sh` | shellcheck, shfmt, ruff, yamllint, ansible-lint (profil production), actionlint, packer fmt, gitleaks (historia + drzewo) | zawsze |
+| 2. Build test | `ci/build-check.sh` | packer validate, syntax-check Ansible, render szablonów i kompilacja wyniku, parsowanie R, schemat cloud-init, `nft -c` i `rsyslogd -N1` na konfiguracji z `wlb-firstboot` | zawsze |
+| 3. Security & compliance | `ci/security.sh` | SAST (semgrep, bandit), IaC (checkov), podatności zamrożonych zależności (osv-scanner), licencje (`ci/license-policy.yml`) | zawsze |
+| 4. Testy jednostkowe | `ci/unit.sh` | bats + kcov (próg 85%), pytest + coverage z gałęziami (próg 90%) | zawsze |
+| 5. Integracja i migracja | `ci/integration.sh` | budowanie obrazu na KVM, kryteria akceptacji MVP w VM, migracja na istniejący dysk roboczy, dryf locków, podatności pakietów w obrazie (raport) | zmiany poza dokumentacją |
+| 6a. Benchmarki | `ci/perf.sh` | start VM, logowanie, spawn, pandas, ładowanie HADES, dysk — względem `ci/perf-budget.env` | etykieta PR `perf` lub ręcznie |
+| 6b. Wdrożenie tymczasowe | `ci/ephemeral-openstack.sh` | obraz, wolumen i VM w projekcie testowym OpenStack, kryteria akceptacji, sprzątanie | etykieta `deploy-test`, po konfiguracji |
+| Gotowe do code review | `ci/ready.sh` | etapy 1–4 zaliczone, 5 zaliczony (jeśli dotyczy), 6 nie zawiódł | zawsze |
+
+Uwagi:
+- **Koszt:** etap 5 buduje cały obraz (1–2 h na runnerze GitHub). W repozytorium prywatnym zużywa to
+  minuty Actions z limitu planu. Zmiany samej dokumentacji go pomijają.
+- **Wymagany status check:** ustaw „Gotowe do code review” jako wymagany dla `main`
+  (Settings → Branches). Ochrona gałęzi w repozytoriach prywatnych wymaga planu GitHub Pro lub Team.
+- **Etap 6b** wymaga zmiennych repozytorium `OPENSTACK_EPHEMERAL=true`, `OS_CLOUD`, `OS_TEST_FLAVOR`,
+  `OS_TEST_NETWORK`, opcjonalnie `OPENSTACK_RUNNER` (runner self-hosted z dostępem do chmury), oraz
+  environment `openstack-test` z sekretem `OPENSTACK_CLOUDS_YAML`. Skrypt odmawia pracy na zasobach
+  z „prod” w nazwie.
+- **SCA** w etapie 3 obejmuje zamrożone wersje, więc zaczyna działać po pierwszym `make freeze`.
+  Do tego czasu podatności zależności sprawdza tylko raport z etapu 5.
+- Cotygodniowy przebieg (poniedziałek) powtarza etapy 1–4, żeby wyłapać nowe CVE i zmiany licencji.
 
 ## Wdrożenie obrazu
 
@@ -127,6 +159,12 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
 - **Reguły audytu** są ładowane po zamontowaniu udziałów i blokowane (`auditctl -e 2`).
   Zmiana reguł wymaga restartu VM.
 - **Brak automatycznych aktualizacji.** Poprawki bezpieczeństwa wchodzą przez nową wersję obrazu.
+- **Baza huba na dysku roboczym** (`/workspace/.wlb-hub/`). Dysk systemowy jest jednorazowy, więc bez
+  tego nowa wersja obrazu kasowałaby konta w hubie. `wlb-firstboot` odtwarza też konta systemowe badaczy
+  z tym samym UID co właściciel katalogu domowego, a hasło Administratora Klienta zostaje bez zmian.
+  Sprawdza to test migracji w etapie 5.
+- **Licencja `inspectomop` to AGPL-3.0.** Jest wpisana jako wyjątek w `ci/license-policy.yml` z adnotacją
+  „do potwierdzenia przez dział prawny”. Bez tej decyzji pakiet należy usunąć ze środowiska.
 
 ## Otwarte kwestie
 

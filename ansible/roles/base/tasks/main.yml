@@ -46,12 +46,7 @@
     regexp: "^#? *{{ item }} "
     line: "{{ item }} UTF-8"
   loop: "{{ wlb_locales }}"
-  register: wlb_locale_gen
-
-- name: Wygeneruj locale
-  ansible.builtin.command: locale-gen
-  when: wlb_locale_gen is changed
-  changed_when: true
+  notify: Generate locales
 
 - name: Usługi bazowe
   ansible.builtin.systemd_service:

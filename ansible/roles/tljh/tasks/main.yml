@@ -9,6 +9,12 @@
   args:
     creates: /opt/tljh/hub/bin/jupyterhub
 
+- name: Katalog drop-inów usługi jupyterhub
+  ansible.builtin.file:
+    path: /etc/systemd/system/jupyterhub.service.d
+    state: directory
+    mode: "0755"
+
 - name: Konfiguracja TLJH
   ansible.builtin.template:
     src: config.yaml.j2
@@ -28,6 +34,15 @@
     dest: /opt/tljh/config/jupyterhub_config.d/10-wlb.py
     mode: "0644"
   notify: Reload hub
+
+- name: Hub startuje dopiero po zamontowaniu dysku roboczego
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/jupyterhub.service.d/10-wlb.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola tljh) — baza huba leży na /workspace
+      [Unit]
+      RequiresMountsFor={{ tljh_hub_db_path | dirname }}
 
 - name: Administratorzy huba bez sudo
   ansible.builtin.file:

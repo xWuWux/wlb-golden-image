@@ -1,0 +1,7 @@
+# Konfiguracja gitleaks: domyślne reguły + wykluczenie lokalnych artefaktów (nie trafiają do Gita).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Lokalne artefakty budowania i narzędzia CI (build/ zawiera tymczasowe klucze SSH maszyny budującej)"
+paths = ['''^build/''', '''^output/''', '''^\.tools/''', '''^packer_cache/''']
