@@ -4,7 +4,8 @@
 #   2. VM z cloud-init Laboratorium testowego + kryteria akceptacji MVP
 #   3. migracja: nowa VM na istniejącym dysku roboczym (konta, UID, pliki, baza huba)
 #   4. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   5. podatności pakietów faktycznie zainstalowanych w obrazie (raport)
+#   5. podatności pakietów faktycznie zainstalowanych w obrazie (raport) — osobno:
+#      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
 #   REUSE_IMAGE=1            nie buduj ponownie, jeśli obraz tej wersji już jest w output/
@@ -23,6 +24,15 @@ mkdir -p "$LOGS"
   echo "Brak dostępu do /dev/kvm — stage 5 wymaga KVM"
   exit 1
 }
+# Zasoby VM dopasowane do maszyny (runnery GitHub dla repozytoriów prywatnych: 2 vCPU, ~7 GB RAM).
+# Maszyna budująca i VM testowa nie działają jednocześnie, więc obie mogą wziąć tyle samo.
+CPUS=$(nproc)
+MEM_MB=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 - 2048)) # 2 GB zostawiamy hostowi
+export VM_CPUS=${VM_CPUS:-$((CPUS < 4 ? CPUS : 4))}
+export VM_MEMORY=${VM_MEMORY:-$((MEM_MB < 8192 ? MEM_MB : 8192))}
+BUILD_CPUS=${BUILD_CPUS:-$VM_CPUS}
+BUILD_MEMORY=${BUILD_MEMORY:-$((VM_MEMORY < 6144 ? VM_MEMORY : 6144))}
+echo "Zasoby: host $CPUS CPU; VM $VM_CPUS vCPU / $VM_MEMORY MB; budowanie $BUILD_CPUS vCPU / $BUILD_MEMORY MB"
 SSH=(ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i build/test/id_ed25519 -p 2222 wlbadmin@127.0.0.1)
 
 build_image() {
@@ -34,7 +44,8 @@ build_image() {
   rm -rf "output/$FULL"
   packer init packer/ >/dev/null
   PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false \
-    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" packer/
+    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" packer/
   ls -lh "output/$FULL/"
 }
 
@@ -42,7 +53,7 @@ build_image() {
 collect_vm_logs() {
   local name=$1
   "${SSH[@]}" 'sudo journalctl -b --no-pager' >"$LOGS/$name-journal.log" 2>/dev/null || true
-  "${SSH[@]}" 'sudo ausearch -k wlb_sluza_out -k wlb_sluza_in -i' >"$LOGS/$name-audit.log" 2>/dev/null || true
+  "${SSH[@]}" 'sudo ausearch --input-logs -k wlb_sluza_out -k wlb_sluza_in -i' >"$LOGS/$name-audit.log" 2>/dev/null || true
   cp build/test/serial.log "$LOGS/$name-serial.log" 2>/dev/null || true
 }
 
@@ -51,6 +62,11 @@ acceptance() {
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
     tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
+    # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
+    grep -q '^Wynik:' "$LOGS/acceptance.log" || {
+      echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
+      rc=1
+    }
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
   fi
@@ -89,6 +105,13 @@ import yaml
 art = Path(sys.argv[1])
 problems, notes = [], []
 
+# locki wygenerowane przy budowaniu muszą zawierać pakiety — inaczej zamrożenie wersji nie działa
+built_r = json.loads((art / "renv.lock").read_text()).get("Packages", {})
+if not built_r:
+    problems.append("renv.lock z obrazu nie zawiera pakietów")
+if not (art / "environment.lock.yml").is_file():
+    problems.append("brak environment.lock.yml z obrazu")
+
 r_repo = json.loads(Path("envs/r/renv.lock").read_text())
 if r_repo.get("Packages"):
     r_built = json.loads((art / "renv.lock").read_text())
@@ -126,8 +149,9 @@ image_sca() {
   python3 ci/sca_requirements.py "$ARTIFACTS/environment.lock.yml" build/sca/image-requirements.txt
   # raport, nie bramka: pakiety systemowe Ubuntu mają zwykle otwarte CVE bez poprawki w dystrybucji;
   # aktualizacje wchodzą przez nową wersję obrazu
-  osv-scanner scan source --no-resolve --format markdown --output-file build/sca/image-osv.md \
-    -L "dpkg-status:$ARTIFACTS/dpkg-status" -L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt || true
+  timeout 600 osv-scanner scan source --no-resolve --format markdown --output-file build/sca/image-osv.md \
+    -L "dpkg-status:$ARTIFACTS/dpkg-status" -L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt ||
+    echo "osv-scanner: kod $? (124 = przekroczony czas)" | tee -a build/sca/image-osv.md
   {
     echo "### Podatności pakietów w obrazie (raport)"
     echo
@@ -139,11 +163,17 @@ image_sca() {
 }
 
 mkdir -p build/sca "$ARTIFACTS"
+if [[ ${1:-} == image-sca ]]; then
+  # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
+  [[ -d $ARTIFACTS ]] || ARTIFACTS=$(find build/artifacts -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+  run_check "Podatności pakietów w obrazie (raport)" image_sca
+  finish
+  exit
+fi
 step "Budowanie obrazu $FULL"
 build_image
 endstep
 run_check "Kryteria akceptacji MVP" acceptance
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
-run_check "Podatności pakietów w obrazie (raport)" image_sca
 finish

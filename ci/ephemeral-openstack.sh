@@ -69,7 +69,10 @@ endstep
 
 step "Kryteria akceptacji na OpenStack"
 set +e
-cat tests/lib/remote-common.sh tests/acceptance-remote.sh | "${SSH[@]}" 'sudo bash -s' | tee "$WORK/acceptance.log"
+# skrypt do pliku, stdin z /dev/null — zob. remote_run w tests/lib/local-common.sh
+# shellcheck disable=SC2016  # zmienne rozwija powłoka w VM, nie lokalna
+cat tests/lib/remote-common.sh tests/acceptance-remote.sh |
+  "${SSH[@]}" 'f=$(mktemp) && cat >"$f" && sudo bash "$f" </dev/null; rc=$?; rm -f "$f"; exit $rc' | tee "$WORK/acceptance.log"
 rc=${PIPESTATUS[1]}
 set -e
 endstep

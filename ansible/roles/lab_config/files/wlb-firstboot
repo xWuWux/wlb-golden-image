@@ -82,6 +82,7 @@ for home in "$R"/workspace/jupyter-*/; do
   home=${home%/}
   name=$(basename -- "$home")
   uid=$(stat -c %u -- "$home")
+  gid=$(stat -c %g -- "$home") # grupa główna badacza (useradd nie zawsze daje GID = UID)
   getent passwd "$name" >/dev/null && continue
   if ((uid < WLB_RESEARCHER_UID_MIN || uid > WLB_RESEARCHER_UID_MAX)); then
     log "uwaga: $home należy do UID $uid spoza zakresu badaczy — pomijam"
@@ -91,7 +92,14 @@ for home in "$R"/workspace/jupyter-*/; do
     log "uwaga: UID $uid ($home) jest zajęty przez inne konto — pomijam"
     continue
   fi
-  getent group "$name" >/dev/null || groupadd -g "$uid" "$name"
+  if ! getent group "$name" >/dev/null; then
+    if getent group "$gid" >/dev/null; then
+      log "uwaga: GID $gid ($home) jest zajęty — grupa $name dostaje nowy GID"
+      groupadd "$name"
+    else
+      groupadd -g "$gid" "$name"
+    fi
+  fi
   useradd -u "$uid" -g "$name" -G "$WLB_RESEARCHER_GROUP" -d "/workspace/$name" -M -s /bin/bash "$name"
   log "odtworzono konto $name (UID $uid) z dysku roboczego"
 done

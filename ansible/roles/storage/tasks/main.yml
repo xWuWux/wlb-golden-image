@@ -20,10 +20,15 @@
   loop_control:
     label: "{{ item.key }}"
 
-# TLJH też ją tworzy (idempotentnie) — potrzebna wcześniej do nadania praw katalogom.
-- name: Grupa użytkowników huba
+# TLJH tworzy je sam (idempotentnie), ale zwykłym groupadd — dostałyby GID z zakresu badaczy
+# i kolidowały z grupami kont badaczy przy ich odtwarzaniu (migracja). Zakładamy je wcześniej jako systemowe.
+- name: Grupy huba jako systemowe (poza zakresem GID badaczy)
   ansible.builtin.group:
-    name: "{{ wlb_researcher_group }}"
+    name: "{{ item }}"
+    system: true
+  loop:
+    - "{{ wlb_researcher_group }}"
+    - jupyterhub-admins
 
 - name: Katalogi Laboratorium (§10 Regulaminu)
   ansible.builtin.file:

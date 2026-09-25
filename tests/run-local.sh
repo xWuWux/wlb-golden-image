@@ -60,11 +60,13 @@ for _ in $(seq 1 60); do
 done
 echo
 echo "Czekam na cloud-init i wlb-firstboot..."
-"${SSH[@]}" "cloud-init status --wait >/dev/null; sudo cat /var/lib/wlb/firstboot.done" ||
-  {
-    echo "wlb-firstboot nie zakończył się — log: $T/serial.log, w VM: journalctl -t wlb-firstboot"
-    exit 1
-  }
+if ! "${SSH[@]}" "cloud-init status --wait >/dev/null; sudo cat /var/lib/wlb/firstboot.done"; then
+  # diagnostyka od razu na ekranie (w CI trafia do logu joba, nawet gdy artefakty się nie zapiszą)
+  echo "wlb-firstboot nie zakończył się. Ostatnie wpisy z VM:"
+  "${SSH[@]}" "sudo journalctl -t wlb-firstboot --no-pager | tail -20; sudo tail -30 /var/log/cloud-init-output.log" || true
+  echo "Pełny log konsoli: $T/serial.log"
+  exit 1
+fi
 
 cat <<EOF
 

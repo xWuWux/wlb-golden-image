@@ -192,6 +192,22 @@ jobs:
             output/*/packer-manifest.json
           if-no-files-found: ignore
           retention-days: 30
+      # osobny krok z limitem czasu: wcześniej przebieg przerywał się w tym miejscu
+      # i nie zostawały żadne artefakty
+      - name: Podatności pakietów w obrazie (raport)
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 15
+        run: ci/integration.sh image-sca
+        env:
+          IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: image-sca
+          path: build/sca/
+          if-no-files-found: ignore
+          retention-days: 30
       # obraz dla etapu 6 (za duży na artefakt — przekazywany przez cache)
       - uses: actions/cache/save@v4
         if: needs.lint.outputs.perf == 'true' || needs.lint.outputs.ephemeral == 'true'

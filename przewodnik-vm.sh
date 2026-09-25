@@ -162,11 +162,11 @@ krok_5() {
 }
 
 krok_6() {
-  naglowek "Krok 6. Budowanie golden image (1–2 godziny)"
+  naglowek "Krok 6. Budowanie golden image (~15–30 minut)"
   opis "Packer pobiera przypięte wydanie Ubuntu 24.04, uruchamia je w QEMU/KVM z tymczasowym" \
     "użytkownikiem 'packer', Ansible instaluje zawartość, a skrypt czyszczący usuwa tożsamość" \
     "maszyny budującej (klucze SSH, machine-id, sekrety huba). Wynik: plik .qcow2 + suma SHA-256."
-  uwaga "Najdłużej trwa instalacja pakietów R (HADES). Nie usypiaj komputera w trakcie budowania lokalnego."
+  uwaga "Budowanie trwa ~15–30 min (w CI ~14 min). Nie usypiaj komputera w trakcie budowania lokalnego."
 
   polecenie "Pobranie wtyczek Packera (qemu, ansible) — raz" "make init"
   polecenie "Budowanie obrazu wersji $IMAGE_VERSION (log na ekranie; można przerwać Ctrl+C)" \
@@ -340,9 +340,30 @@ LICENCJE (do decyzji)
     przez dział prawny"; bez zgody pakiet należy usunąć z envs/python/environment.yml.
 29. stringi: licencja "file LICENSE" -> sprawdzona ręcznie (BSD-3-Clause + ICU), wpisana jako wyjątek.
 
-NIEZWERYFIKOWANE (stan na 2026-09-25)
- - Pierwsze pełne budowanie obrazu (etap 5 CI / make build) nie było jeszcze zakończone —
-   jeśli coś się w nim wysypie, dopisz błąd i obejście do tej listy.
+PIERWSZE BUDOWANIE OBRAZU W CI (etap 5)
+30. Test akceptacyjny urywał się po cichu na pierwszym sprawdzeniu audytu i był uznawany za zaliczony
+    -> ausearch, gdy stdin nie jest terminalem, czyta z niego dane — a skrypt testu szedł do VM
+       przez stdin ("ssh ... bash -s"), więc ausearch zjadał resztę testów. Skrypt trafia teraz
+       do pliku w VM i działa ze stdin z /dev/null; ausearch --input-logs; brak linii "Wynik:"
+       w logu = błąd.
+31. Migracja: wlb-firstboot padał na nowej VM ("firstboot.done: No such file")
+    -> grupy TLJH (jupyterhub-users/-admins) powstawały po ustawieniu GID_MIN=10000 i zajmowały
+       GID z zakresu badaczy, więc odtwarzanie grupy badacza z GID = UID trafiało na zajęty numer.
+       Grupy huba są systemowe, konto odtwarzane z GID katalogu domowego (przy kolizji: nowy GID).
+32. renv.lock z obrazu miał 0 pakietów (zamrożenie wersji R nie działało)
+    -> renv::snapshot() poza projektem renv pomija bibliotekę site; lockfile zapisywany wprost
+       z installed.packages() (sprawdzone: renv::lockfile_read, renv::restore, osv-scanner).
+       Pusty lock z budowania = błąd etapu 5.
+33. Etap 5 był przerywany ("The operation was canceled") podczas skanu podatności obrazu
+    i nie zapisywał artefaktów. Przyczyna niepotwierdzona (podejrzenie: brak pamięci na runnerze)
+    -> skan jako osobny krok po zapisaniu artefaktów, z limitem 15 min i continue-on-error.
+34. Runner GitHub dla repozytorium prywatnego ma 2 vCPU i ~7 GB RAM, a VM prosiła o 4 vCPU / 8 GB
+    -> ci/integration.sh dobiera VM_CPUS/VM_MEMORY i zasoby budowania do maszyny.
+
+WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
+ - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).
+ - Na prawdziwej VM przeszły 34 kryteria akceptacji przed błędem nr 30; poprawki 30–34
+   czekają na potwierdzenie w kolejnym przebiegu.
  - Etap 6b (wdrożenie tymczasowe na OpenStack) nie był uruchamiany — wymaga konfiguracji chmury.
 EOF
 }

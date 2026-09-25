@@ -86,10 +86,10 @@ skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
 echo "== 8. Logi i audyt =="
 expect_ok "Log huba: logowanie badacza" bash -c "journalctl -u jupyterhub | grep -q 'User logged in: $R1'"
 expect_ok "Log śluzy: wniosek o eksport" bash -c "journalctl -t wlb-sluza-out | grep -q 'user=jupyter-$R1 .*entry=wynik-test.csv'"
-expect_ok "Audyt: zapis do /sluza-out" ausearch -k wlb_sluza_out -ui "$(id -u jupyter-$R1)"
-expect_ok "Audyt: odczyt /sluza-in" ausearch -k wlb_sluza_in -ui "$(id -u jupyter-$R1)"
-expect_ok "Audyt: odmowa dostępu" ausearch -k wlb_access_denied -ui "$(id -u jupyter-$R1)"
-expect_ok "Audyt: polecenia badacza (execve)" ausearch -k wlb_exec -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: zapis do /sluza-out" ausearch --input-logs -k wlb_sluza_out -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: odczyt /sluza-in" ausearch --input-logs -k wlb_sluza_in -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: odmowa dostępu" ausearch --input-logs -k wlb_access_denied -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: polecenia badacza (execve)" ausearch --input-logs -k wlb_exec -ui "$(id -u jupyter-$R1)"
 expect_ok "Reguły audytu zablokowane (-e 2)" bash -c 'auditctl -s | grep -q "^enabled 2"'
 if grep -q '^SIEM_HOST=.' /etc/wlb/lab.env; then
   expect_ok "Przekazywanie do SIEM skonfigurowane" test -s /etc/rsyslog.d/60-wlb-siem.conf

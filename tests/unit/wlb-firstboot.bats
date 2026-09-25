@@ -207,9 +207,26 @@ EOF
   mkdir -p "$SANDBOX/workspace/jupyter-anna"
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
-  calls | grep -qx "groupadd -g $me jupyter-anna"
+  calls | grep -qx "groupadd -g $(id -g) jupyter-anna"
   calls | grep -qx "useradd -u $me -g jupyter-anna -G jupyterhub-users -d /workspace/jupyter-anna -M -s /bin/bash jupyter-anna"
   [[ $output == *"odtworzono konto jupyter-anna (UID $me)"* ]]
+}
+
+@test "GID katalogu domowego zajęty — grupa badacza z nowym GID" {
+  me=$(id -u)
+  sed -i "s/^WLB_RESEARCHER_UID_MIN=.*/WLB_RESEARCHER_UID_MIN=$me/" "$SANDBOX/etc/wlb/image.conf"
+  mkdir -p "$SANDBOX/workspace/jupyter-anna"
+  # getent passwd/group po nazwie -> brak; getent group <GID> -> zajęty
+  cat >"$STUBS/getent" <<'EOF'
+#!/usr/bin/env bash
+echo "getent $*" >>"$CALLS"
+[[ $1 == group && $2 =~ ^[0-9]+$ ]]
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx "groupadd jupyter-anna"
+  called "useradd -u $me -g jupyter-anna"
+  [[ $output == *"GID $(id -g)"*"jest zajęty"* ]]
 }
 
 @test "istniejące konto badacza nie jest zakładane ponownie" {
