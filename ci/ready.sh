@@ -26,7 +26,9 @@ for job, label, required in stages:
     icon = {"success": "✅", "skipped": "⏭️"}.get(result, "❌")
     rows.append(f"| {label} | {icon} {result}{'' if passed else ' — **blokuje**'} |")
 text = "\n".join(["## Wynik pipeline'u", "", "| Etap | Wynik |", "|---|---|", *rows, "",
-                  "**Gotowe do code review i merge.**" if ok else "**Nie gotowe — popraw etapy oznaczone jako blokujące.**", ""])
+                  "**Gotowe do code review i merge.**" if ok else
+                  "**Nie gotowe — popraw etapy oznaczone jako blokujące.** Diagnoza i ścieżka: sekcja poniżej, "
+                  "docs/ci-runbook.md.", ""])
 print(text)
 if path := os.environ.get("GITHUB_STEP_SUMMARY"):
     open(path, "a").write(text)

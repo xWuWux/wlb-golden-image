@@ -20,6 +20,8 @@
         echo "R_VERSION=$(R --version | head -1 | awk '{print $3}')"
         echo "PYTHON_VERSION=$(/opt/tljh/user/bin/python -c 'import platform; print(platform.python_version())')"
         echo "JUPYTERHUB_VERSION=$(/opt/tljh/hub/bin/jupyterhub --version)"
+        # pakiety systemowe powinny być aktualne (dist-upgrade w roli base) — raport w stage 5
+        echo "PENDING_UPGRADES=$(apt-get -s dist-upgrade | grep -c '^Inst' || true)"
       args:
         executable: /bin/bash
       register: wlb_versions

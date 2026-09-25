@@ -108,6 +108,25 @@ Uwagi:
   Do tego czasu podatności zależności sprawdza tylko raport z etapu 5.
 - Cotygodniowy przebieg (poniedziałek) powtarza etapy 1–4, żeby wyłapać nowe CVE i zmiany licencji.
 
+## Obsługa błędów CI
+
+Szczegółowa ścieżka dla każdego typu awarii jest w [`docs/ci-runbook.md`](docs/ci-runbook.md).
+
+- **Strażnik zasobów** (`ci/guard.sh`). Każdy etap działa z limitem czasu i pamięci. Pamięć
+  jest ograniczona cgroup do całej pamięci maszyny minus 1 GB. Proces, który się rozrośnie, zostaje
+  zabity sam (adnotacja `OOM` albo `TIMEOUT`), a runner zapisuje logi i artefakty. Wcześniej brak pamięci
+  zabijał agenta GitHub Actions i job kończył się bez logów komunikatem „The operation was canceled”.
+- **Diagnoza.** Kiedy PR nie przechodzi, „Gotowe do code review” klasyfikuje każdy nieudany job
+  (`test`, `oom`, `timeout`, `infra`, `cancelled`) i podaje link do właściwej sekcji runbooka
+  (`ci/ci_failures.py`).
+- **Automatyczne ponowienie** (`.github/workflows/ci-retry.yml`). Tylko kategoria `infra`, jeden raz,
+  tylko dla najnowszego commita. Błędy testów, OOM i przekroczenia czasu wymagają poprawki.
+  Podobnie jak telemetria działa dopiero po scaleniu do `main`.
+- **Kroki raportowe** (np. skan podatności pakietów w obrazie) mają flagę `--optional`: zgłaszają
+  ostrzeżenie, ale nie blokują.
+- **Przypięte akcje.** Wszystkie akcje GitHub są przypięte do SHA commitów (ochrona przed podmianą
+  tagu). Aktualizuje je Dependabot.
+
 ## Obserwowalność
 
 Są dwie warstwy i obie działają przy każdym PR bez dodatkowej pracy.

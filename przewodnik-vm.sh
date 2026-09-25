@@ -382,10 +382,24 @@ OBSERWOWALNOŚĆ
 37. Klient OTLP przyjmował tylko https, a kolektor w sieci wewnętrznej zwykle działa po http
     -> dozwolone http i https (inne schematy, np. file://, odrzucane).
 
+OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
+38. Etap 5 kończył się "The operation was canceled" bez logów i artefaktów, nawet dla kroków always()
+    -> przyczyna: osv-scanner na dpkg-status (~1000 pakietów Ubuntu) przekraczał 3 GB w <1 min
+       i wyczerpywał pamięć runnera (7 GB), zabijając agenta GitHub Actions. Zmierzone lokalnie
+       w cgroup (systemd: "Failed with result 'oom-kill', 3G memory peak"). Ten sam pomiar bez limitu
+       przerwał sesję roboczą -> każdy ciężki pomiar uruchamiaj pod strażnikiem:
+         ci/guard.sh --name pomiar --memory 3G --timeout 10m -- <polecenie>
+       Rozwiązanie: skan bez dpkg-status, wszystkie etapy CI pod ci/guard.sh (--memory auto),
+       diagnoza kategorii błędu i automatyczne ponowienie wyłącznie awarii infrastruktury.
+39. semgrep: akcje GitHub przypięte do ruchomych tagów (@v4) — ryzyko podmiany (supply chain)
+    -> wszystkie akcje przypięte do SHA commitów, wersja w komentarzu (Dependabot aktualizuje).
+40. sudo (strażnik w CI) usuwa zmienne LD_* — Python z setup-python może ich potrzebować
+    -> strażnik przekazuje PATH, HOME i LD_LIBRARY_PATH jawnie (ścieżka sudo sprawdzana dopiero w CI).
+
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).
- - Na prawdziwej VM przeszły 34 kryteria akceptacji przed błędem nr 30; poprawki 30–34
-   czekają na potwierdzenie w kolejnym przebiegu.
+ - Na prawdziwej VM przechodzą wszystkie kryteria akceptacji (37 PASS, 0 FAIL, 3 SKIP) i test
+   migracji (9/9); poprawki 30–34 potwierdzone w CI (przebieg #4). Zamrożony renv.lock: 86 pakietów.
  - Etap 6b (wdrożenie tymczasowe na OpenStack) nie był uruchamiany — wymaga konfiguracji chmury.
  - Obserwowalność: łańcuch odbiornik SIEM -> kontrakt sprawdzony lokalnie (logger RFC 5424 po TCP),
    eksport OTLP sprawdzony na prawdziwym OpenTelemetry Collector 0.161; dostarczenie z prawdziwej VM

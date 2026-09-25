@@ -29,7 +29,9 @@ mkdir -p "$LOGS"
 # Zasoby VM dopasowane do maszyny (runnery GitHub dla repozytoriów prywatnych: 2 vCPU, ~7 GB RAM).
 # Maszyna budująca i VM testowa nie działają jednocześnie, więc obie mogą wziąć tyle samo.
 CPUS=$(nproc)
-MEM_MB=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 - 2048)) # 2 GB zostawiamy hostowi
+# 2,5 GB zostaje poza VM: strażnik (--memory auto) trzyma cały etap o 1 GB poniżej pamięci maszyny,
+# a w tej samej cgroup działają też QEMU, Packer i narzędzia testowe
+MEM_MB=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 - 2560))
 export VM_CPUS=${VM_CPUS:-$((CPUS < 4 ? CPUS : 4))}
 export VM_MEMORY=${VM_MEMORY:-$((MEM_MB < 8192 ? MEM_MB : 8192))}
 BUILD_CPUS=${BUILD_CPUS:-$VM_CPUS}
@@ -160,22 +162,28 @@ PY
 }
 
 image_sca() {
-  [[ -s $ARTIFACTS/dpkg-status ]] || {
-    echo "Brak listy pakietów z VM — pomijam"
+  [[ -s $ARTIFACTS/renv.lock && -s $ARTIFACTS/environment.lock.yml ]] || {
+    echo "Brak locków z obrazu — pomijam"
     return 0
   }
   python3 ci/sca_requirements.py "$ARTIFACTS/environment.lock.yml" build/sca/image-requirements.txt
-  # raport, nie bramka: pakiety systemowe Ubuntu mają zwykle otwarte CVE bez poprawki w dystrybucji;
-  # aktualizacje wchodzą przez nową wersję obrazu
-  timeout 600 osv-scanner scan source --no-resolve --format markdown --output-file build/sca/image-osv.md \
-    -L "dpkg-status:$ARTIFACTS/dpkg-status" -L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt ||
-    echo "osv-scanner: kod $? (124 = przekroczony czas)" | tee -a build/sca/image-osv.md
+  # Bez dpkg-status: osv-scanner dla ~1000 pakietów Ubuntu przekraczał 3 GB pamięci i na runnerze
+  # (7 GB) zabijał agenta GitHub Actions. Pakiety systemowe są aktualne z definicji (dist-upgrade
+  # przy budowaniu, liczba zaległych aktualizacji w image-release); ich CVE — nowa wersja obrazu.
+  # Raport, nie bramka; strażnik pilnuje pamięci i czasu.
+  ci/guard.sh --name "osv-scanner (obraz)" --optional --timeout 10m --memory 1500M -- \
+    osv-scanner scan source --no-resolve --format markdown --output-file build/sca/image-osv.md \
+    -L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt
+  local pending
+  pending=$(grep -oP '^PENDING_UPGRADES=\K\d+' "$ARTIFACTS/image-release" 2>/dev/null || echo "?")
   {
     echo "### Podatności pakietów w obrazie (raport)"
     echo
-    echo "<details><summary>osv-scanner: dpkg + R + Python</summary>"
+    echo "Zaległe aktualizacje pakietów systemowych w chwili budowania: **$pending**"
     echo
-    cat build/sca/image-osv.md
+    echo "<details><summary>osv-scanner: R + Python</summary>"
+    echo
+    cat build/sca/image-osv.md 2>/dev/null || echo "brak wyniku — zob. build/ci-logs/guard.jsonl"
     echo "</details>"
   } | summary >/dev/null
 }
