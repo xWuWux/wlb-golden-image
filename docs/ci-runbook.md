@@ -77,7 +77,10 @@ a w `image-release` zapisywane jest `PENDING_UPGRADES`.
 ## infra
 
 **Awaria infrastruktury.** Runner przerwał job bez błędu testu: „The operation was canceled”,
-utrata runnera, krok oznaczony jako `cancelled`, choć nikt przebiegu nie anulował.
+utrata runnera, krok oznaczony jako `cancelled`, choć nikt przebiegu nie anulował. Do tej kategorii
+należą też przejściowe błędy usług zewnętrznych, np. HTTP 504 z `releases.hashicorp.com`
+przy instalacji Packera, timeouty, błędy DNS czy limity API. Narzędzia CI pobiera `ci/install-tools.sh`,
+który sam ponawia pobieranie (`curl --retry-all-errors`) i sprawdza sumy SHA-256.
 
 1. **Nic nie rób od razu.** `ci-retry.yml` ponawia nieudane joby automatycznie, jeden raz.
 2. Jeśli ponowienie też padnie, awaria się powtarza, więc to raczej nie przypadek:

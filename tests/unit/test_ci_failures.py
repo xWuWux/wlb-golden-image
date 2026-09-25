@@ -65,6 +65,20 @@ class FakeGitHub:
             "failure",
             "infra",
         ),
+        # przebieg #5: HTTP 504 z releases.hashicorp.com przy instalacji Packera
+        (
+            job("x", "failure", [("setup-packer", "failure")]),
+            [{"message": "Request failed with status code 504"}],
+            "failure",
+            "infra",
+        ),
+        (
+            job("x", "failure", [("a", "failure")]),
+            [{"message": "curl: (6) Could not resolve host: x"}],
+            "failure",
+            "infra",
+        ),
+        (job("x", "failure", [("a", "failure")]), [{"message": "Kod wyjścia 1 po 5s"}], "failure", "test"),
         (job("x", "success", []), [], "failure", None),
         (job("x", "skipped", []), [], "failure", None),
     ],

@@ -6,6 +6,7 @@ Każdy nieudany job dostaje kategorię i ścieżkę z docs/ci-runbook.md:
   oom        strażnik (ci/guard.sh) zabił proces po przekroczeniu limitu pamięci
   timeout    przekroczony limit czasu (strażnik albo timeout-minutes joba)
   infra      runner przerwał job bez błędu testu ("The operation was canceled", utrata runnera)
+             albo przejściowy błąd sieci/usługi zewnętrznej (HTTP 5xx, timeout, DNS, limit API)
   cancelled  anulowane: nowszy commit w PR albo ręcznie
 
 Automatyczne ponowienie (tylko nieudane joby, jeden raz) wyłącznie dla kategorii infra, i tylko gdy
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 
 from ci_telemetry import API, GitHub
@@ -29,10 +31,17 @@ CATEGORIES = {
     "test": ("Błąd testu lub narzędzia", "popraw kod — logi kroku i artefakty joba"),
     "oom": ("Brak pamięci (strażnik zabił proces)", "zmniejsz zużycie albo podnieś limit --memory"),
     "timeout": ("Przekroczony limit czasu", "sprawdź, na czym proces utknął; podnieś limit tylko z uzasadnieniem"),
-    "infra": ("Awaria infrastruktury (runner przerwał job)", "automatyczne ponowienie raz; potem runbook"),
+    "infra": ("Awaria infrastruktury (runner lub usługa zewnętrzna)", "automatyczne ponowienie raz; potem runbook"),
     "cancelled": ("Anulowane (nowszy commit albo ręcznie)", "nic — liczy się najnowszy przebieg"),
 }
 INFRA_MESSAGES = ("The operation was canceled", "lost communication", "shutdown signal", "runner has received")
+# przejściowe błędy sieci i usług zewnętrznych (pobieranie narzędzi, API) — nie wynikają z kodu
+TRANSIENT_NETWORK = re.compile(
+    r"status code 5\d\d|HTTP 5\d\d|\b50[234]\b|ETIMEDOUT|ECONNRESET|ENOTFOUND|ECONNREFUSED|socket hang up"
+    r"|Could not resolve host|Temporary failure in name resolution|Connection timed out|TLS handshake timeout"
+    r"|rate limit exceeded|secondary rate limit",
+    re.IGNORECASE,
+)
 
 
 def classify_job(job: dict, annotations: list[dict], run_conclusion: str | None) -> str | None:
@@ -52,6 +61,8 @@ def classify_job(job: dict, annotations: list[dict], run_conclusion: str | None)
     step_cancelled = any(s.get("conclusion") == "cancelled" for s in steps)
     infra_msg = any(m in msg for msg in messages for m in INFRA_MESSAGES)
     if (step_cancelled or infra_msg or conclusion == "cancelled") and not step_failed:
+        return "infra"
+    if any(TRANSIENT_NETWORK.search(msg) for msg in messages):
         return "infra"
     return "test"
 

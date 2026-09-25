@@ -395,6 +395,10 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
     -> wszystkie akcje przypięte do SHA commitów, wersja w komentarzu (Dependabot aktualizuje).
 40. sudo (strażnik w CI) usuwa zmienne LD_* — Python z setup-python może ich potrzebować
     -> strażnik przekazuje PATH, HOME i LD_LIBRARY_PATH jawnie (ścieżka sudo sprawdzana dopiero w CI).
+41. Przebieg #5 padł w etapie 1 na "Request failed with status code 504" (akcja setup-packer,
+    serwer HashiCorp), a diagnoza uznała to za błąd testu
+    -> Packer instalowany przez ci/install-tools.sh (SHA-256, curl --retry-all-errors) jak reszta
+       narzędzi; przejściowe błędy sieci (5xx, timeout, DNS, limit API) = kategoria infra (ponowienie).
 
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).

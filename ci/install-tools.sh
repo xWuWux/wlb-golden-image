@@ -19,14 +19,16 @@ OSV_SCANNER_SHA256=ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b
 ACTIONLINT_VERSION=1.7.12
 ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
 BATS_VERSION=1.13.0
+PACKER_VERSION=1.16.1
+PACKER_SHA256=af38a9e93e4ed1b9ca68206ae969c64c300c82a3dde46a780dfa629f0867f651
 
 mkdir -p "$TOOLS_DIR/bin"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# download URL SHA256 PLIK
+# download URL SHA256 PLIK — ponawia także przy przejściowych błędach serwera (np. HTTP 504)
 download() {
-  curl -fsSL --retry 3 -o "$3" "$1"
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$3" "$1"
   echo "$2  $3" | sha256sum -c --quiet - || {
     echo "Suma kontrolna się nie zgadza: $1"
     exit 1
@@ -59,6 +61,12 @@ install_lint() {
     download "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
       "$ACTIONLINT_SHA256" "$TMP/actionlint.tar.gz"
     tar -xzf "$TMP/actionlint.tar.gz" -C "$TOOLS_DIR/bin" actionlint
+  fi
+  if [[ ! -x $TOOLS_DIR/bin/packer ]]; then
+    download "https://releases.hashicorp.com/packer/$PACKER_VERSION/packer_${PACKER_VERSION}_linux_amd64.zip" \
+      "$PACKER_SHA256" "$TMP/packer.zip"
+    python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extract("packer", sys.argv[2])' "$TMP/packer.zip" "$TOOLS_DIR/bin"
+    chmod +x "$TOOLS_DIR/bin/packer"
   fi
   venv venv-lint ci/requirements-lint.txt
 }
