@@ -10,6 +10,7 @@ cd "$REPO_ROOT"
 
 # Pliki objęte lintem i testami
 SHELL_SCRIPTS=(
+  przewodnik-vm.sh
   ci/*.sh
   packer/scripts/*.sh
   tests/*.sh tests/lib/*.sh

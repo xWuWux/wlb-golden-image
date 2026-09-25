@@ -10,11 +10,11 @@ LABELS=${LABELS:-[]}
 
 has_label() { python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.loads(sys.argv[1] or "[]") else 1)' "$LABELS" "$1"; }
 
-# Stage 5: każda zmiana poza dokumentacją może zmienić obraz
+# Stage 5: każda zmiana poza dokumentacją (README, przewodnik) może zmienić obraz
 image=true
 case $EVENT in
   pull_request)
-    if ! git diff --name-only "$BASE" HEAD | grep -qvE '^(README\.md|docs/|\.github/dependabot\.yml$)'; then
+    if ! git diff --name-only "$BASE" HEAD | grep -qvE '^(README\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$)'; then
       image=false
     fi
     ;;
