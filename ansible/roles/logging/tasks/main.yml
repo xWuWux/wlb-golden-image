@@ -1,0 +1,31 @@
+# Wszystko (JupyterHub, audyt, śluzy, powłoka) trafia do journald -> rsyslog.
+# Przekazywanie do centralnego SIEM konfiguruje wlb-firstboot (SIEM_HOST w lab.env).
+- name: Katalog konfiguracji journald
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+
+- name: journald — trwałe logi i przekazywanie do rsyslog
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/60-wlb.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola logging)
+      [Journal]
+      Storage=persistent
+      ForwardToSyslog=yes
+      SystemMaxUse=2G
+  notify: Restart journald
+
+- name: Rejestrowanie poleceń powłoki badaczy
+  ansible.builtin.template:
+    src: wlb-shell-audit.sh.j2
+    dest: /etc/profile.d/wlb-shell-audit.sh
+    mode: "0644"
+
+# Terminal w JupyterLab to interaktywny bash bez logowania — czyta bash.bashrc, nie profile.d
+- name: Rejestrowanie także w powłokach bez logowania
+  ansible.builtin.lineinfile:
+    path: /etc/bash.bashrc
+    line: "[ -r /etc/profile.d/wlb-shell-audit.sh ] && . /etc/profile.d/wlb-shell-audit.sh"

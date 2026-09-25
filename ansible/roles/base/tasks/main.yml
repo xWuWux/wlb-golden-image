@@ -1,0 +1,111 @@
+- name: Aktualizacja systemu (stan z dnia budowania — VM nie aktualizuje się sama)
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+
+- name: Pakiety bazowe
+  ansible.builtin.apt:
+    name:
+      - acl
+      - auditd
+      - audispd-plugins
+      - build-essential
+      - ca-certificates
+      - ceph-common
+      - chrony
+      - curl
+      - git
+      - inotify-tools
+      - jq
+      - locales
+      - nfs-common
+      - nftables
+      - psmisc
+      - python3
+      - python3-dev
+      - python3-venv
+      - qemu-guest-agent
+      - rsyslog
+      - unzip
+    state: present
+
+# Aktualizacje wchodzą wyłącznie przez nową wersję obrazu; VM i tak nie ma wyjścia do archiwów Ubuntu.
+- name: Usunięcie unattended-upgrades i snapd
+  ansible.builtin.apt:
+    name: [unattended-upgrades, snapd]
+    state: absent
+    purge: true
+
+- name: Strefa czasowa
+  ansible.builtin.command: timedatectl set-timezone {{ wlb_timezone }}
+  changed_when: true
+
+- name: Locale
+  ansible.builtin.lineinfile:
+    path: /etc/locale.gen
+    regexp: "^#? *{{ item }} "
+    line: "{{ item }} UTF-8"
+  loop: "{{ wlb_locales }}"
+  register: wlb_locale_gen
+
+- name: Wygeneruj locale
+  ansible.builtin.command: locale-gen
+  when: wlb_locale_gen is changed
+  changed_when: true
+
+- name: Usługi bazowe
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+  loop: [chrony, qemu-guest-agent, rsyslog, auditd]
+
+- name: Grupa administratorów platformy (dostęp SSH)
+  ansible.builtin.group:
+    name: "{{ wlb_platform_admin_group }}"
+    system: true
+
+# Bez tego AllowGroups odciąłby Packera w trakcie budowania; użytkownik "packer" znika przy wyłączeniu.
+- name: Użytkownik budujący w grupie SSH
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: "{{ wlb_platform_admin_group }}"
+    append: true
+
+- name: Utwardzenie SSH
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/10-wlb.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola base)
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      AllowGroups {{ wlb_platform_admin_group }}
+      X11Forwarding no
+      AllowTcpForwarding no
+      AllowAgentForwarding no
+      PermitTunnel no
+      ClientAliveInterval 300
+  notify: Restart ssh
+
+- name: Utwardzenie jądra
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/60-wlb.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola base)
+      kernel.dmesg_restrict = 1
+      kernel.kptr_restrict = 2
+      kernel.yama.ptrace_scope = 1
+      net.ipv4.ip_forward = 0
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv6.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+  notify: Apply sysctl
+
+- name: Katalogi konfiguracyjne WLB
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop: [/etc/wlb, /opt/wlb, /opt/wlb/envs]

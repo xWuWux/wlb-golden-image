@@ -1,0 +1,78 @@
+- name: Klucz repozytorium CRAN dla Ubuntu
+  ansible.builtin.get_url:
+    url: https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc
+    dest: /etc/apt/keyrings/cran.asc
+    mode: "0644"
+
+- name: Repozytorium CRAN (R 4.x)
+  ansible.builtin.deb822_repository:
+    name: cran
+    types: [deb]
+    uris: [https://cloud.r-project.org/bin/linux/ubuntu]
+    suites: ["{{ ansible_distribution_release }}-cran40/"]
+    signed_by: /etc/apt/keyrings/cran.asc
+
+- name: R, Java (rJava / DatabaseConnector) i biblioteki do kompilacji pakietów
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - r-base
+      - r-base-dev
+      - default-jdk
+      - cmake
+      - pandoc
+      - libcurl4-openssl-dev
+      - libssl-dev
+      - libxml2-dev
+      - libpq-dev
+      - libgit2-dev
+      - libsodium-dev
+      - libfontconfig1-dev
+      - libfreetype-dev
+      - libharfbuzz-dev
+      - libfribidi-dev
+      - libpng-dev
+      - libjpeg-dev
+      - libtiff-dev
+      - zlib1g-dev
+
+- name: Konfiguracja Javy dla R
+  ansible.builtin.command: R CMD javareconf
+  changed_when: true
+
+- name: Rprofile.site (repozytorium CRAN, override per-Lab)
+  ansible.builtin.template:
+    src: Rprofile.site.j2
+    dest: /etc/R/Rprofile.site
+    mode: "0644"
+
+- name: Katalog sterowników JDBC dla DatabaseConnector
+  ansible.builtin.lineinfile:
+    path: /etc/R/Renviron.site
+    regexp: "^DATABASECONNECTOR_JAR_FOLDER="
+    line: DATABASECONNECTOR_JAR_FOLDER={{ r_jdbc_dir }}
+
+- name: Katalog środowiska R
+  ansible.builtin.file:
+    path: /opt/wlb/envs/r
+    state: directory
+    mode: "0755"
+
+- name: Skopiuj definicję środowiska R
+  ansible.builtin.copy:
+    src: "{{ r_env_dir }}/{{ item }}"
+    dest: /opt/wlb/envs/r/{{ item }}
+    mode: "0644"
+  loop: [install-r-env.R, hades-packages.txt, renv.lock]
+
+- name: Instalacja pakietów R (HADES, IRkernel) — pierwsze budowanie trwa długo
+  ansible.builtin.command: Rscript /opt/wlb/envs/r/install-r-env.R /opt/wlb/envs/r {{ r_jdbc_dir }}
+  environment:
+    PATH: /opt/tljh/user/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  changed_when: true
+
+- name: Pobierz renv.lock do artefaktów budowania
+  ansible.builtin.fetch:
+    src: /opt/wlb/envs/r/renv.lock.generated
+    dest: "{{ wlb_artifacts_dir }}/renv.lock"
+    flat: true

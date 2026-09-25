@@ -1,0 +1,62 @@
+#cloud-config
+# Przykładowy user-data dla VM Laboratorium uruchamianej z golden image WLB.
+# Podaj go przy tworzeniu instancji (OpenStack: --user-data, Proxmox: cicustom=user=...).
+# Wszystko, co zależy od Laboratorium, trafia do /etc/wlb/lab.env; resztę robi wlb-firstboot.
+
+hostname: lab-example01
+fqdn: lab-example01.wlb.local
+prefer_fqdn_over_hostname: false
+
+users:
+  - name: wlbadmin                      # administrator platformy (SSH + sudo)
+    uid: "1001"                         # < 10000: poza zakresem UID badaczy (audyt, nftables)
+    groups: [sudo, wlb-platform-admins]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA... admin@wlb     # klucz administratora platformy
+ssh_pwauth: false
+
+# Dysk roboczy (drugi wolumen) -> /workspace. Systemowy pochodzi z obrazu i jest jednorazowy.
+disk_setup:
+  /dev/vdb:
+    table_type: gpt
+    layout: true
+    overwrite: false
+fs_setup:
+  - label: workspace
+    filesystem: ext4
+    device: /dev/vdb
+    partition: auto
+
+# Udziały Laboratorium (§10). Przykład dla CephFS; dla NFS: [serwer:/eksport, /sluza-in, nfs4, "ro,..."]
+mounts:
+  - [LABEL=workspace, /workspace, ext4, "defaults,nodev,nosuid", "0", "2"]
+  - ["10.50.0.1,10.50.0.2:/labs/lab-example01/sluza-in", /sluza-in, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev", "0", "0"]
+  - ["10.50.0.1,10.50.0.2:/labs/lab-example01/sluza-out", /sluza-out, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,rw,nodev,nosuid,noexec,_netdev", "0", "0"]
+  - ["10.50.0.1,10.50.0.2:/labs/lab-example01/data-mart", /data-mart, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev", "0", "0"]
+  - ["10.50.0.1,10.50.0.2:/platform/docs", /docs, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,_netdev", "0", "0"]
+
+write_files:
+  - path: /etc/ceph/lab.secret
+    permissions: "0600"
+    content: "<klucz CephX Laboratorium — z menedżera sekretów, nie z repozytorium>"
+  - path: /etc/wlb/lab.env
+    permissions: "0600"
+    content: |
+      LAB_NAME=lab-example01
+      HUB_ADMIN_USER=admin-klienta
+      PROXY_URL=http://10.20.0.10:3128
+      NO_PROXY=localhost,127.0.0.1,.wlb.local
+      PYPI_INDEX_URL=https://pypi-mirror.wlb.local/simple
+      CRAN_MIRROR_URL=https://cran-mirror.wlb.local
+      EGRESS_ALLOW="10.20.0.10:3128 10.30.0.5:5432"
+      ADMIN_SSH_CIDR=10.10.0.0/24
+      HUB_ALLOWED_CIDR=10.10.1.0/24
+      SIEM_HOST=10.40.0.20
+      SIEM_PORT=514
+      SIEM_PROTOCOL=tcp
+
+runcmd:
+  - [/usr/local/sbin/wlb-firstboot]

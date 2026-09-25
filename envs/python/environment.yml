@@ -1,0 +1,26 @@
+# Pakiety analityczne kernela Python (środowisko użytkowników TLJH, /opt/tljh/user).
+#
+# To jest plik "intencji". Po pierwszym budowaniu `make freeze` zapisuje obok
+# environment.lock.yml z dokładnymi wersjami — przy kolejnych budowaniach
+# Ansible używa locka, jeśli istnieje. Zmiana pakietów = edycja tego pliku,
+# usunięcie locka, budowanie, `make freeze`, commit.
+#
+# JupyterLab, JupyterHub i Pythona dostarcza TLJH (wersja przypięta w group_vars) —
+# nie dodawaj ich tutaj, żeby conda nie nadpisała paczek zainstalowanych przez pip.
+name: wlb-python
+channels:
+  - conda-forge
+dependencies:
+  - pandas
+  - numpy
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - statsmodels
+  - sqlalchemy
+  - psycopg2
+  - pyarrow
+  - pip
+  - pip:
+      - inspectomop

@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# wlb-firstboot — konfiguracja per-Laboratorium przy pierwszym starcie VM z golden image.
+#
+# Wywoływany z cloud-init (runcmd), po zamontowaniu udziałów. Czyta /etc/wlb/lab.env
+# i ustawia to, co zależy od Laboratorium: prawa katalogów, proxy, reguły egress,
+# przekazywanie logów do SIEM i administratora huba. Opis zmiennych: /etc/wlb/lab.env.example
+#
+#   wlb-firstboot           # jednorazowo (drugi raz nic nie robi)
+#   wlb-firstboot --force   # ponownie, np. po zmianie lab.env (przed blokadą audytu)
+set -euo pipefail
+
+ENV_FILE=/etc/wlb/lab.env
+STATE_DIR=/var/lib/wlb
+DONE="$STATE_DIR/firstboot.done"
+TLJH_CONFIG=/opt/tljh/hub/bin/tljh-config
+HUB_CONFIG_D=/opt/tljh/config/jupyterhub_config.d
+ADMIN_PASSWORD_FILE=/root/wlb-hub-admin-initial-password
+
+log() { logger -t wlb-firstboot -- "$*"; echo "wlb-firstboot: $*"; }
+die() { log "BŁĄD: $*"; exit 1; }
+
+[[ -r $ENV_FILE ]] || die "brak $ENV_FILE (powinien go zapisać cloud-init)"
+if [[ -f $DONE && ${1:-} != --force ]]; then
+  log "już wykonane $(cat "$DONE") — pomijam (użyj --force)"
+  exit 0
+fi
+
+. /etc/wlb/image.conf
+set -a
+. "$ENV_FILE"
+set +a
+: "${LAB_NAME:?LAB_NAME jest wymagane w $ENV_FILE}"
+: "${HUB_ADMIN_USER:?HUB_ADMIN_USER jest wymagane w $ENV_FILE}"
+PROXY_URL=${PROXY_URL:-}
+NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
+PYPI_INDEX_URL=${PYPI_INDEX_URL:-}
+CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
+EGRESS_ALLOW=${EGRESS_ALLOW:-}
+ADMIN_SSH_CIDR=${ADMIN_SSH_CIDR:-0.0.0.0/0}
+HUB_ALLOWED_CIDR=${HUB_ALLOWED_CIDR:-0.0.0.0/0}
+SIEM_HOST=${SIEM_HOST:-}
+SIEM_PORT=${SIEM_PORT:-514}
+SIEM_PROTOCOL=${SIEM_PROTOCOL:-tcp}
+LOCAL_TEST_MODE=${LOCAL_TEST_MODE:-0}
+export PROXY_URL NO_PROXY LAB_NAME
+
+mkdir -p "$STATE_DIR"
+chmod 0700 "$STATE_DIR"
+
+# --- 1. Katalogi §10 — udziały sieciowe mogły przykryć prawa z obrazu -----------
+while read -r path owner group mode; do
+  [[ -z $path || $path == \#* ]] && continue
+  mkdir -p "$path"
+  chown "$owner:$group" "$path" 2>/dev/null && chmod "$mode" "$path" 2>/dev/null \
+    || log "uwaga: nie można ustawić praw $path (udział tylko do odczytu? prawa ustawia serwer)"
+done < /etc/wlb/directories.conf
+
+# --- 2. Proxy i mirrory pakietów --------------------------------------------------
+sed -i '/^\(http_proxy\|https_proxy\|no_proxy\|HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY\)=/d' /etc/environment
+if [[ -n $PROXY_URL ]]; then
+  for v in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do echo "$v=$PROXY_URL"; done >> /etc/environment
+  printf 'no_proxy=%s\nNO_PROXY=%s\n' "$NO_PROXY" "$NO_PROXY" >> /etc/environment
+fi
+if [[ -n $PYPI_INDEX_URL ]]; then
+  printf '# wlb-firstboot (%s)\n[global]\nindex-url = %s\n' "$LAB_NAME" "$PYPI_INDEX_URL" > /etc/pip.conf
+fi
+if [[ -n $CRAN_MIRROR_URL ]]; then
+  printf '# wlb-firstboot (%s)\noptions(repos = c(CRAN = "%s"))\n' "$LAB_NAME" "$CRAN_MIRROR_URL" > /etc/wlb/r-repos.R
+fi
+
+# Serwery notebooków startuje systemd, więc /etc/environment ich nie dotyczy
+python3 - > "$HUB_CONFIG_D/50-wlb-lab.py" <<'PY'
+import json, os
+env = {"WLB_LAB_NAME": os.environ["LAB_NAME"]}
+if os.environ["PROXY_URL"]:
+    for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+        env[k] = os.environ["PROXY_URL"]
+    env["no_proxy"] = env["NO_PROXY"] = os.environ["NO_PROXY"]
+print("# Wygenerowane przez wlb-firstboot — nie edytować ręcznie.")
+print("c = get_config()  # noqa: F821")
+print(f"c.Spawner.environment = {json.dumps(env, indent=4)}")
+PY
+
+# --- 3. Zapora: ruch wychodzący badaczy tylko do allowlisty -----------------------
+# Obrona w głębi. Właściwą izolację Laboratorium zapewnia sieć (SDN/Neutron) i proxy.
+allow_rules=""
+for entry in $EGRESS_ALLOW; do
+  addr=${entry%:*}
+  port=${entry##*:}
+  [[ -n $addr && $port =~ ^[0-9]+$ && $addr != "$entry" ]] \
+    || die "nieprawidłowy wpis EGRESS_ALLOW: '$entry' (oczekiwano ADRES_IPv4[/maska]:PORT)"
+  allow_rules+="        ip daddr $addr tcp dport $port accept"$'\n'
+done
+
+cat > /etc/nftables.conf <<EOF
+#!/usr/sbin/nft -f
+# Wygenerowane przez wlb-firstboot dla Laboratorium ${LAB_NAME} — nie edytować ręcznie.
+flush ruleset
+
+table inet wlb {
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+        meta l4proto { icmp, ipv6-icmp } accept
+        udp dport { 68, 546 } accept
+        ip saddr ${ADMIN_SSH_CIDR} tcp dport 22 accept
+        ip saddr ${HUB_ALLOWED_CIDR} tcp dport { 80, 443 } accept
+        limit rate 5/second log prefix "wlb-in-deny " level info
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+        oif "lo" accept
+        ct state established,related accept
+        meta skuid ${WLB_RESEARCHER_UID_MIN}-${WLB_RESEARCHER_UID_MAX} jump researcher_egress
+    }
+
+    chain researcher_egress {
+${allow_rules}        limit rate 5/second log prefix "wlb-egress-deny " level info
+        reject with icmpx type admin-prohibited
+    }
+}
+EOF
+nft -c -f /etc/nftables.conf || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
+systemctl restart nftables
+
+# --- 4. Przekazywanie logów do centralnego SIEM (§21) ------------------------------
+SIEM_CONF=/etc/rsyslog.d/60-wlb-siem.conf
+if [[ -n $SIEM_HOST ]]; then
+  cat > "$SIEM_CONF" <<EOF
+# Wygenerowane przez wlb-firstboot (${LAB_NAME}). Kolejka dyskowa — logi nie giną, gdy SIEM jest niedostępny.
+*.* action(type="omfwd" target="${SIEM_HOST}" port="${SIEM_PORT}" protocol="${SIEM_PROTOCOL}"
+           template="RSYSLOG_SyslogProtocol23Format"
+           queue.type="LinkedList" queue.filename="wlb_siem" queue.maxDiskSpace="2g"
+           queue.saveOnShutdown="on" action.resumeRetryCount="-1")
+EOF
+  rsyslogd -N1 >/dev/null || die "błędna konfiguracja rsyslog"
+  log "logi przekazywane do ${SIEM_HOST}:${SIEM_PORT}/${SIEM_PROTOCOL}"
+else
+  rm -f "$SIEM_CONF"
+  log "uwaga: SIEM_HOST nie ustawiony — logi tylko lokalnie"
+fi
+systemctl restart rsyslog
+
+# --- 5. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
+[[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f /etc/sudoers.d/jupyterhub-admins
+if ! $TLJH_CONFIG show | grep -qE "^\s*-\s*${HUB_ADMIN_USER}\s*$"; then
+  $TLJH_CONFIG add-item users.admin "$HUB_ADMIN_USER"
+fi
+$TLJH_CONFIG reload hub
+for _ in $(seq 1 90); do
+  curl -sf -o /dev/null http://127.0.0.1/hub/api && break
+  sleep 2
+done
+curl -sf -o /dev/null http://127.0.0.1/hub/api || die "JupyterHub nie odpowiada"
+
+if [[ ! -s $ADMIN_PASSWORD_FILE ]]; then
+  (umask 077; /usr/local/sbin/wlb-hub-user "$HUB_ADMIN_USER" > "$ADMIN_PASSWORD_FILE")
+  log "konto huba ${HUB_ADMIN_USER} utworzone; hasło początkowe: ${ADMIN_PASSWORD_FILE}"
+fi
+
+# --- 6. Dane przykładowe (wyłącznie lokalny test obrazu) ------------------------------
+if [[ $LOCAL_TEST_MODE == 1 ]]; then
+  printf 'person_id,year_of_birth,gender_concept_id\n1,1970,8507\n2,1985,8532\n' > /data-mart/wlb-test-cohort.csv
+  echo "plik testowy śluzy wejściowej" > /sluza-in/wlb-test-input.txt
+  chown root:"$WLB_RESEARCHER_GROUP" /data-mart/wlb-test-cohort.csv /sluza-in/wlb-test-input.txt
+  chmod 0640 /data-mart/wlb-test-cohort.csv /sluza-in/wlb-test-input.txt
+  log "tryb testu lokalnego: zasiano dane przykładowe"
+fi
+
+# --- 7. Koniec: reguły audytu po montowaniach, potem blokada ---------------------------
+date -Is > "$DONE"
+systemctl start wlb-audit-rules.service
+log "Laboratorium ${LAB_NAME} skonfigurowane"

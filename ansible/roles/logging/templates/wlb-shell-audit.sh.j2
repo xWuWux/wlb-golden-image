@@ -1,0 +1,19 @@
+# Zarządzane przez Ansible (rola logging).
+# Historia poleceń badacza per sesja w syslogu (tag wlb-shell). Uzupełnia audyt execve,
+# który rejestruje polecenia także wtedy, gdy ktoś ominie ten mechanizm (np. bash --norc).
+if [ -n "${BASH_VERSION:-}" ] && [ -z "${__WLB_SHELL_AUDIT:-}" ] \
+   && [ "$(id -u)" -ge {{ wlb_researcher_uid_min }} ] && [ "$(id -u)" -le {{ wlb_researcher_uid_max }} ]; then
+  __WLB_SHELL_AUDIT=1
+  __WLB_SESSION="$(date +%s)-$$"
+  HISTTIMEFORMAT='%F %T '
+  __wlb_log_cmd() {
+    local cmd
+    cmd=$(HISTTIMEFORMAT='' history 1 | sed 's/^ *[0-9]* *//')
+    if [ -n "$cmd" ] && [ "$cmd" != "${__wlb_last_cmd:-}" ]; then
+      logger -p local6.info -t wlb-shell -- "user=$USER session=$__WLB_SESSION cwd=$PWD cmd=$cmd"
+      __wlb_last_cmd=$cmd
+    fi
+  }
+  PROMPT_COMMAND=__wlb_log_cmd
+  readonly PROMPT_COMMAND __WLB_SHELL_AUDIT
+fi

@@ -1,0 +1,42 @@
+- name: Pobierz instalator TLJH (przypięta wersja)
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/jupyterhub/the-littlest-jupyterhub/{{ tljh_version }}/bootstrap/bootstrap.py"
+    dest: /opt/wlb/tljh-bootstrap.py
+    mode: "0644"
+
+- name: Instalacja TLJH
+  ansible.builtin.command: python3 /opt/wlb/tljh-bootstrap.py --version {{ tljh_version }}
+  args:
+    creates: /opt/tljh/hub/bin/jupyterhub
+
+- name: Konfiguracja TLJH
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /opt/tljh/config/config.yaml
+    mode: "0640"
+  notify: Reload hub
+
+- name: Katalog dodatkowej konfiguracji JupyterHub
+  ansible.builtin.file:
+    path: /opt/tljh/config/jupyterhub_config.d
+    state: directory
+    mode: "0755"
+
+- name: Ustawienia JupyterHub spoza tljh-config
+  ansible.builtin.template:
+    src: 10-wlb.py.j2
+    dest: /opt/tljh/config/jupyterhub_config.d/10-wlb.py
+    mode: "0644"
+  notify: Reload hub
+
+- name: Administratorzy huba bez sudo
+  ansible.builtin.file:
+    path: /etc/sudoers.d/jupyterhub-admins
+    state: absent
+  when: not tljh_admins_have_sudo | bool
+
+- name: Narzędzie do zakładania kont huba
+  ansible.builtin.copy:
+    src: wlb-hub-user
+    dest: /usr/local/sbin/wlb-hub-user
+    mode: "0750"

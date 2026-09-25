@@ -1,0 +1,3 @@
+- name: Reload hub
+  ansible.builtin.command: /opt/tljh/hub/bin/tljh-config reload hub
+  changed_when: true

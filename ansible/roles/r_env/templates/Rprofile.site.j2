@@ -1,0 +1,10 @@
+# Zarządzane przez Ansible (rola r_env) — nie edytować na żywej VM.
+local({
+  # Snapshot CRAN z dnia {{ r_cran_snapshot_date }} (binaria Posit Package Manager dla Ubuntu noble)
+  options(repos = c(CRAN = "{{ r_cran_repo }}"))
+  # PPM serwuje binaria tylko przy tym nagłówku User-Agent
+  options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(),
+    paste(getRversion(), R.version["platform"], R.version["arch"], R.version["os"])))
+  # Mirror CRAN Laboratorium (za proxy) ustawiany przez wlb-firstboot
+  if (file.exists("/etc/wlb/r-repos.R")) source("/etc/wlb/r-repos.R")
+})

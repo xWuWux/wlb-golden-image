@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Śluza wyjściowa: każdy wpis zapisany przez badacza w /sluza-out trafia do kolejki
+# zatwierdzenia eksportu i znika z widoku badacza. Każde przeniesienie jest logowane
+# (identyfikator badacza, znacznik czasu, suma SHA-256) do syslogu, a stamtąd do SIEM.
+set -euo pipefail
+
+[[ -r /etc/wlb/image.conf ]] && . /etc/wlb/image.conf
+SRC=${WLB_SLUZA_OUT:-/sluza-out}
+QUEUE=${WLB_EXPORT_QUEUE:-/var/spool/wlb/export-queue}
+DIR_SETTLE_SECONDS=120   # katalog uznajemy za kompletny po 2 min bez zmian
+
+log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
+
+queue_entry() {
+  local path=$1 name owner uid ts dest sha
+  name=$(basename -- "$path")
+  owner=$(stat -c %U -- "$path")
+  uid=$(stat -c %u -- "$path")
+  ts=$(date -u +%Y%m%dT%H%M%SZ)
+  dest="$QUEUE/${ts}_${owner}_${name}"
+  mv -- "$path" "$dest"
+  chown -R root:root -- "$dest"
+  chmod -R go-rwx -- "$dest"
+  if [[ -f $dest ]]; then
+    sha=$(sha256sum -- "$dest" | cut -d' ' -f1)
+  else
+    sha=$(find "$dest" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+  fi
+  log "export_request user=$owner uid=$uid entry=$name sha256=$sha queued_as=$(basename -- "$dest")"
+}
+
+sweep() {
+  local entry newest
+  shopt -s nullglob dotglob
+  for entry in "$SRC"/*; do
+    if [[ -f $entry && ! -L $entry ]]; then
+      # plik wciąż otwarty przez proces badacza — poczekaj na zamknięcie
+      fuser -s -- "$entry" 2>/dev/null && continue
+      queue_entry "$entry"
+    elif [[ -d $entry && ! -L $entry ]]; then
+      newest=$(find "$entry" -printf '%T@\n' | sort -n | tail -1)
+      (( $(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS )) && queue_entry "$entry"
+    else
+      # dowiązania i pliki specjalne nie są dopuszczone do eksportu
+      log "rejected user=$(stat -c %U -- "$entry") entry=$(basename -- "$entry") reason=unsupported_type"
+      rm -f -- "$entry"
+    fi
+  done
+  shopt -u nullglob dotglob
+}
+
+mkdir -p "$QUEUE"
+chmod 0700 "$QUEUE"
+log "start src=$SRC queue=$QUEUE"
+
+while true; do
+  sweep
+  # budzi się po zamknięciu pliku lub przeniesieniu, najpóźniej co 30 s (katalogi)
+  inotifywait -q -t 30 -e close_write -e moved_to "$SRC" >/dev/null 2>&1 || true
+done

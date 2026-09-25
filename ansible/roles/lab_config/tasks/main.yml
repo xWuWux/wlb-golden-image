@@ -1,0 +1,50 @@
+- name: Parametry obrazu dla skryptów WLB
+  ansible.builtin.copy:
+    dest: /etc/wlb/image.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola lab_config) — parametry obrazu, wspólne dla wszystkich Laboratoriów.
+      WLB_RESEARCHER_UID_MIN={{ wlb_researcher_uid_min }}
+      WLB_RESEARCHER_UID_MAX={{ wlb_researcher_uid_max }}
+      WLB_RESEARCHER_GROUP={{ wlb_researcher_group }}
+      WLB_SLUZA_OUT=/sluza-out
+      WLB_EXPORT_QUEUE={{ wlb_export_queue_dir }}
+      WLB_TLJH_ADMIN_SUDO={{ tljh_admins_have_sudo | bool | ternary(1, 0) }}
+
+- name: Wzór lab.env (dokumentacja zmiennych per-Lab)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../cloud-init/lab.env.example"
+    dest: /etc/wlb/lab.env.example
+    mode: "0644"
+
+- name: Skrypt pierwszego uruchomienia
+  ansible.builtin.copy:
+    src: wlb-firstboot
+    dest: /usr/local/sbin/wlb-firstboot
+    mode: "0750"
+
+# Do czasu wlb-firstboot VM odrzuca ruch przychodzący poza SSH — hub bez administratora
+# nie może być osiągalny z sieci.
+- name: Zapora do czasu konfiguracji Laboratorium
+  ansible.builtin.copy:
+    dest: /etc/nftables.conf
+    mode: "0644"
+    content: |
+      #!/usr/sbin/nft -f
+      # Zarządzane przez Ansible (rola lab_config). wlb-firstboot zastępuje ten plik regułami Laboratorium.
+      flush ruleset
+      table inet wlb {
+          chain input {
+              type filter hook input priority filter; policy drop;
+              iif "lo" accept
+              ct state established,related accept
+              meta l4proto { icmp, ipv6-icmp } accept
+              udp dport { 68, 546 } accept
+              tcp dport 22 accept
+          }
+      }
+
+- name: Włącz nftables
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true

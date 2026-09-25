@@ -1,0 +1,45 @@
+#cloud-config
+# Laboratorium testowe dla lokalnego uruchomienia obrazu (tests/run-local.sh).
+# Bez udziałów sieciowych i bez proxy: EGRESS_ALLOW wskazuje nieistniejący adres,
+# więc każde połączenie wychodzące badacza musi się nie udać.
+hostname: lab-test01
+fqdn: lab-test01.wlb.local
+
+users:
+  - name: wlbadmin
+    uid: "1001"
+    groups: [sudo, wlb-platform-admins]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_PUBKEY__
+ssh_pwauth: false
+
+disk_setup:
+  /dev/vdb:
+    table_type: gpt
+    layout: true
+    overwrite: false
+fs_setup:
+  - label: workspace
+    filesystem: ext4
+    device: /dev/vdb
+    partition: auto
+mounts:
+  - [LABEL=workspace, /workspace, ext4, "defaults,nodev,nosuid", "0", "2"]
+
+write_files:
+  - path: /etc/wlb/lab.env
+    permissions: "0600"
+    content: |
+      LAB_NAME=lab-test01
+      HUB_ADMIN_USER=admin-klienta
+      PROXY_URL=http://10.0.2.254:3128
+      EGRESS_ALLOW="10.0.2.254:3128"
+      ADMIN_SSH_CIDR=10.0.2.0/24
+      HUB_ALLOWED_CIDR=10.0.2.0/24
+      LOCAL_TEST_MODE=1
+
+runcmd:
+  - [/usr/local/sbin/wlb-firstboot]

@@ -1,0 +1,44 @@
+- name: WLB golden image — VM Laboratorium z JupyterHub (ogólnego przeznaczenia)
+  hosts: all
+  become: true
+  roles:
+    - base
+    - storage
+    - tljh
+    - python_env
+    - r_env
+    - role: rstudio
+      when: wlb_rstudio_enabled | bool
+    - audit
+    - logging
+    - lab_config
+
+  post_tasks:
+    - name: Zbierz wersje składników
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo "R_VERSION=$(R --version | head -1 | awk '{print $3}')"
+        echo "PYTHON_VERSION=$(/opt/tljh/user/bin/python -c 'import platform; print(platform.python_version())')"
+        echo "JUPYTERHUB_VERSION=$(/opt/tljh/hub/bin/jupyterhub --version)"
+      args:
+        executable: /bin/bash
+      register: wlb_versions
+      changed_when: false
+
+    - name: Zapisz metadane obrazu
+      ansible.builtin.copy:
+        dest: /etc/wlb/image-release
+        mode: "0644"
+        content: |
+          WLB_IMAGE_NAME={{ wlb_image_name }}
+          WLB_IMAGE_VERSION={{ wlb_image_version }}
+          WLB_IMAGE_DATE={{ wlb_image_date }}
+          TLJH_VERSION={{ tljh_version }}
+          R_CRAN_SNAPSHOT={{ r_cran_snapshot_date }}
+          {{ wlb_versions.stdout }}
+
+    - name: Pobierz metadane obrazu do artefaktów budowania
+      ansible.builtin.fetch:
+        src: /etc/wlb/image-release
+        dest: "{{ wlb_artifacts_dir }}/image-release"
+        flat: true

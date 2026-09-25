@@ -1,0 +1,28 @@
+# Zarządzane przez Ansible (rola tljh) — ustawienia JupyterHub, których nie obsługuje tljh-config.
+c = get_config()  # noqa: F821
+
+# --- Uwierzytelnianie: Native Authenticator (MVP) ------------------------------
+# Podmiana na OAuthenticator (Keycloak / Entra ID) = zmiana auth.type w config.yaml
+# i usunięcie tej sekcji.
+c.NativeAuthenticator.open_signup = False  # wniosek o konto wymaga zatwierdzenia w /hub/authorize
+c.NativeAuthenticator.enable_signup = {{ tljh_enable_signup | bool }}
+c.NativeAuthenticator.minimum_password_length = {{ tljh_password_min_length }}
+c.NativeAuthenticator.check_common_password = True
+c.NativeAuthenticator.allowed_failed_logins = {{ tljh_allowed_failed_logins }}
+c.NativeAuthenticator.seconds_before_next_try = {{ tljh_lockout_seconds }}
+# JupyterHub 5 wymaga allowed_users albo allow_all; o dostępie decyduje zatwierdzenie
+# konta w NativeAuthenticator (is_authorized).
+c.NativeAuthenticator.allow_all = True
+
+# --- §9.5 Regulaminu: twardy limit sesji -----------------------------------------
+# Serwer notebooków zatrzymuje culler (services.cull.max_age); ciasteczko huba i tokeny
+# wygasają po tym samym czasie, więc po 12 h trzeba zalogować się od nowa.
+c.JupyterHub.cookie_max_age_days = {{ '%.6f' | format(tljh_max_session_seconds / 86400) }}
+c.JupyterHub.oauth_token_expires_in = {{ tljh_max_session_seconds }}
+c.JupyterHub.shutdown_on_logout = True
+
+# --- Izolacja serwerów badaczy (jednostki systemd tworzone przez SystemdSpawner) ---
+c.SystemdSpawner.disable_user_sudo = True  # NoNewPrivileges — brak sudo/setuid w sesji (§24.c)
+c.SystemdSpawner.isolate_tmp = True
+c.SystemdSpawner.isolate_devices = True
+c.SystemdSpawner.readonly_paths = {{ wlb_readonly_paths | to_json }}

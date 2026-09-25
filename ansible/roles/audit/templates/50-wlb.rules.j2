@@ -1,0 +1,30 @@
+## Zarządzane przez Ansible (rola audit) — audyt w obrębie VM Laboratorium (§21 Regulaminu).
+## Badacze = UID {{ wlb_researcher_uid_min }}–{{ wlb_researcher_uid_max }}. Serwery notebooków startuje systemd,
+## więc auid nie jest ustawiony — filtrujemy po euid.
+
+## Śluzy: każda operacja na plikach, z identyfikatorem badacza i znacznikiem czasu
+-w /sluza-in -p rwxa -k wlb_sluza_in
+-w /sluza-out -p rwa -k wlb_sluza_out
+-w {{ wlb_export_queue_dir }} -p rwa -k wlb_export_queue
+
+## Próby modyfikacji danych tylko do odczytu
+-w /data-mart -p wa -k wlb_datamart_write
+-w /docs -p wa -k wlb_docs_write
+
+## Konfiguracja bezpieczeństwa VM
+-w /etc/wlb -p wa -k wlb_config
+-w /opt/tljh/config -p wa -k wlb_hub_config
+-w /etc/audit -p wa -k wlb_audit_config
+-w /etc/rsyslog.d -p wa -k wlb_logging_config
+-w /etc/nftables.conf -p wa -k wlb_network_config
+-w /etc/sudoers -p wa -k wlb_privileges
+-w /etc/sudoers.d -p wa -k wlb_privileges
+
+## Polecenia uruchamiane przez badaczy (terminal, notebooki, subprocess)
+-a always,exit -F arch=b64 -S execve -F euid>={{ wlb_researcher_uid_min }} -F euid<={{ wlb_researcher_uid_max }} -k wlb_exec
+-a always,exit -F arch=b32 -S execve -F euid>={{ wlb_researcher_uid_min }} -F euid<={{ wlb_researcher_uid_max }} -k wlb_exec
+
+## Odmowy dostępu do plików
+-a always,exit -F arch=b64 -S open,openat,openat2,creat,truncate,ftruncate,unlink,unlinkat,rename,renameat -F exit=-EACCES -F euid>={{ wlb_researcher_uid_min }} -k wlb_access_denied
+-a always,exit -F arch=b64 -S open,openat,openat2,creat,truncate,ftruncate,unlink,unlinkat,rename,renameat -F exit=-EPERM -F euid>={{ wlb_researcher_uid_min }} -k wlb_access_denied
+-a always,exit -F arch=b64 -S open,openat,openat2,creat,truncate,ftruncate,unlink,unlinkat,rename,renameat -F exit=-EROFS -F euid>={{ wlb_researcher_uid_min }} -k wlb_access_denied

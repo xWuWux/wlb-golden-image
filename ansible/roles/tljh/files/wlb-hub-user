@@ -1,0 +1,63 @@
+#!/opt/tljh/hub/bin/python3
+"""Zakłada lub resetuje zatwierdzone konto Native Authenticator w bazie JupyterHub (TLJH).
+
+    wlb-hub-user LOGIN                   # generuje hasło i wypisuje je na stdout
+    wlb-hub-user LOGIN --password-stdin  # hasło z pierwszej linii stdin
+
+Uprawnienia administratora huba nadaje wyłącznie lista users.admin w tljh-config.
+Hub musi być uruchomiony co najmniej raz, żeby baza istniała.
+"""
+
+import argparse
+import re
+import secrets
+import sys
+
+import bcrypt
+from nativeauthenticator.orm import UserInfo
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import Session
+
+DB_URL = "sqlite:////opt/tljh/state/jupyterhub.sqlite"
+LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+MIN_PASSWORD_LENGTH = 12
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("login")
+    parser.add_argument("--password-stdin", action="store_true")
+    args = parser.parse_args()
+
+    login = args.login.lower()
+    if not LOGIN_RE.match(login):
+        sys.exit(f"Nieprawidłowy login: {args.login!r}")
+
+    if args.password_stdin:
+        password = sys.stdin.readline().rstrip("\n")
+        if len(password) < MIN_PASSWORD_LENGTH:
+            sys.exit(f"Hasło musi mieć co najmniej {MIN_PASSWORD_LENGTH} znaków")
+    else:
+        password = secrets.token_urlsafe(18)
+
+    engine = create_engine(DB_URL)
+    if not inspect(engine).has_table("users"):
+        sys.exit("Baza JupyterHub nie jest zainicjalizowana — uruchom najpierw hub")
+    UserInfo.__table__.create(engine, checkfirst=True)
+
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    with Session(engine) as db:
+        info = db.query(UserInfo).filter_by(username=login).first()
+        if info is None:
+            db.add(UserInfo(username=login, password=hashed, is_authorized=True))
+        else:
+            info.password = hashed
+            info.is_authorized = True
+        db.commit()
+
+    if not args.password_stdin:
+        print(password)
+
+
+if __name__ == "__main__":
+    main()

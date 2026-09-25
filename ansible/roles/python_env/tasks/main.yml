@@ -1,0 +1,37 @@
+- name: Wybór pliku środowiska (lock ma pierwszeństwo)
+  ansible.builtin.set_fact:
+    python_env_src: "{{ python_env_lock_file if python_env_lock_file is file else python_env_file }}"
+
+- name: Katalog środowiska Python
+  ansible.builtin.file:
+    path: /opt/wlb/envs/python
+    state: directory
+    mode: "0755"
+
+- name: Skopiuj definicję środowiska
+  ansible.builtin.copy:
+    src: "{{ python_env_src }}"
+    dest: /opt/wlb/envs/python/environment.yml
+    mode: "0644"
+
+- name: Instalacja pakietów w środowisku użytkowników TLJH ({{ python_env_src | basename }})
+  ansible.builtin.command: >-
+    /opt/tljh/user/bin/conda env update
+    --prefix /opt/tljh/user
+    --file /opt/wlb/envs/python/environment.yml
+  changed_when: true
+
+- name: Zamrożenie wersji (conda env export)
+  ansible.builtin.shell: |
+    set -o pipefail
+    /opt/tljh/user/bin/conda env export --prefix /opt/tljh/user --no-builds \
+      | grep -v '^prefix:' > /opt/wlb/envs/python/environment.lock.yml
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Pobierz lock do artefaktów budowania
+  ansible.builtin.fetch:
+    src: /opt/wlb/envs/python/environment.lock.yml
+    dest: "{{ wlb_artifacts_dir }}/environment.lock.yml"
+    flat: true

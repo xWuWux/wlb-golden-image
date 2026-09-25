@@ -1,0 +1,43 @@
+- name: Reguły audytu WLB
+  ansible.builtin.template:
+    src: 50-wlb.rules.j2
+    dest: /etc/audit/rules.d/50-wlb.rules
+    mode: "0640"
+  notify: Load audit rules
+
+- name: Zdarzenia audytu przekazywane do syslogu (a stamtąd do SIEM)
+  ansible.builtin.lineinfile:
+    path: /etc/audit/plugins.d/syslog.conf
+    regexp: "^active\\s*="
+    line: active = yes
+  notify: Restart auditd
+
+# Reguły ładowane ponownie po zamontowaniu udziałów (watch na /sluza-* musi objąć montowanie),
+# a potem blokowane (-e 2). Przy pierwszym starcie usługę uruchamia wlb-firstboot.
+- name: Usługa ładowania i blokowania reguł audytu
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/wlb-audit-rules.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=WLB: reguły audytu po zamontowaniu udziałów, następnie blokada (-e 2)
+      Requires=auditd.service
+      After=auditd.service local-fs.target remote-fs.target
+      ConditionPathExists=/var/lib/wlb/firstboot.done
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/augenrules --load
+      {% if wlb_audit_immutable | bool %}
+      ExecStart=/usr/sbin/auditctl -e 2
+      {% endif %}
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Włącz usługę reguł audytu
+  ansible.builtin.systemd_service:
+    name: wlb-audit-rules.service
+    enabled: true
+    daemon_reload: true

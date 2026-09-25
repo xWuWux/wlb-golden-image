@@ -1,0 +1,15 @@
+# Pakiety R instalowane, gdy renv.lock jest pusty (pierwsze budowanie).
+# Format: <ref-pak> [<ref-zapasowy>] — zapasowy używany, gdy pakietu nie ma w snapshocie CRAN.
+# Wersje CRAN wyznacza data snapshotu (r_cran_snapshot_date w group_vars).
+# Po budowaniu `make freeze` zapisuje dokładne wersje do renv.lock.
+
+IRkernel
+renv
+
+# OHDSI HADES
+DatabaseConnector       OHDSI/DatabaseConnector@*release
+SqlRender               OHDSI/SqlRender@*release
+FeatureExtraction       OHDSI/FeatureExtraction@*release
+CohortGenerator         OHDSI/CohortGenerator@*release
+CohortMethod            OHDSI/CohortMethod@*release
+PatientLevelPrediction  OHDSI/PatientLevelPrediction@*release

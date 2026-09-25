@@ -1,0 +1,64 @@
+# Parametry golden image WLB — kategoria ogólnego przeznaczenia (MVP).
+# Wartości per-Laboratorium (proxy, SIEM, administrator huba) NIE są tutaj —
+# przychodzą przez cloud-init w /etc/wlb/lab.env (patrz cloud-init/lab-user-data.example.yaml).
+
+# Nadpisywane przez Packera
+wlb_image_name: wlb-general
+wlb_image_version: 0.0.0-dev
+wlb_image_date: ""
+wlb_artifacts_dir: "{{ playbook_dir }}/../build/artifacts/dev"
+
+wlb_timezone: Europe/Warsaw
+wlb_locales: [en_US.UTF-8, pl_PL.UTF-8]
+
+# Grupa, która ma dostęp SSH (administratorzy platformy). Badacze nie logują się przez SSH.
+wlb_platform_admin_group: wlb-platform-admins
+
+# Badacze (użytkownicy tworzeni przez TLJH) dostają UID od 10000 — pozwala to odróżnić ich
+# w regułach audytu i nftables od administratorów platformy (UID < 10000).
+wlb_researcher_uid_min: 10000
+wlb_researcher_uid_max: 59999
+wlb_researcher_group: jupyterhub-users   # grupa nadawana przez TLJH każdemu użytkownikowi huba
+
+# --- Struktura katalogów (§10 Regulaminu WLB) -------------------------------
+wlb_directories:
+  - { path: /workspace, owner: root, group: root, mode: "0711" }                     # katalogi domowe; badacz widzi tylko swój
+  - { path: /sluza-in, owner: root, group: jupyterhub-users, mode: "0750" }          # tylko odczyt
+  - { path: /sluza-out, owner: root, group: jupyterhub-users, mode: "1730" }         # tylko zapis, bez listowania
+  - { path: /data-mart, owner: root, group: jupyterhub-users, mode: "0750" }         # tylko odczyt
+  - { path: /docs, owner: root, group: root, mode: "0755" }                          # tylko odczyt
+wlb_readonly_paths: [/sluza-in, /data-mart, /docs]
+wlb_export_queue_dir: /var/spool/wlb/export-queue
+
+# --- The Littlest JupyterHub -------------------------------------------------
+tljh_version: "2.0.0"
+tljh_idle_timeout_seconds: 1800        # 30 min bezczynności
+tljh_max_session_seconds: 43200        # §9.5: twardy limit 12 h
+tljh_cull_every_seconds: 60
+tljh_limit_memory: null                # np. "24G" — limit na badacza; null = brak
+tljh_limit_cpu: null
+tljh_admins_have_sudo: false           # TLJH domyślnie daje adminom huba sudo; wyłączamy (§21, §24.c)
+tljh_enable_signup: true               # wniosek o konto; aktywacja wymaga zatwierdzenia admina
+tljh_password_min_length: 12
+tljh_allowed_failed_logins: 5
+tljh_lockout_seconds: 600
+
+# --- Python (kernel domyślny, środowisko użytkowników TLJH) -------------------
+python_env_file: "{{ playbook_dir }}/../envs/python/environment.yml"
+python_env_lock_file: "{{ playbook_dir }}/../envs/python/environment.lock.yml"
+
+# --- R -------------------------------------------------------------------------
+# Snapshot Posit Package Managera — wersje pakietów CRAN zamrożone na tę datę (binaria dla noble).
+r_cran_snapshot_date: "2026-09-01"
+r_cran_repo: "https://packagemanager.posit.co/cran/__linux__/noble/{{ r_cran_snapshot_date }}"
+r_env_dir: "{{ playbook_dir }}/../envs/r"
+r_jdbc_dir: /opt/wlb/jdbc
+
+# --- RStudio Server (opcjonalny) --------------------------------------------------
+wlb_rstudio_enabled: false
+rstudio_server_deb_url: https://s3.amazonaws.com/rstudio-server/server/jammy/amd64/rstudio-server-2026.09.0-174-amd64.deb
+rstudio_rsession_proxy_spec: jupyter-rsession-proxy
+
+# --- Audyt ------------------------------------------------------------------------
+# Po pierwszym starcie reguły są blokowane (auditctl -e 2) — nawet root nie zmieni ich bez restartu.
+wlb_audit_immutable: true

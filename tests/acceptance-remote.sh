@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Kryteria akceptacji MVP — wykonywane wewnątrz VM testowej jako root (przez tests/acceptance.sh).
+# Numeracja odpowiada liście kryteriów w specyfikacji.
+set -uo pipefail
+
+HUB=http://127.0.0.1
+R1=tester1
+R2=tester2
+PASS=0 FAIL=0 SKIP=0
+ok()   { echo "  PASS  $*"; PASS=$((PASS + 1)); }
+ko()   { echo "  FAIL  $*"; FAIL=$((FAIL + 1)); }
+skip() { echo "  SKIP  $*"; SKIP=$((SKIP + 1)); }
+expect_ok()   { local d=$1; shift; if "$@" >/dev/null 2>&1; then ok "$d"; else ko "$d"; fi; }
+expect_fail() { local d=$1; shift; if "$@" >/dev/null 2>&1; then ko "$d"; else ok "$d"; fi; }
+as() { local u=$1; shift; (cd / && sudo -u "jupyter-$u" -H "$@"); }
+
+# Logowanie do huba formularzem Native Authenticator; zwraca kod HTTP (302 = sukces)
+hub_login() {
+  local user=$1 pass=$2 jar=/tmp/wlb-test-$1.jar xsrf
+  rm -f "$jar"
+  xsrf=$(curl -s -c "$jar" -b "$jar" "$HUB/hub/login" | grep -oP 'name="_xsrf"\s+value="\K[^"]+' | head -1)
+  curl -s -o /dev/null -w '%{http_code}' -c "$jar" -b "$jar" \
+    --data-urlencode "_xsrf=$xsrf" --data-urlencode "username=$user" --data-urlencode "password=$pass" \
+    "$HUB/hub/login"
+}
+
+echo "== Przygotowanie: konta testowe w hubie =="
+declare -A PW
+for u in $R1 $R2; do PW[$u]=$(/usr/local/sbin/wlb-hub-user "$u"); done
+
+echo "== 1. Logowanie do TLJH i izolacja katalogów domowych =="
+expect_ok "Hub odpowiada" curl -sf "$HUB/hub/api"
+[[ $(hub_login $R1 "${PW[$R1]}") == 302 ]] && ok "Logowanie $R1 poprawnym hasłem" || ko "Logowanie $R1 poprawnym hasłem"
+[[ $(hub_login $R2 "zle-haslo-123456") != 302 ]] && ok "Odmowa przy błędnym haśle" || ko "Odmowa przy błędnym haśle"
+hub_login $R2 "${PW[$R2]}" >/dev/null
+for u in $R1 $R2; do curl -s -o /dev/null -b /tmp/wlb-test-$u.jar -c /tmp/wlb-test-$u.jar -L "$HUB/hub/spawn"; done
+for _ in $(seq 1 60); do id jupyter-$R1 &>/dev/null && id jupyter-$R2 &>/dev/null && break; sleep 2; done
+expect_ok "Serwer notebooków uruchomiony ($R1)" systemctl is-active --quiet jupyter-$R1
+expect_ok "Katalog domowy w /workspace" test "$(getent passwd jupyter-$R1 | cut -d: -f6)" = /workspace/jupyter-$R1
+expect_ok "Badacz widzi własny katalog" as $R1 ls /workspace/jupyter-$R1
+expect_fail "Badacz nie widzi katalogu innego badacza" as $R1 ls /workspace/jupyter-$R2
+expect_fail "Badacz nie listuje /workspace" as $R1 ls /workspace
+expect_fail "Badacz nie ma sudo" as $R1 sudo -n true
+expect_fail "Badacz nie jest adminem huba" bash -c "id -nG jupyter-$R1 | grep -qw jupyterhub-admins"
+expect_fail "Admini huba nie mają sudo (§24.c)" test -e /etc/sudoers.d/jupyterhub-admins
+
+echo "== 2. Notebook Python i notebook R =="
+python3 - "/workspace/jupyter-$R1" <<'PY'
+import json, sys
+notebooks = {
+    "test-py": ("python3", "python",
+                "import pandas, numpy, scipy, sklearn, matplotlib, seaborn, statsmodels, inspectomop"),
+    "test-r": ("ir", "R",
+               'for (p in c("DatabaseConnector", "SqlRender", "FeatureExtraction", "CohortGenerator", '
+               '"CohortMethod", "PatientLevelPrediction")) library(p, character.only = TRUE)'),
+}
+for name, (kernel, language, source) in notebooks.items():
+    nb = {
+        "cells": [{"cell_type": "code", "execution_count": None, "id": "c1",
+                   "metadata": {}, "outputs": [], "source": [source]}],
+        "metadata": {"kernelspec": {"name": kernel, "display_name": kernel, "language": language}},
+        "nbformat": 4, "nbformat_minor": 5,
+    }
+    with open(f"{sys.argv[1]}/{name}.ipynb", "w") as f:
+        json.dump(nb, f)
+PY
+chown "jupyter-$R1:" /workspace/jupyter-$R1/test-*.ipynb
+expect_ok "Notebook Python (pakiety analityczne + inspectomop)" \
+  as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-py.out.ipynb test-py.ipynb"
+expect_ok "Notebook R (pakiety HADES)" \
+  as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-r.out.ipynb test-r.ipynb"
+expect_ok "Sterownik JDBC PostgreSQL" bash -c 'ls /opt/wlb/jdbc/ | grep -qi postgres'
+
+echo "== 3. /data-mart tylko do odczytu =="
+expect_ok "Odczyt /data-mart" as $R1 cat /data-mart/wlb-test-cohort.csv
+expect_fail "Zapis do /data-mart" as $R1 touch /data-mart/proba
+expect_fail "Modyfikacja pliku w /data-mart" as $R1 sh -c 'echo x >> /data-mart/wlb-test-cohort.csv'
+
+echo "== 4. /sluza-in tylko do odczytu =="
+expect_ok "Odczyt /sluza-in" as $R1 cat /sluza-in/wlb-test-input.txt
+expect_fail "Zapis do /sluza-in" as $R1 touch /sluza-in/proba
+
+echo "== 5. /sluza-out tylko do zapisu =="
+expect_ok "Zapis do /sluza-out" as $R1 sh -c 'echo "wynik" > /sluza-out/wynik-test.csv'
+sleep 5
+expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
+expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
+expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c 'ls /var/spool/wlb/export-queue/ | grep -q "_jupyter-tester1_wynik-test.csv$"'
+expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls /var/spool/wlb/export-queue
+
+echo "== 6. Brak wyjścia poza allowlistę =="
+expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
+expect_fail "Bezpośrednie połączenie po adresie IP" as $R1 curl -s --noproxy '*' --max-time 5 http://1.1.1.1
+expect_ok "Reguły egress nftables załadowane" nft list chain inet wlb researcher_egress
+skip "Allowlista proxy (mirror PyPI/CRAN) — wymaga proxy Laboratorium"
+
+echo "== 7. Limity sesji (§9.5) =="
+expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--timeout=1800"'
+expect_ok "Twardy limit 12 h (culler --max-age)" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--max-age=43200"'
+expect_ok "Wygaśnięcie ciasteczka i tokenów po 12 h" grep -q 'oauth_token_expires_in = 43200' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
+skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
+
+echo "== 8. Logi i audyt =="
+expect_ok "Log huba: logowanie badacza" bash -c "journalctl -u jupyterhub | grep -q 'User logged in: $R1'"
+expect_ok "Log śluzy: wniosek o eksport" bash -c "journalctl -t wlb-sluza-out | grep -q 'user=jupyter-$R1 .*entry=wynik-test.csv'"
+expect_ok "Audyt: zapis do /sluza-out" ausearch -k wlb_sluza_out -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: odczyt /sluza-in" ausearch -k wlb_sluza_in -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: odmowa dostępu" ausearch -k wlb_access_denied -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: polecenia badacza (execve)" ausearch -k wlb_exec -ui "$(id -u jupyter-$R1)"
+expect_ok "Reguły audytu zablokowane (-e 2)" bash -c 'auditctl -s | grep -q "^enabled 2"'
+if grep -q '^SIEM_HOST=.' /etc/wlb/lab.env; then
+  expect_ok "Przekazywanie do SIEM skonfigurowane" test -s /etc/rsyslog.d/60-wlb-siem.conf
+else
+  skip "Log centralny (SIEM) — brak SIEM_HOST w teście lokalnym"
+fi
+
+echo
+echo "Wynik: $PASS PASS, $FAIL FAIL, $SKIP SKIP"
+[[ $FAIL -eq 0 ]]

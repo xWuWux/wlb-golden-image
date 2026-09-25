@@ -1,0 +1,12 @@
+#cloud-config
+# Tylko na czas budowania obrazu. Użytkownik "packer" jest usuwany przy wyłączeniu maszyny.
+users:
+  - name: packer
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+ssh_pwauth: false
+package_update: false

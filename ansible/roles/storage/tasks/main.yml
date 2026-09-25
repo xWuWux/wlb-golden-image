@@ -1,0 +1,91 @@
+# TLJH tworzy użytkowników przez `useradd --create-home`, więc domyślne wartości useradd
+# decydują o położeniu i prawach katalogów domowych badaczy.
+- name: Katalogi domowe badaczy w /workspace
+  ansible.builtin.lineinfile:
+    path: /etc/default/useradd
+    regexp: "^#? *HOME="
+    line: HOME=/workspace
+
+- name: Prawa katalogów domowych i zakres UID badaczy
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "^#? *{{ item.key }}\\s"
+    line: "{{ item.key }}\t\t{{ item.value }}"
+  loop:
+    - { key: HOME_MODE, value: "0700" }
+    - { key: UID_MIN, value: "{{ wlb_researcher_uid_min }}" }
+    - { key: UID_MAX, value: "{{ wlb_researcher_uid_max }}" }
+    - { key: GID_MIN, value: "{{ wlb_researcher_uid_min }}" }
+    - { key: GID_MAX, value: "{{ wlb_researcher_uid_max }}" }
+  loop_control:
+    label: "{{ item.key }}"
+
+# TLJH też ją tworzy (idempotentnie) — potrzebna wcześniej do nadania praw katalogom.
+- name: Grupa użytkowników huba
+  ansible.builtin.group:
+    name: "{{ wlb_researcher_group }}"
+
+- name: Katalogi Laboratorium (§10 Regulaminu)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ wlb_directories }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+# wlb-firstboot odtwarza te prawa po zamontowaniu udziałów sieciowych
+- name: Lista katalogów dla wlb-firstboot
+  ansible.builtin.copy:
+    dest: /etc/wlb/directories.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola storage). Format: ścieżka właściciel grupa tryb
+      {% for d in wlb_directories %}
+      {{ d.path }} {{ d.owner }} {{ d.group }} {{ d.mode }}
+      {% endfor %}
+
+- name: Kolejka eksportu (niewidoczna dla badaczy)
+  ansible.builtin.file:
+    path: "{{ wlb_export_queue_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Dokumentacja dla badaczy w /docs (w produkcji przykrywana przez udział sieciowy)
+  ansible.builtin.copy:
+    src: docs-README.md
+    dest: /docs/README.md
+    mode: "0644"
+
+- name: Skrypt przenoszący pliki ze śluzy wyjściowej do kolejki
+  ansible.builtin.copy:
+    src: wlb-sluza-out-mover
+    dest: /usr/local/sbin/wlb-sluza-out-mover
+    mode: "0750"
+
+- name: Usługa śluzy wyjściowej
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/wlb-sluza-out.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=WLB: przenoszenie plików z /sluza-out do kolejki zatwierdzenia eksportu
+      After=local-fs.target remote-fs.target
+
+      [Service]
+      ExecStart=/usr/local/sbin/wlb-sluza-out-mover
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Włącz usługę śluzy wyjściowej
+  ansible.builtin.systemd_service:
+    name: wlb-sluza-out.service
+    enabled: true
+    daemon_reload: true

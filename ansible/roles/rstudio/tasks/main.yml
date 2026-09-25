@@ -1,0 +1,16 @@
+# RStudio Server uruchamiany z JupyterLab (jupyter-rsession-proxy), a nie jako osobna
+# usługa: logowanie idzie przez hub, a limity sesji i idle culling obejmują też RStudio.
+# Osobny port z logowaniem PAM nie zadziała — konta badaczy tworzone przez TLJH nie mają haseł systemowych.
+- name: RStudio Server
+  ansible.builtin.apt:
+    deb: "{{ rstudio_server_deb_url }}"
+
+- name: Samodzielna usługa rstudio-server wyłączona
+  ansible.builtin.systemd_service:
+    name: rstudio-server
+    enabled: false
+    state: stopped
+
+- name: jupyter-rsession-proxy w środowisku użytkowników
+  ansible.builtin.command: /opt/tljh/user/bin/pip install {{ rstudio_rsession_proxy_spec }}
+  changed_when: true

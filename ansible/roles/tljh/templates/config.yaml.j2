@@ -1,0 +1,28 @@
+# Zarządzane przez Ansible (rola tljh). Zmiany wprowadzamy w repozytorium, nie na żywej VM.
+# users.admin uzupełnia wlb-firstboot na podstawie HUB_ADMIN_USER z /etc/wlb/lab.env.
+auth:
+  type: nativeauthenticator.NativeAuthenticator
+
+users:
+  admin: []
+
+user_environment:
+  default_app: jupyterlab
+
+{% if tljh_limit_memory or tljh_limit_cpu %}
+limits:
+{% if tljh_limit_memory %}
+  memory: {{ tljh_limit_memory }}
+{% endif %}
+{% if tljh_limit_cpu %}
+  cpu: {{ tljh_limit_cpu }}
+{% endif %}
+
+{% endif %}
+services:
+  cull:
+    enabled: true
+    timeout: {{ tljh_idle_timeout_seconds }}   # bezczynność
+    every: {{ tljh_cull_every_seconds }}
+    max_age: {{ tljh_max_session_seconds }}   # §9.5: zatrzymanie po 12 h niezależnie od aktywności
+    users: false
