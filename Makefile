@@ -10,7 +10,7 @@ KEY       := $(BUILD_DIR)/packer_ed25519
 PACKER_VARS := -var image_name=$(IMAGE_NAME) -var image_version=$(IMAGE_VERSION) -var image_date=$(IMAGE_DATE)
 
 .PHONY: help init keys validate build test-up test test-down freeze clean \
-	tools lint check security unit integration perf ci
+	tools lint check security observability unit integration perf ci
 
 help: ## Lista celów
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*## "}{printf "  %-10s %s\n",$$1,$$2}'
@@ -39,6 +39,9 @@ check: ## 2. Build test: walidacja i kompilacja bez budowania obrazu
 security: ## 3. SAST, IaC, podatności zależności, licencje
 	ci/security.sh
 
+observability: ## 3.5. Kontrakt obserwowalności zgodny z kodem obrazu
+	ci/observability.sh
+
 unit: ## 4. Testy jednostkowe z progami pokrycia
 	ci/unit.sh
 
@@ -48,7 +51,7 @@ integration: ## 5. Budowanie obrazu, akceptacja MVP, migracja, dryf locków (KVM
 perf: ## 6. Benchmarki wydajności ostatniego obrazu
 	ci/perf.sh
 
-ci: lint check security unit ## Etapy 1–4 (szybkie, przed każdym pushem)
+ci: lint check security observability unit ## Etapy 1–4 (szybkie, przed każdym pushem)
 
 build: keys ## Buduje golden image -> output/<nazwa>-<wersja>-<data>/
 	@test -w /dev/kvm || { echo "Brak dostępu do /dev/kvm — dodaj się do grupy kvm i zrestartuj WSL (wsl --shutdown)"; exit 1; }

@@ -3,8 +3,10 @@
 #   1. budowanie golden image (Packer + Ansible, QEMU/KVM)
 #   2. VM z cloud-init Laboratorium testowego + kryteria akceptacji MVP
 #   3. migracja: nowa VM na istniejącym dysku roboczym (konta, UID, pliki, baza huba)
-#   4. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   5. podatności pakietów faktycznie zainstalowanych w obrazie (raport) — osobno:
+#   4. obserwowalność: zdarzenia z observability/contract.yml docierają do logu centralnego
+#      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem)
+#   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
+#   6. podatności pakietów faktycznie zainstalowanych w obrazie (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
@@ -58,7 +60,11 @@ collect_vm_logs() {
 }
 
 acceptance() {
-  local rc=0
+  local rc=0 sink
+  # testowy SIEM: VM (sieć QEMU user) wysyła logi do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
+  rm -f "$LOGS/siem.log"
+  python3 tests/syslog_sink.py --port 5514 --out "$LOGS/siem.log" &
+  sink=$!
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
     tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
@@ -70,8 +76,11 @@ acceptance() {
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
   fi
+  sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
   tests/stop-local.sh
+  kill "$sink" 2>/dev/null
+  wait "$sink" 2>/dev/null
   {
     echo "### Kryteria akceptacji MVP"
     echo
@@ -80,6 +89,15 @@ acceptance() {
     echo '```'
   } | summary >/dev/null
   return $rc
+}
+
+siem_delivery() {
+  [[ -s $LOGS/siem.log ]] || {
+    echo "Odbiornik SIEM nie dostał żadnych zdarzeń"
+    return 1
+  }
+  echo "Odebrano $(wc -l <"$LOGS/siem.log") zdarzeń"
+  python3 ci/observability_contract.py verify-log "$LOGS/siem.log"
 }
 
 migration() {
@@ -174,6 +192,7 @@ step "Budowanie obrazu $FULL"
 build_image
 endstep
 run_check "Kryteria akceptacji MVP" acceptance
+run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 finish

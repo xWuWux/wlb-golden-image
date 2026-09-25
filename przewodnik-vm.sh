@@ -157,6 +157,8 @@ krok_5() {
   polecenie "Etap 1: lint, formatowanie, sekrety (FIX=1 make lint poprawia formatowanie)" "make lint"
   polecenie "Etap 2: walidacja Packera, Ansible, szablonów, cloud-init i konfiguracji z wlb-firstboot" "make check"
   polecenie "Etap 3: SAST (semgrep, bandit), IaC (checkov), podatności zależności, licencje" "make security"
+  polecenie "Etap 3.5: kontrakt obserwowalności (czy logi obrazu zgadzają się z observability/contract.yml)" \
+    "make observability"
   polecenie "Etap 4: testy jednostkowe (bats + pytest) z progami pokrycia 85% / 90%" "make unit"
   opis "Wszystkie cztery naraz: make ci  — warto uruchamiać przed każdym pushem."
 }
@@ -197,7 +199,13 @@ krok_8() {
   polecenie "Hasło początkowe Administratora Klienta (login: admin-klienta)" \
     "ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i build/test/id_ed25519 -p 2222 wlbadmin@127.0.0.1 sudo cat /root/wlb-hub-admin-initial-password"
   opis "JupyterHub: http://localhost:8080 (działa też z przeglądarki w Windows)."
+  opis "Logi VM testowej idą do testowego SIEM na hoście (10.0.2.2:5514). Żeby je zobaczyć, uruchom" \
+    "odbiornik przed make test-up — w osobnym terminalu:"
+  tylko_pokaz "Testowy odbiornik SIEM (Ctrl+C kończy)" \
+    "python3 tests/syslog_sink.py --port 5514 --out build/siem.log"
   polecenie "Kryteria akceptacji MVP (logowanie, izolacja, śluzy, egress, limity sesji, audyt)" "make test"
+  polecenie "Czy zdarzenia z kontraktu obserwowalności dotarły do SIEM (jeśli odbiornik działał)" \
+    "test -s build/siem.log && python3 ci/observability_contract.py verify-log build/siem.log || echo 'brak build/siem.log — odbiornik nie był uruchomiony'"
   opis "Kryteria oznaczone SKIP wymagają infrastruktury (proxy, SIEM) albo czasu (12 h) — patrz README."
   tylko_pokaz "Ręczny test limitu 12 h: skróć limit do 5 minut w VM i sprawdź, że serwer zostaje zatrzymany" \
     "sudo tljh-config set services.cull.max_age 300 && sudo tljh-config reload hub"
@@ -237,6 +245,10 @@ krok_11() {
   tylko_pokaz "Śledzenie przebiegu na żywo / logi nieudanych kroków" \
     "gh run watch   |   gh run view <ID> --log-failed"
   tylko_pokaz "Benchmarki w CI: etykieta 'perf' na PR" "gh pr edit <NR> --add-label perf"
+  tylko_pokaz "Telemetria CI (ślady, metryki, logi OTLP) dowolnego przebiegu — lokalnie" \
+    "GITHUB_TOKEN=\$(gh auth token) python3 ci/ci_telemetry.py --repo xWuWux/wlb-golden-image --run-id <ID>"
+  opis "Po scaleniu do main workflow 'CI observability' robi to automatycznie po każdym przebiegu" \
+    "(artefakt ci-telemetry; eksport do kolektora po ustawieniu vars.OTEL_EXPORTER_OTLP_ENDPOINT)."
   opis "Komputer można uśpić — CI działa na serwerach GitHuba (e-mail przy niepowodzeniu)." \
     "Wymagany status check dla main: Settings → Branches → 'Gotowe do code review'" \
     "(dla repozytoriów prywatnych wymaga planu GitHub Pro/Team). Etap 5 zużywa minuty Actions."
@@ -360,11 +372,24 @@ PIERWSZE BUDOWANIE OBRAZU W CI (etap 5)
 34. Runner GitHub dla repozytorium prywatnego ma 2 vCPU i ~7 GB RAM, a VM prosiła o 4 vCPU / 8 GB
     -> ci/integration.sh dobiera VM_CPUS/VM_MEMORY i zasoby budowania do maszyny.
 
+OBSERWOWALNOŚĆ
+35. Wzorce obserwowalności dla aplikacji (endpointy HTTP, ślady rozproszone) nie pasują do obrazu VM
+    -> kontrakt zdarzeń logów + weryfikacja dostarczenia do SIEM; ślady i metryki tylko dla potoku CI.
+36. Test odbiornika SIEM: "address already in use" — odbiornik z poprzedniej próby działał w tle
+    (`polecenie && ... &` wysyła do tła CAŁY łańcuch &&, razem z przypisaniem zmiennych)
+    -> uruchamiaj odbiornik osobną linią: `python3 tests/syslog_sink.py ... &`; zamykaj `kill <PID>`,
+       nie `pkill -f` (wzorzec trafia też we własną powłokę).
+37. Klient OTLP przyjmował tylko https, a kolektor w sieci wewnętrznej zwykle działa po http
+    -> dozwolone http i https (inne schematy, np. file://, odrzucane).
+
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).
  - Na prawdziwej VM przeszły 34 kryteria akceptacji przed błędem nr 30; poprawki 30–34
    czekają na potwierdzenie w kolejnym przebiegu.
  - Etap 6b (wdrożenie tymczasowe na OpenStack) nie był uruchamiany — wymaga konfiguracji chmury.
+ - Obserwowalność: łańcuch odbiornik SIEM -> kontrakt sprawdzony lokalnie (logger RFC 5424 po TCP),
+   eksport OTLP sprawdzony na prawdziwym OpenTelemetry Collector 0.161; dostarczenie z prawdziwej VM
+   (rsyslog, audisp-syslog, logi jądra) potwierdzi pierwszy przebieg etapu 5 z tą zmianą.
 EOF
 }
 

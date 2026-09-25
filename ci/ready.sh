@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Końcowa bramka: czy PR jest gotowy do code review i merge.
 #   NEEDS   JSON z wynikami jobów (toJSON(needs) w GitHub Actions)
-# Etapy 1–4 muszą przejść zawsze; 5 — gdy zmiana dotyczy obrazu; 6 — gdy został uruchomiony.
+# Etapy 1–4 (z 3.5) muszą przejść zawsze; 5 — gdy zmiana dotyczy obrazu; 6 — gdy został uruchomiony.
 set -euo pipefail
 python3 - <<'PY'
 import json, os, sys
@@ -12,6 +12,7 @@ stages = [
     ("lint", "1. Lint, format i sekrety", True),
     ("build-check", "2. Build test", True),
     ("security", "3. Security & compliance", True),
+    ("observability", "3.5. Kontrakt obserwowalności", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
     ("integration", "5. Integracja i migracja", image),
     ("perf", "6a. Benchmarki (opcjonalne)", False),

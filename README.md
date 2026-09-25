@@ -88,8 +88,9 @@ Logika jest w `ci/*.sh`, więc lokalnie uruchamia się ją tak samo (`make tools
 | 1. Lint, format, sekrety | `ci/lint.sh` | shellcheck, shfmt, ruff, yamllint, ansible-lint (profil production), actionlint, packer fmt, gitleaks (historia + drzewo) | zawsze |
 | 2. Build test | `ci/build-check.sh` | packer validate, syntax-check Ansible, render szablonów i kompilacja wyniku, parsowanie R, schemat cloud-init, `nft -c` i `rsyslogd -N1` na konfiguracji z `wlb-firstboot` | zawsze |
 | 3. Security & compliance | `ci/security.sh` | SAST (semgrep, bandit), IaC (checkov), podatności zamrożonych zależności (osv-scanner), licencje (`ci/license-policy.yml`) | zawsze |
+| 3.5. Kontrakt obserwowalności | `ci/observability.sh` | zdarzenia z `observability/contract.yml` zgodne z kodem obrazu: źródła logów, pola, klucze audytu, prefiksy zapory, przekazywanie do SIEM | zawsze |
 | 4. Testy jednostkowe | `ci/unit.sh` | bats + kcov (próg 85%), pytest + coverage z gałęziami (próg 90%) | zawsze |
-| 5. Integracja i migracja | `ci/integration.sh` | budowanie obrazu na KVM, kryteria akceptacji MVP w VM, migracja na istniejący dysk roboczy, dryf locków, podatności pakietów w obrazie (raport) | zmiany poza dokumentacją |
+| 5. Integracja i migracja | `ci/integration.sh` | budowanie obrazu na KVM, kryteria akceptacji MVP w VM, zdarzenia z kontraktu w logu centralnym (testowy SIEM), migracja na istniejący dysk roboczy, dryf locków, podatności pakietów w obrazie (raport) | zmiany poza dokumentacją |
 | 6a. Benchmarki | `ci/perf.sh` | start VM, logowanie, spawn, pandas, ładowanie HADES, dysk — względem `ci/perf-budget.env` | etykieta PR `perf` lub ręcznie |
 | 6b. Wdrożenie tymczasowe | `ci/ephemeral-openstack.sh` | obraz, wolumen i VM w projekcie testowym OpenStack, kryteria akceptacji, sprzątanie | etykieta `deploy-test`, po konfiguracji |
 | Gotowe do code review | `ci/ready.sh` | etapy 1–4 zaliczone, 5 zaliczony (jeśli dotyczy), 6 nie zawiódł | zawsze |
@@ -106,6 +107,49 @@ Uwagi:
 - **SCA** w etapie 3 obejmuje zamrożone wersje, więc zaczyna działać po pierwszym `make freeze`.
   Do tego czasu podatności zależności sprawdza tylko raport z etapu 5.
 - Cotygodniowy przebieg (poniedziałek) powtarza etapy 1–4, żeby wyłapać nowe CVE i zmiany licencji.
+
+## Obserwowalność
+
+Są dwie warstwy i obie działają przy każdym PR bez dodatkowej pracy.
+
+**1. Kontrakt obserwowalności obrazu** (`observability/contract.yml`). To katalog zdarzeń, które
+VM musi emitować i dostarczać do SIEM, wraz z polami, formatem i paragrafem Regulaminu:
+
+- zdarzenia: `sluza_out.export_request`, `shell.command`, `hub.login`, `firstboot.done`,
+  `network.egress_deny` i inne,
+- klucze audytu `wlb_*`,
+- pola korelacji: `user`, `uid`, `session`.
+
+Kontrakt jest sprawdzany na dwa sposoby:
+- **etap 3.5 (statycznie):** każde źródło logów w obrazie jest opisane w kontrakcie, a kod emituje
+  dokładnie zadeklarowane pola. Klucze audytu i prefiksy logów zapory zgadzają się w obie strony.
+  Zmiana formatu logu bez zmiany kontraktu zatrzymuje PR.
+- **etap 5 (dynamicznie):** VM testowa wysyła logi rsyslogiem do testowego odbiornika SIEM na hoście
+  (`tests/syslog_sink.py`). Po teście akceptacyjnym `ci/observability_contract.py verify-log` sprawdza,
+  że każde zdarzenie oznaczone `acceptance: true` dotarło do logu centralnego z poprawnymi wartościami.
+  To pokrywa kryterium MVP „wszystkie zdarzenia widoczne w logu centralnym”.
+
+Reguły korelacji i dashboardy w Wazuh lub OpenSearch warto budować na nazwach pól z kontraktu.
+
+**2. Obserwowalność potoku CI** (`.github/workflows/ci-observability.yml`, `ci/ci_telemetry.py`).
+Po każdym przebiegu CI powstają w formacie OpenTelemetry:
+- ślad: przebieg, joby i kroki, z czasem oczekiwania w kolejce, wynikiem i runnerem,
+- metryki: `wlb.ci.run.duration`, `wlb.ci.job.duration`, `wlb.ci.job.queue_time`,
+  `wlb.ci.job.success_ratio`, `wlb.ci.job.duration_p90` i `wlb.ci.job.flaky_commits`
+  (z 30 ostatnich przebiegów),
+- logi: rekord JSON na każdy job i krok, z `trace_id` i `span_id`.
+
+Wyniki trafiają do artefaktu `ci-telemetry` i podsumowania. Po ustawieniu zmiennej
+`OTEL_EXPORTER_OTLP_ENDPOINT` (i opcjonalnie sekretu `OTEL_EXPORTER_OTLP_HEADERS`) są też wysyłane
+do kolektora OTLP/HTTP. Działa to dopiero po scaleniu do `main`, bo GitHub uruchamia `workflow_run`
+tylko z gałęzi domyślnej.
+
+**Czego celowo nie ma:**
+- **śladów rozproszonych w VM,** bo nie ma tam usług wywołujących się nawzajem (zdarzenia koreluje się
+  po `user`, `uid` i `session`),
+- **metryk VM** (np. `prometheus-node-exporter`, `/hub/metrics` JupyterHuba). Wymagają wyboru systemu
+  monitoringu i otwarcia portu z sieci monitoringu. Kiedy ta decyzja zapadnie, metryki dopisuje się
+  do kontraktu, a sprawdzenia rozszerza tym samym mechanizmem.
 
 ## Wdrożenie obrazu
 

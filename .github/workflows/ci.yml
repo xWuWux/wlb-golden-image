@@ -2,8 +2,10 @@
 #   1. Lint, format i skan sekretów       ci/lint.sh
 #   2. Build test                          ci/build-check.sh
 #   3. Security & compliance               ci/security.sh
+#   3.5 Kontrakt obserwowalności           ci/observability.sh  (zdarzenia VM zgodne z kodem)
 #   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
-#   5. Integracja i migracja (KVM)         ci/integration.sh    — gdy zmiana dotyczy obrazu
+#   5. Integracja i migracja (KVM)         ci/integration.sh    — gdy zmiana dotyczy obrazu;
+#                                          także: czy zdarzenia z kontraktu docierają do SIEM
 #   6. Benchmarki / wdrożenie tymczasowe   ci/perf.sh, ci/ephemeral-openstack.sh — na żądanie
 #   => "Gotowe do code review" (wymagany status check dla main)
 # Logika jest w skryptach ci/*.sh — działa tak samo lokalnie (make ci) i łatwo ją przenieść do GitLab CI.
@@ -122,9 +124,26 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  observability:
+    name: "3.5. Kontrakt obserwowalności"
+    needs: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: .tools
+          key: tools-lint-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-lint.txt') }}
+      - run: ci/install-tools.sh lint
+      - run: ci/observability.sh
+
   unit:
     name: "4. Testy jednostkowe + pokrycie"
-    needs: security
+    needs: observability
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # kcov (pokrycie skryptów powłoki) jest w Ubuntu od 26.04 — ten sam system co stacje deweloperskie
@@ -276,7 +295,7 @@ jobs:
 
   ready:
     name: "Gotowe do code review"
-    needs: [lint, build-check, security, unit, integration, perf, ephemeral]
+    needs: [lint, build-check, security, observability, unit, integration, perf, ephemeral]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

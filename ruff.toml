@@ -12,4 +12,4 @@ ignore = [
 "tests/**" = ["S101", "S105", "S106"]  # assert i hasła testowe w testach
 
 [lint.isort]
-known-first-party = ["license_check", "sca_requirements"]
+known-first-party = ["ci_telemetry", "license_check", "observability_contract", "sca_requirements"]

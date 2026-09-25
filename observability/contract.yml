@@ -1,0 +1,130 @@
+# Kontrakt obserwowalności VM Laboratorium WLB.
+#
+# Katalog zdarzeń, które VM musi emitować i dostarczać do centralnego SIEM (Regulamin §21).
+# Sprawdzany przy każdym PR:
+#   stage 3.5 (statycznie)  ci/observability_contract.py static
+#       każde źródło logów w obrazie jest tu opisane, kod emituje wymagane pola,
+#       klucze audytu i prefiksy logów zapory zgadzają się z kodem (w obie strony)
+#   stage 5 (dynamicznie)   ci/observability_contract.py verify-log <log z odbiornika SIEM>
+#       zdarzenia oznaczone "acceptance: true" pojawiają się w logu centralnym po teście
+#       akceptacyjnym, z poprawnymi wartościami pól
+#
+# Zmiana formatu zdarzenia = zmiana tego pliku w tym samym PR (inaczej stage 3.5 nie przejdzie).
+# Reguły korelacji w SIEM (Wazuh/OpenSearch) należy budować na nazwach pól z tego pliku.
+version: 1
+
+conventions:
+  event_name: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" # <źródło>.<zdarzenie>
+  field_name: "^[a-z][a-z0-9_]*$"
+  audit_key: "^wlb_[a-z_]+$"
+  syslog_tag: "^wlb-[a-z0-9-]+$"
+
+# Pola, po których SIEM łączy zdarzenia jednego badacza i jednej sesji
+correlation:
+  user: konto systemowe badacza (jupyter-<login>)
+  uid: UID badacza (zakres 10000–59999, stały między wersjami obrazu)
+  session: identyfikator sesji powłoki (wlb-shell)
+
+events:
+  - name: sluza_out.export_request
+    description: Plik lub katalog zapisany w /sluza-out trafił do kolejki zatwierdzenia eksportu.
+    regulamin: "§10, §21"
+    source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: export_request }
+    format: kv
+    fields:
+      user: "^jupyter-[a-z0-9._-]+$"
+      uid: "^[0-9]+$"
+      entry: ".+"
+      sha256: "^[0-9a-f]{64}$"
+      queued_as: "^[0-9]{8}T[0-9]{6}Z_.+"
+    acceptance: true
+
+  - name: sluza_out.rejected
+    description: Wpis w /sluza-out odrzucony (dowiązanie lub plik specjalny) i usunięty.
+    regulamin: "§10"
+    source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: rejected }
+    format: kv
+    fields:
+      user: ".+"
+      entry: ".+"
+      reason: "^[a-z_]+$"
+    acceptance: false
+
+  - name: sluza_out.start
+    description: Start usługi śluzy wyjściowej (przy starcie VM — przed konfiguracją SIEM).
+    source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: start }
+    format: kv
+    fields:
+      src: "^/.+"
+      queue: "^/.+"
+    acceptance: false
+
+  - name: shell.command
+    description: Polecenie wpisane przez badacza w powłoce (terminal JupyterLab, SSH).
+    regulamin: "§21"
+    source: { tag: wlb-shell, file: ansible/roles/logging/templates/wlb-shell-audit.sh.j2 }
+    format: kv
+    fields:
+      user: "^jupyter-[a-z0-9._-]+$"
+      session: "^[0-9]+-[0-9]+$"
+      cwd: "^/.*"
+      cmd: ".+"
+    acceptance: false # test akceptacyjny nie otwiera interaktywnej powłoki
+
+  - name: firstboot.done
+    description: Konfiguracja Laboratorium zakończona (koniec wlb-firstboot).
+    source: { tag: wlb-firstboot, file: ansible/roles/lab_config/files/wlb-firstboot, marker: skonfigurowane }
+    format: text
+    pattern: "^Laboratorium (?P<lab>\\S+) skonfigurowane$"
+    acceptance: true
+
+  - name: firstboot.message
+    description: Pozostałe komunikaty wlb-firstboot (ostrzeżenia, błędy) — tekst dla administratora.
+    source: { tag: wlb-firstboot, file: ansible/roles/lab_config/files/wlb-firstboot }
+    format: text
+    pattern: ".+"
+    acceptance: false
+
+  - name: hub.login
+    description: Udane logowanie do JupyterHub (komunikat JupyterHub, usługa jupyterhub).
+    regulamin: "§21"
+    source: { journal_unit: jupyterhub }
+    format: text
+    pattern: "User logged in: (?P<user>[a-z0-9._-]+)"
+    acceptance: true
+
+  - name: network.egress_deny
+    description: Zablokowane połączenie wychodzące procesu badacza (nftables, obrona w głębi).
+    regulamin: "§31.3"
+    source: { kernel_log_prefix: "wlb-egress-deny ", file: ansible/roles/lab_config/files/wlb-firstboot }
+    format: kernel
+    acceptance: true
+
+  - name: network.ingress_deny
+    description: Odrzucony ruch przychodzący spoza dozwolonych sieci.
+    source: { kernel_log_prefix: "wlb-in-deny ", file: ansible/roles/lab_config/files/wlb-firstboot }
+    format: kernel
+    acceptance: false
+
+# Zdarzenia auditd (przekazywane do syslogu przez audisp-syslog; klucz w polu key="...").
+audit:
+  rules_file: ansible/roles/audit/templates/50-wlb.rules.j2
+  keys:
+    - { key: wlb_sluza_in, description: "Każda operacja na plikach śluzy wejściowej", regulamin: "§10, §21", acceptance: true }
+    - { key: wlb_sluza_out, description: "Zapis w śluzie wyjściowej", regulamin: "§10, §21", acceptance: true }
+    - { key: wlb_export_queue, description: "Operacje na kolejce eksportu", regulamin: "§10", acceptance: true }
+    - { key: wlb_datamart_write, description: "Próby zapisu do /data-mart", regulamin: "§10", acceptance: false }
+    - { key: wlb_docs_write, description: "Próby zapisu do /docs", acceptance: false }
+    - { key: wlb_config, description: "Zmiany konfiguracji WLB (/etc/wlb)", regulamin: "§21", acceptance: false }
+    - { key: wlb_hub_config, description: "Zmiany konfiguracji JupyterHub", regulamin: "§21", acceptance: false }
+    - { key: wlb_audit_config, description: "Zmiany konfiguracji audytu", regulamin: "§21", acceptance: false }
+    - { key: wlb_logging_config, description: "Zmiany przekazywania logów", regulamin: "§21", acceptance: false }
+    - { key: wlb_network_config, description: "Zmiany reguł zapory", regulamin: "§31.3", acceptance: false }
+    - { key: wlb_privileges, description: "Zmiany uprawnień (sudoers)", regulamin: "§24.c", acceptance: false }
+    - { key: wlb_exec, description: "Każde polecenie uruchomione przez badacza", regulamin: "§21", acceptance: true }
+    - { key: wlb_access_denied, description: "Odmowy dostępu do plików", regulamin: "§21", acceptance: true }
+
+# Dostarczanie do SIEM
+siem:
+  forwarder_file: ansible/roles/lab_config/files/wlb-firstboot
+  forward_all: '*.* action(type="omfwd"' # wszystkie zdarzenia, nie wybrane facility
