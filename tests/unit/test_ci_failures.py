@@ -79,6 +79,7 @@ class FakeGitHub:
             "infra",
         ),
         (job("x", "failure", [("a", "failure")]), [{"message": "Kod wyjścia 1 po 5s"}], "failure", "test"),
+        (job("x", "failure", [("Dostęp do KVM", "failure")]), [{"title": "INFRA: brak KVM"}], "failure", "infra"),
         (job("x", "success", []), [], "failure", None),
         (job("x", "skipped", []), [], "failure", None),
     ],

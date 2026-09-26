@@ -78,7 +78,7 @@ a w `image-release` zapisywane jest `PENDING_UPGRADES`.
 
 **Awaria infrastruktury.** Runner przerwał job bez błędu testu: „The operation was canceled”,
 utrata runnera, krok oznaczony jako `cancelled`, choć nikt przebiegu nie anulował. Do tej kategorii
-należą też przejściowe błędy usług zewnętrznych, np. HTTP 504 z `releases.hashicorp.com`
+należą też runner bez KVM (adnotacja `INFRA:` z `ci/enable-kvm.sh`) oraz przejściowe błędy usług zewnętrznych, np. HTTP 504 z `releases.hashicorp.com`
 przy instalacji Packera, timeouty, błędy DNS czy limity API. Narzędzia CI pobiera `ci/install-tools.sh`,
 który sam ponawia pobieranie (`curl --retry-all-errors`) i sprawdza sumy SHA-256.
 

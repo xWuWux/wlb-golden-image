@@ -408,6 +408,9 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
 44. Przyczyna OOM osv-scannera zawężona bisekcją do JEDNEGO pakietu: linux-libc-dev (źródło: linux).
     Sam ten pakiet: > 6 GB w 160 s; 294 pozostałe pakiety: 1,2 GB w 7 s; bazowy ubuntu:24.04: 86 MB.
     Zgłoszone do google/osv-scanner; u nas issue #2.
+45. Przebieg #7: etap 5 padł na "test -w /dev/kvm" zaraz po udevadm trigger (wyścig z udev)
+    -> ci/enable-kvm.sh: udevadm settle, czekanie, w razie potrzeby chmod; brak /dev/kvm na runnerze
+       = adnotacja "INFRA:" (kategoria infra, automatyczne ponowienie).
 
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).

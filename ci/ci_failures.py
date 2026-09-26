@@ -50,6 +50,8 @@ def classify_job(job: dict, annotations: list[dict], run_conclusion: str | None)
         return None
     titles = [a.get("title") or "" for a in annotations]
     messages = [a.get("message") or "" for a in annotations]
+    if any(t.startswith("INFRA:") for t in titles):  # np. ci/enable-kvm.sh: runner bez KVM
+        return "infra"
     if any(t.startswith("OOM:") for t in titles):
         return "oom"
     if conclusion == "timed_out" or any(t.startswith("TIMEOUT:") for t in titles):
