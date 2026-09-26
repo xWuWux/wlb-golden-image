@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Strażnik zasobów: uruchamia polecenie z limitem czasu i pamięci i klasyfikuje wynik.
 #
-#   ci/guard.sh --name NAZWA [--timeout 30m] [--memory 2G] [--optional] -- POLECENIE...
+#   ci/guard.sh --name NAZWA [--timeout 30m] [--memory 2G] [--optional] [--ok-codes 0,1] -- POLECENIE...
 #
 # Po co: proces, który zużyje całą pamięć runnera, zabija też agenta GitHub Actions — job kończy się
 # wtedy "The operation was canceled" bez logów i artefaktów (tak było z osv-scanner na dpkg-status).
@@ -15,15 +15,17 @@
 #   OOM       zabite przez limit pamięci (kod 137)
 # --memory auto: cała pamięć maszyny minus 1 GB — zapas, który zawsze zostaje dla agenta runnera.
 # --optional: błąd nie przerywa (kod 0), ale jest raportowany jako ostrzeżenie.
+# --ok-codes: kody wyjścia oznaczające sukces (np. osv-scanner: 1 = znaleziono podatności — dla raportu to OK).
 set -uo pipefail
 
-NAME="" TIMEOUT=30m MEMORY="" OPTIONAL=0
+NAME="" TIMEOUT=30m MEMORY="" OPTIONAL=0 OK_CODES=0
 while [[ $# -gt 0 ]]; do
   case $1 in
     --name) NAME=$2 && shift 2 ;;
     --timeout) TIMEOUT=$2 && shift 2 ;;
     --memory) MEMORY=$2 && shift 2 ;;
     --optional) OPTIONAL=1 && shift ;;
+    --ok-codes) OK_CODES=$2 && shift 2 ;;
     --) shift && break ;;
     *) echo "guard: nieznana opcja $1" >&2 && exit 2 ;;
   esac
@@ -66,11 +68,11 @@ code=$?
 elapsed=$(($(date +%s) - start))
 
 case $code in
-  0) status=OK ;;
   124) status=TIMEOUT ;;
   137) status=OOM ;; # SIGKILL: OOM killer cgroup (albo timeout --kill-after)
   *) status=FAIL ;;
 esac
+[[ ",$OK_CODES," == *",$code,"* ]] && status=OK
 [[ $status == OOM && -z ${limiter[*]} ]] && status=FAIL # bez cgroup SIGKILL nie oznacza OOM
 if ((${#ctl[@]})); then
   result=$("${ctl[@]}" show -p Result --value "$unit.scope" 2>/dev/null)
@@ -88,7 +90,7 @@ annotate() { # annotate POZIOM TYTUŁ TREŚĆ — adnotacja GitHub (lokalnie: st
 level=error
 [[ $OPTIONAL == 1 ]] && level=warning
 case $status in
-  OK) exit 0 ;;
+  OK) exit 0 ;; # także kody z --ok-codes
   TIMEOUT) annotate "$level" "TIMEOUT: $NAME" "Przekroczony limit czasu $TIMEOUT po ${elapsed}s. Ścieżka: $RUNBOOK#timeout" ;;
   OOM) annotate "$level" "OOM: $NAME" "Przekroczony limit pamięci $MEMORY — proces zabity, runner działa dalej. Ścieżka: $RUNBOOK#oom" ;;
   FAIL) annotate "$level" "FAIL: $NAME" "Kod wyjścia $code po ${elapsed}s. Ścieżka: $RUNBOOK#test" ;;

@@ -75,3 +75,12 @@ last() { tail -1 "$GUARD_LOG_DIR/guard.jsonl"; }
   expected=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 - 1024))M
   last | grep -q "\"memory\": \"$expected\""
 }
+
+@test "--ok-codes: wskazane kody to sukces (np. osv-scanner: 1 = znalezione podatności)" {
+  run "$GUARD" --name raport --ok-codes 0,1 -- bash -c 'exit 1'
+  [ "$status" -eq 0 ]
+  last | grep -q '"status": "OK", "exit_code": 1'
+  run "$GUARD" --name raport --ok-codes 0,1 -- bash -c 'exit 2'
+  [ "$status" -eq 2 ]
+  last | grep -q '"status": "FAIL", "exit_code": 2'
+}

@@ -6,7 +6,7 @@
 #   4. obserwowalność: zdarzenia z observability/contract.yml docierają do logu centralnego
 #      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem)
 #   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   6. podatności pakietów faktycznie zainstalowanych w obrazie (raport) — osobno:
+#   6. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
@@ -167,13 +167,15 @@ image_sca() {
     return 0
   }
   python3 ci/sca_requirements.py "$ARTIFACTS/environment.lock.yml" build/sca/image-requirements.txt
-  # Bez dpkg-status: osv-scanner dla ~1000 pakietów Ubuntu przekraczał 3 GB pamięci i na runnerze
-  # (7 GB) zabijał agenta GitHub Actions. Pakiety systemowe są aktualne z definicji (dist-upgrade
-  # przy budowaniu, liczba zaległych aktualizacji w image-release); ich CVE — nowa wersja obrazu.
-  # Raport, nie bramka; strażnik pilnuje pamięci i czasu.
-  ci/guard.sh --name "osv-scanner (obraz)" --optional --timeout 10m --memory 1500M -- \
-    osv-scanner scan source --no-resolve --format markdown --output-file build/sca/image-osv.md \
-    -L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt
+  local inputs=(-L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt)
+  # pakiety systemowe (dpkg-status z VM testowej) — bez pakietu źródłowego "linux", który wywołuje
+  # nieograniczone zużycie pamięci w osv-scanner (ci/osv-scanner-image.toml, issue #2)
+  [[ -s $ARTIFACTS/dpkg-status ]] && inputs+=(-L "dpkg-status:$ARTIFACTS/dpkg-status")
+  # Raport, nie bramka: pakiety systemowe Ubuntu mają zwykle CVE bez poprawki w dystrybucji;
+  # poprawki wchodzą przez nową wersję obrazu. Strażnik pilnuje pamięci (pomiar: ~1,3 GB) i czasu.
+  ci/guard.sh --name "osv-scanner (obraz)" --optional --ok-codes 0,1 --timeout 10m --memory 2500M -- \
+    osv-scanner scan source --no-resolve --config ci/osv-scanner-image.toml \
+    --format markdown --output-file build/sca/image-osv.md "${inputs[@]}"
   local pending
   pending=$(grep -oP '^PENDING_UPGRADES=\K\d+' "$ARTIFACTS/image-release" 2>/dev/null || echo "?")
   {
@@ -181,7 +183,7 @@ image_sca() {
     echo
     echo "Zaległe aktualizacje pakietów systemowych w chwili budowania: **$pending**"
     echo
-    echo "<details><summary>osv-scanner: R + Python</summary>"
+    echo "<details><summary>osv-scanner: pakiety systemowe (bez jądra) + R + Python</summary>"
     echo
     cat build/sca/image-osv.md 2>/dev/null || echo "brak wyniku — zob. build/ci-logs/guard.jsonl"
     echo "</details>"
@@ -191,7 +193,12 @@ image_sca() {
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
-  [[ -d $ARTIFACTS ]] || ARTIFACTS=$(find build/artifacts -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+  # (najnowszy katalog, który faktycznie zawiera locki — mkdir powyżej mógł utworzyć pusty)
+  if [[ ! -s $ARTIFACTS/renv.lock ]]; then
+    latest=$(find build/artifacts -mindepth 2 -maxdepth 2 -name renv.lock -printf '%T@ %h\n' | sort -nr | head -1 | cut -d' ' -f2-)
+    [[ -n $latest ]] && ARTIFACTS=$latest
+  fi
+  echo "Artefakty: $ARTIFACTS"
   run_check "Podatności pakietów w obrazie (raport)" image_sca
   finish
   exit

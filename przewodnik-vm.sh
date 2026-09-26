@@ -425,6 +425,10 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
        Pełna lista z pak::pkg_sysreqs(..., sysreqs_platform = "ubuntu-24.04") wpisana jawnie
        w roli r_env (libzmq3-dev, libicu-dev, libx11-dev, xz-utils). Uwaga: ponawianie zadania nie
        pomaga przy błędach deterministycznych — czytaj pierwszy komunikat, nie ostatni.
+51. Skan pakietów systemowych przywrócony (issue #2): ci/osv-scanner-image.toml pomija pakiet
+    źródłowy "linux" -> 1066 pakietów w 19 s, 1,3 GB. ci/integration.sh image-sca brał pusty katalog
+    artefaktów (utworzony przez mkdir przed wyborem) -> wybór najnowszego katalogu z lockami.
+    osv-scanner kończy się kodem 1, gdy ZNAJDZIE podatności -> strażnik: --ok-codes 0,1 dla raportu.
 
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).

@@ -61,8 +61,11 @@ gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-rep
 
 Przykład: `osv-scanner` dla `dpkg-status` (około 1000 pakietów Ubuntu) przekraczał 3 GB w niecałą minutę.
 Na runnerze z 7 GB zabijał agenta GitHub Actions („The operation was canceled”, brak artefaktów).
-Rozwiązanie polegało na usunięciu tego wejścia ze skanu. Pakiety systemowe są aktualne z definicji,
-a w `image-release` zapisywane jest `PENDING_UPGRADES`.
+Bisekcja wskazała jeden pakiet źródłowy, `linux` (jądro, około 4000 rekordów podatności), zgłoszony jako
+[google/osv-scanner#3105](https://github.com/google/osv-scanner/issues/3105). Rozwiązanie:
+`ci/osv-scanner-image.toml` pomija pakiet źródłowy `linux`. Override musi używać nazwy z pola `Source:`,
+a nie `Package:`. Skan 1066 pakietów trwa wtedy 19 s przy szczycie 1,3 GB. CVE jądra obsługujemy
+aktualizacją jądra w każdej wersji obrazu.
 
 ## timeout
 
