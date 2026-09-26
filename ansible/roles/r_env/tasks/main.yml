@@ -3,6 +3,10 @@
     url: https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc
     dest: /etc/apt/keyrings/cran.asc
     mode: "0644"
+  register: r_env_cran_key
+  until: r_env_cran_key is succeeded
+  retries: 3
+  delay: 30
 
 - name: Biblioteka python3-debian (wymagana przez deb822_repository)
   ansible.builtin.apt:
@@ -16,6 +20,10 @@
     suites: ["{{ ansible_distribution_release }}-cran40/"]
     signed_by: /etc/apt/keyrings/cran.asc
 
+# Biblioteki systemowe muszą być tu jawnie: renv::restore (budowanie z renv.lock) — w odróżnieniu
+# od pak przy pierwszym budowaniu — ich nie doinstalowuje (błąd: libzmq.so.5 dla pbdZMQ).
+# Lista z: pak::pkg_sysreqs(<pakiety z envs/r/renv.lock>, sysreqs_platform = "ubuntu-24.04")
+# -> default-jdk libicu-dev libx11-dev libxml2-dev libzmq3-dev make python3 xz-utils (2026-09-26)
 - name: R, Java (rJava / DatabaseConnector) i biblioteki do kompilacji pakietów
   ansible.builtin.apt:
     update_cache: true
@@ -39,6 +47,10 @@
       - libjpeg-dev
       - libtiff-dev
       - zlib1g-dev
+      - libzmq3-dev # pbdZMQ (IRkernel)
+      - libicu-dev # stringi
+      - libx11-dev
+      - xz-utils
 
 - name: Konfiguracja Javy dla R
   ansible.builtin.command: R CMD javareconf
@@ -73,6 +85,10 @@
   ansible.builtin.command: Rscript /opt/wlb/envs/r/install-r-env.R /opt/wlb/envs/r {{ r_jdbc_dir }}
   environment:
     PATH: /opt/tljh/user/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  register: r_env_install
+  until: r_env_install is succeeded
+  retries: 3
+  delay: 30
   changed_when: true
 
 - name: Pobierz renv.lock do artefaktów budowania

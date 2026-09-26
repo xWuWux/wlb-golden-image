@@ -39,6 +39,12 @@ POLICY = yaml.safe_load((REPO_ROOT / "ci/license-policy.yml").read_text())
         ("", "unknown"),
         (None, "unknown"),
         ("WTFPL", "unknown"),
+        ("0BSD AND LGPL-2.1-or-later AND GPL-2.0-or-later", "allowed"),
+        ("X11 AND BSD-3-Clause", "allowed"),
+        ("IJG AND BSD-3-Clause AND Zlib", "allowed"),
+        ("LicenseRef-libglvnd", "allowed"),
+        ("LicenseRef-Ubuntu-Font-Licence-Version-1.0", "allowed"),
+        ("LicenseRef-Nieznana", "unknown"),
     ],
 )
 def test_evaluate(expr, verdict):
@@ -115,6 +121,8 @@ def repo(tmp_path):
 
 
 def test_r_z_plikow_intencji_z_zaleznosciami_i_fallbackiem_github(repo):
+    # ścieżka "przed make freeze": pusty renv.lock -> pakiety z hades-packages.txt i ich zależności
+    (repo / "envs/r/renv.lock").write_text(json.dumps({"R": {}, "Packages": {}}))
     (repo / "envs/r/hades-packages.txt").write_text("TopPkg\nOhdsiOnly  OHDSI/OhdsiOnly@*release  # spoza CRAN\n")
     fetcher = FakeFetcher({
         "src/contrib/PACKAGES": PACKAGES.encode(),
@@ -158,6 +166,31 @@ def test_python_z_locka_conda_i_pip(repo):
     assert pkgs["pip"].license == "MIT"
     assert pkgs["inspectomop"].license == "GNU Affero General Public License v3"
     assert (pkgs["other"].version, pkgs["other"].license) == ("1.5", "Apache 2.0")
+
+
+def test_conda_brak_w_api_to_licencja_nieznana(repo):
+    import urllib.error
+
+    (repo / "envs/python/environment.lock.yml").write_text(
+        "dependencies:\n  - pakiet-spoza-api=0.1\n  - pandas=2.2.3\n"
+    )
+
+    def fetcher(url):
+        if "pakiet-spoza-api" in url:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        if "pandas" in url:
+            return json.dumps({"license": "BSD-3-Clause"}).encode()
+        raise urllib.error.HTTPError(url, 500, "boom", {}, None)
+
+    pkgs = {p.name: p for p in lc.python_packages(repo, fetcher)}
+    assert pkgs["pakiet-spoza-api"].license is None and pkgs["pakiet-spoza-api"].note == "brak w api.anaconda.org"
+    lc.apply_policy(list(pkgs.values()), POLICY)
+    assert pkgs["pakiet-spoza-api"].verdict == "unknown"
+    assert "brak w api.anaconda.org" in pkgs["pakiet-spoza-api"].note
+
+    (repo / "envs/python/environment.lock.yml").write_text("dependencies:\n  - inny=1\n")
+    with pytest.raises(urllib.error.HTTPError):  # inne błędy HTTP nie są maskowane
+        lc.python_packages(repo, fetcher)
 
 
 def test_main_konczy_sie_bledem_przy_naruszeniach(repo, monkeypatch, capsys):

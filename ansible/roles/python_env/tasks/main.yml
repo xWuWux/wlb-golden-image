@@ -19,6 +19,14 @@
     /opt/tljh/user/bin/conda env update
     --prefix /opt/tljh/user
     --file /opt/wlb/envs/python/environment.yml
+  environment:
+    # conda sama ponawia pobieranie pojedynczych paczek (HTTP 000/5xx z conda.anaconda.org)
+    CONDA_REMOTE_MAX_RETRIES: "5"
+    CONDA_REMOTE_BACKOFF_FACTOR: "3"
+  register: python_env_update
+  until: python_env_update is succeeded
+  retries: 3
+  delay: 30
   changed_when: true
 
 - name: Zamrożenie wersji (conda env export)

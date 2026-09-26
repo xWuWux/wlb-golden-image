@@ -411,6 +411,20 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
 45. Przebieg #7: etap 5 padł na "test -w /dev/kvm" zaraz po udevadm trigger (wyścig z udev)
     -> ci/enable-kvm.sh: udevadm settle, czekanie, w razie potrzeby chmod; brak /dev/kvm na runnerze
        = adnotacja "INFRA:" (kategoria infra, automatyczne ponowienie).
+46. make freeze ujawnił podatności w pakietach bazowych Pythona z instalatora TLJH (urllib3 CVSS 8.9,
+    setuptools 8.8, requests, idna, h2, hpack, wheel) -> minimalne wersje w environment.yml.
+47. Kontrola licencji wysypywała się na timeoutach api.anaconda.org przy 468 pakietach (16 wątków)
+    -> ponawianie z przerwą, 6 wątków, brak pakietu w API = licencja nieznana (do oceny).
+48. Budowanie padło na "CondaHTTPError: HTTP 000 CONNECTION FAILED" (pobieranie paczki conda-forge)
+    -> ponawianie we wszystkich zadaniach Ansible z siecią (conda: CONDA_REMOTE_MAX_RETRIES +
+       retries zadania; TLJH, R, get_url, RStudio) i Acquire::Retries dla apt.
+49. osv-scanner: override pakietu musi używać nazwy ŹRÓDŁOWEJ (Source:), nie binarnej —
+    name = "linux" działa (skan 1 s), name = "linux-libc-dev" nie (dalej OOM).
+50. Budowanie z zamrożonego renv.lock: "libzmq.so.5: cannot open shared object file" (pbdZMQ)
+    -> pierwsze budowanie (pak) samo doinstalowywało biblioteki systemowe, renv::restore tego nie robi.
+       Pełna lista z pak::pkg_sysreqs(..., sysreqs_platform = "ubuntu-24.04") wpisana jawnie
+       w roli r_env (libzmq3-dev, libicu-dev, libx11-dev, xz-utils). Uwaga: ponawianie zadania nie
+       pomaga przy błędach deterministycznych — czytaj pierwszy komunikat, nie ostatni.
 
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).

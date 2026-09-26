@@ -4,6 +4,10 @@
 - name: RStudio Server
   ansible.builtin.apt:
     deb: "{{ rstudio_server_deb_url }}"
+  register: rstudio_deb
+  until: rstudio_deb is succeeded
+  retries: 3
+  delay: 30
 
 - name: Samodzielna usługa rstudio-server wyłączona
   ansible.builtin.systemd_service:
@@ -12,5 +16,9 @@
     state: stopped
 
 - name: Instalacja jupyter-rsession-proxy w środowisku użytkowników
-  ansible.builtin.command: /opt/tljh/user/bin/pip install {{ rstudio_rsession_proxy_spec }}
+  ansible.builtin.command: /opt/tljh/user/bin/pip install --retries 5 {{ rstudio_rsession_proxy_spec }}
+  register: rstudio_proxy_install
+  until: rstudio_proxy_install is succeeded
+  retries: 3
+  delay: 30
   changed_when: true

@@ -25,6 +25,18 @@ allowed:
   - Unicode
   - curl
   - OpenSSL
+  - 0BSD
+  - bzip2
+  - PostgreSQL
+  - blessing     # SQLite
+  - X11
+  - OLDAP        # OpenLDAP Public License
+  - TCL
+  - IJG          # libjpeg
+  # LicenseRef-* z conda-forge, treść sprawdzona ręcznie (2026-09-26): licencje liberalne
+  - UFL-1.0      # Ubuntu Font Licence 1.0 (czcionki; zmiana nazwy przy modyfikacji)
+  - libglvnd     # libglvnd: licencja typu MIT
+  - Qhull        # Qhull: licencja liberalna, bez copyleftu
 
 # Wymagają decyzji (wpis w `exceptions` z uzasadnieniem)
 review:
@@ -44,6 +56,10 @@ exceptions:
     note: >-
       AGPL-3.0; użycie wewnętrzne bez modyfikacji, badacze nie udostępniają go jako usługi
       sieciowej osobom trzecim. DO POTWIERDZENIA przez dział prawny GUMed (2026-09-25).
+  - ecosystem: conda
+    package: _libgcc_mutex
+    note: >-
+      Metapakiet conda-forge bez kodu (wybór wariantu libgcc), brak wpisu licencji w API (2026-09-26).
   - ecosystem: cran
     package: stringi
     note: >-

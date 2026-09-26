@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -62,6 +63,18 @@ LICENSE_PATTERNS = [
     (r"^(unicode|ucd)", "Unicode"),
     (r"^curl", "curl"),
     (r"^openssl", "OpenSSL"),
+    (r"^0bsd", "0BSD"),
+    (r"^bzip2", "bzip2"),
+    (r"^postgresql", "PostgreSQL"),
+    (r"^blessing", "blessing"),  # SQLite (domena publiczna z "błogosławieństwem")
+    (r"^x11", "X11"),
+    (r"^oldap", "OLDAP"),
+    (r"^tcl", "TCL"),
+    (r"^ijg", "IJG"),
+    # licencje niestandardowe (LicenseRef-*) — rodziny sprawdzone ręcznie, zob. ci/license-policy.yml
+    (r"^licenseref-ubuntu-font-licen[cs]e", "UFL-1.0"),
+    (r"^licenseref-libglvnd", "libglvnd"),
+    (r"^licenseref-qhull", "Qhull"),
 ]
 
 
@@ -143,7 +156,7 @@ def apply_policy(packages: list[Package], policy: dict) -> None:
         if verdict != "allowed" and exc:
             pkg.verdict, pkg.note = "exception", exc.get("note", "")
         else:
-            pkg.verdict, pkg.note = verdict, why
+            pkg.verdict, pkg.note = verdict, "; ".join(filter(None, [pkg.note, why]))
 
 
 # --- zbieranie pakietów ---------------------------------------------------------------
@@ -153,18 +166,20 @@ def fetch(url: str) -> bytes:  # pragma: no cover - sieć
     if not url.startswith("https://"):
         raise ValueError(f"dozwolone tylko https: {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "wlb-license-check"})  # noqa: S310 - sprawdzone wyżej
-    for attempt in range(3):
+    attempts = 5
+    for attempt in range(attempts):
         try:
             # schemat sprawdzony wyżej (tylko https), adresy budowane w kodzie z nazw pakietów
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310  # nosec B310
                 return resp.read()
         except urllib.error.HTTPError as e:
-            if e.code == 404:
+            if e.code == 404 or attempt == attempts - 1:
                 raise
-        except urllib.error.URLError:
-            if attempt == 2:
+        except OSError:  # URLError, TimeoutError, reset połączenia — przejściowe
+            if attempt == attempts - 1:
                 raise
+        time.sleep(2**attempt)  # 1, 2, 4, 8 s
     raise RuntimeError(url)
 
 
@@ -254,7 +269,13 @@ def python_packages(repo_root: Path, fetcher=fetch) -> list[Package]:
         version = rest.split("=")[0] or "?"
         if name == "pip":
             return Package("conda", name, version, "MIT")
-        meta = json.loads(fetcher(f"https://api.anaconda.org/package/conda-forge/{name}"))
+        try:
+            meta = json.loads(fetcher(f"https://api.anaconda.org/package/conda-forge/{name}"))
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+            # brak w API conda-forge: licencja nieznana -> naruszenie do oceny (wyjątek w polityce)
+            return Package("conda", name, version, None, note="brak w api.anaconda.org")
         return Package("conda", name, version, meta.get("license"))
 
     def pypi_pkg(spec: tuple[str, str]) -> Package:
@@ -268,7 +289,8 @@ def python_packages(repo_root: Path, fetcher=fetch) -> list[Package]:
             lic = " OR ".join(osi) if osi else ((info.get("license") or "").strip().splitlines() or [None])[0]
         return Package("pypi", name, version or info.get("version", "?"), lic)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
+    # umiarkowana równoległość: przy 16 wątkach API conda-forge zwracało timeouty
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(conda_pkg, conda)) + list(pool.map(pypi_pkg, pip))
     return results
 
