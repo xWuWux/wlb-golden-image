@@ -67,6 +67,13 @@ acceptance() {
   rm -f "$LOGS/siem.log"
   python3 tests/syslog_sink.py --port 5514 --out "$LOGS/siem.log" &
   sink=$!
+  sleep 1
+  # odbiornik musi słuchać, zanim wystartuje VM — inaczej zdarzenia trafią gdzie indziej
+  # (np. do odbiornika z ręcznego testu, który nadal trzyma port) i wynik będzie mylący
+  if ! kill -0 "$sink" 2>/dev/null; then
+    echo "Testowy odbiornik SIEM nie wystartował — port 5514 zajęty? (ss -ltnp 'sport = :5514')"
+    return 1
+  fi
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
     tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?

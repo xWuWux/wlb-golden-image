@@ -26,12 +26,13 @@ PROXY_URL=http://10.20.0.10:3128
 PYPI_INDEX_URL=https://pypi.wlb.local/simple
 CRAN_MIRROR_URL=https://cran.wlb.local
 EGRESS_ALLOW="10.20.0.10:3128 10.30.0.0/24:5432"
+NTP_SERVERS="10.10.0.2 ntp.wlb.local"
 ADMIN_SSH_CIDR=10.10.0.0/24
 SIEM_HOST=10.40.0.20
 EOF
   mkdir -p "$SANDBOX/etc/sudoers.d"
   touch "$SANDBOX/etc/sudoers.d/jupyterhub-admins"
-  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep; do stub "$cmd"; done
+  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep chronyc; do stub "$cmd"; done
   stub getent 2
   stub tljh-config 0 "users:"
   stub wlb-hub-user 0 "haslo-poczatkowe-123"
@@ -85,6 +86,14 @@ EOF
 
   # SIEM
   grep -q 'target="10.40.0.20" port="514" protocol="tcp"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+
+  # NTP (#5): źródła z lab.env, przeładowanie chrony
+  grep -qx 'server 10.10.0.2 iburst' "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  grep -qx 'server ntp.wlb.local iburst' "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  calls | grep -qx 'chronyc reload sources'
+
+  # śluza wyjściowa restartowana po montowaniach (#4)
+  calls | grep -qx 'systemctl restart wlb-sluza-out.service'
 
   # hub: admin, brak sudo, hasło początkowe tylko dla roota
   calls | grep -qx 'tljh-config add-item users.admin admin-klienta'
@@ -142,6 +151,31 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"błędne reguły nftables"* ]]
+}
+
+@test "bez NTP_SERVERS: ostrzeżenie i brak źródeł z obrazu" {
+  mkdir -p "$SANDBOX/etc/chrony/sources.d"
+  touch "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  sed -i '/^NTP_SERVERS=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/etc/chrony/sources.d/wlb.sources" ]
+  [[ $output == *"NTP_SERVERS nie ustawione"* ]]
+}
+
+@test "nieprawidłowy serwer NTP przerywa konfigurację" {
+  sed -i 's/^NTP_SERVERS=.*/NTP_SERVERS="10.10.0.2 ;rm"/' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nieprawidłowy serwer w NTP_SERVERS: ';rm'"* ]]
+  [ ! -e "$SANDBOX/etc/chrony/sources.d/wlb.sources" ] # bez połowicznego pliku
+}
+
+@test "chronyc niedostępny: restart usługi chrony" {
+  stub chronyc 1
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'systemctl restart chrony'
 }
 
 @test "bez SIEM_HOST logi zostają lokalnie" {

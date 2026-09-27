@@ -11,6 +11,14 @@ case $1 in
     [[ $(hub_login "$USER_NAME" "$password") == 302 ]] || exit 1
     hub_spawn "$USER_NAME" || exit 1
     as "$USER_NAME" sh -c 'mkdir -p ~/wyniki && echo migracja-ok > ~/wyniki/dane.csv' || exit 1
+    # wniosek o eksport czekający na Kontrolera w chwili wymiany obrazu (#4)
+    as "$USER_NAME" sh -c 'echo wniosek > /sluza-out/przed-migracja.csv' || exit 1
+    queue=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
+    for _ in $(seq 1 15); do
+      compgen -G "$queue/*_przed-migracja.csv" >/dev/null && break
+      sleep 1
+    done
+    compgen -G "$queue/*_przed-migracja.csv" >/dev/null || exit 1
     echo "$(id -u "jupyter-$USER_NAME") $password $(cat /root/wlb-hub-admin-initial-password)"
     ;;
   verify)
@@ -27,6 +35,8 @@ case $1 in
       test "$(hub_login admin-klienta "$admin_password")" = 302
     expect_fail "Nowa VM nie wygenerowała nowego hasła admina" test -s /root/wlb-hub-admin-initial-password
     expect_ok "Hub działa po ewentualnej aktualizacji schematu bazy" curl -sf -o /dev/null "$HUB/hub/api"
+    queue=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
+    expect_ok "Wniosek o eksport z poprzedniej VM jest w kolejce (#4)" compgen -G "$queue/*_przed-migracja.csv"
     summary
     ;;
   *)

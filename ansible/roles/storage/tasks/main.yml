@@ -80,6 +80,8 @@
       [Unit]
       Description=WLB: przenoszenie plików z /sluza-out do kolejki zatwierdzenia eksportu
       After=local-fs.target remote-fs.target
+      # kolejka leży na dysku roboczym — bez niego wnioski trafiłyby na jednorazowy dysk systemowy
+      RequiresMountsFor={{ wlb_export_queue_dir | dirname }} /sluza-out
 
       [Service]
       ExecStart=/usr/local/sbin/wlb-sluza-out-mover
