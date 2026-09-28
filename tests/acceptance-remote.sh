@@ -76,7 +76,10 @@ expect_ok "Kolejka eksportu na dysku roboczym" test "$(findmnt -no TARGET --targ
 # dowiązanie do pliku systemowego: odrzucone, a root nie zmienia praw celu (#29)
 passwd_mode=$(stat -c %a /etc/passwd)
 as $R1 ln -s /etc/passwd /sluza-out/link-test
-sleep 5
+for _ in $(seq 1 15); do
+  journalctl -t wlb-sluza-out | grep -q 'entry=link-test ' && break
+  sleep 1
+done
 expect_ok "Dowiązanie w /sluza-out odrzucone (#29)" \
   bash -c "journalctl -t wlb-sluza-out | grep -q 'rejected user=jupyter-$R1 entry=link-test reason=unsupported_type'"
 expect_ok "Prawa /etc/passwd bez zmian (#29)" test "$(stat -c %a /etc/passwd)" = "$passwd_mode"

@@ -106,6 +106,8 @@ fi
 log "start src=$SRC queue=$QUEUE"
 while true; do
   sweep
-  # budzi się po zamknięciu pliku lub przeniesieniu, najpóźniej co 30 s (katalogi)
-  inotifywait -q -t 30 -e close_write -e moved_to "$SRC" >/dev/null 2>&1 || true
+  # budzi się po zamknięciu pliku, przeniesieniu lub utworzeniu wpisu, najpóźniej co 30 s (katalogi).
+  # create: dowiązania, katalogi i pliki specjalne nie dają close_write — bez tego czekałyby do 30 s.
+  # Plik tworzony do zapisu jest wtedy jeszcze otwarty (fuser), więc poczeka na close_write.
+  inotifywait -q -t 30 -e close_write -e moved_to -e create "$SRC" >/dev/null 2>&1 || true
 done
