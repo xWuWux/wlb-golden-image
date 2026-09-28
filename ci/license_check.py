@@ -162,24 +162,29 @@ def apply_policy(packages: list[Package], policy: dict) -> None:
 # --- zbieranie pakietów ---------------------------------------------------------------
 
 
+def transient(e: Exception) -> bool:
+    """Błąd przejściowy rejestru pakietów: sieć, timeout, 429, 5xx. 404 i inne 4xx — trwałe."""
+    if isinstance(e, urllib.error.HTTPError):  # dziedziczy po OSError — sprawdzany pierwszy
+        return e.code == 429 or e.code >= 500
+    return isinstance(e, OSError)
+
+
 def fetch(url: str) -> bytes:  # pragma: no cover - sieć
     if not url.startswith("https://"):
         raise ValueError(f"dozwolone tylko https: {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "wlb-license-check"})  # noqa: S310 - sprawdzone wyżej
-    attempts = 5
+    # awarie PyPI potrafią trwać kilka minut (np. 503 "Backend is unhealthy") — łącznie ok. 1,5 min prób
+    attempts = 8
     for attempt in range(attempts):
         try:
             # schemat sprawdzony wyżej (tylko https), adresy budowane w kodzie z nazw pakietów
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             with urllib.request.urlopen(req, timeout=60) as resp:  # noqa: S310  # nosec B310
                 return resp.read()
-        except urllib.error.HTTPError as e:
-            if e.code == 404 or attempt == attempts - 1:
+        except OSError as e:  # HTTPError, URLError, TimeoutError, reset połączenia
+            if not transient(e) or attempt == attempts - 1:
                 raise
-        except OSError:  # URLError, TimeoutError, reset połączenia — przejściowe
-            if attempt == attempts - 1:
-                raise
-        time.sleep(2**attempt)  # 1, 2, 4, 8 s
+        time.sleep(min(2**attempt, 30))  # 1, 2, 4, 8, 16, 30, 30 s
     raise RuntimeError(url)
 
 
@@ -329,7 +334,14 @@ def main(argv=None) -> int:
     cran_repo = f"https://packagemanager.posit.co/cran/{group_vars['r_cran_snapshot_date']}"
     locked = (root / "envs/python/environment.lock.yml").exists()
 
-    packages = r_packages(root, cran_repo) + python_packages(root)
+    try:
+        packages = r_packages(root, cran_repo) + python_packages(root)
+    except OSError as e:
+        if not transient(e):
+            raise
+        # awaria rejestru (PyPI, CRAN, conda-forge), a nie naruszenie licencji — ci-retry.yml ponowi przebieg
+        print(f"::error title=INFRA: rejestr pakietów niedostępny::Kontrola licencji przerwana: {e}")
+        return 1
     apply_policy(packages, policy)
     text, violations = report(packages, locked)
     print(text)
