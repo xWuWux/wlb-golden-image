@@ -180,3 +180,17 @@ EOF
   [ "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 | wc -l)" -eq 2 ]
   [ "$(cat "$WLB_EXPORT_QUEUE"/* | sort | tr '\n' ' ')" = "drugi pierwszy " ]
 }
+
+@test "suma katalogu nie zależy od jego położenia i da się ją odtworzyć w kolejce" {
+  mkdir -p "$WLB_SLUZA_OUT/wyniki/pod" "$BATS_TEST_TMPDIR/gdzie-indziej/wyniki/pod"
+  for d in "$WLB_SLUZA_OUT/wyniki" "$BATS_TEST_TMPDIR/gdzie-indziej/wyniki"; do
+    echo a >"$d/a.csv"
+    echo b >"$d/pod/b.csv"
+  done
+  expected=$(cd "$BATS_TEST_TMPDIR/gdzie-indziej/wyniki" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+  touch -d '10 minutes ago' "$WLB_SLUZA_OUT/wyniki" "$WLB_SLUZA_OUT/wyniki/"* "$WLB_SLUZA_OUT/wyniki/pod/"*
+  "$MOVER" --once
+  calls | grep -q "entry=wyniki sha256=$expected "
+  queued=$WLB_EXPORT_QUEUE/$(ls "$WLB_EXPORT_QUEUE")
+  [ "$(cd "$queued" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)" = "$expected" ]
+}
