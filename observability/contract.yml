@@ -40,15 +40,17 @@ events:
     acceptance: true
 
   - name: sluza_out.rejected
-    description: Wpis w /sluza-out odrzucony (dowiązanie lub plik specjalny) i usunięty.
+    description: >-
+      Wpis w /sluza-out (albo element eksportowanego katalogu, entry=katalog/ścieżka) odrzucony i usunięty
+      — reason=unsupported_type (dowiązanie symboliczne, plik specjalny) lub hardlink (drugie dowiązanie twarde). #29
     regulamin: "§10"
     source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: rejected }
     format: kv
     fields:
       user: ".+"
       entry: ".+"
-      reason: "^[a-z_]+$"
-    acceptance: false
+      reason: "^(unsupported_type|hardlink)$"
+    acceptance: true
 
   - name: sluza_out.start
     description: Start usługi śluzy wyjściowej (przy starcie VM — przed konfiguracją SIEM).

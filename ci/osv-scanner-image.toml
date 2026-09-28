@@ -5,6 +5,7 @@
 # agenta GitHub Actions — https://github.com/google/osv-scanner/issues/3105, u nas issue #2.
 # Override dopasowuje nazwę ŹRÓDŁOWĄ (pole Source: w dpkg status), nie binarną.
 # CVE jądra śledzimy przez aktualizacje jądra w kolejnych wersjach obrazu (dist-upgrade przy budowaniu).
+# TODO: usunąć override po poprawce zużycia pamięci w google/osv-scanner#3105 (analiza i pomiar: issue #3)
 [[PackageOverrides]]
 name = "linux"
 ignore = true

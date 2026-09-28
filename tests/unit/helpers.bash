@@ -42,3 +42,16 @@ refute() {
     return 1
   fi
 }
+
+# unstub_chown — prawdziwy chown (bez zmiany właściciela: nie-root może tylko "na siebie"), żeby test
+# widział, czy chown/chmod podążyłyby za dowiązaniem. Wywołania nadal są zapisywane.
+unstub_chown() {
+  cat >"$STUBS/chown" <<'EOF'
+#!/usr/bin/env bash
+echo "chown $*" >>"$CALLS"
+args=("$@")
+for i in "${!args[@]}"; do [[ ${args[$i]} == root:root ]] && args[i]="$(id -un):$(id -gn)"; done
+exec /usr/bin/chown "${args[@]}"
+EOF
+  chmod +x "$STUBS/chown"
+}
