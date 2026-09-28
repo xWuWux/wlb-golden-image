@@ -16,21 +16,58 @@ DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletn
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
 
+# Wpis sprawdzamy dopiero PO przeniesieniu do kolejki (0700 root), gdzie badacz nie ma już do niego
+# dostępu. Sprawdzenie w /sluza-out i przeniesienie to dwa kroki: w międzyczasie badacz może podmienić
+# własny plik na dowiązanie symboliczne (np. do /etc/passwd) — root zmieniłby wtedy prawa celu, a do
+# kolejki trafiłoby dowiązanie do cudzych danych. #29
 queue_entry() {
-  local path=$1 name owner uid ts dest sha
+  local path=$1 name owner uid ts incoming dest sha type inner
   name=$(basename -- "$path")
-  owner=$(stat -c %U -- "$path")
-  uid=$(stat -c %u -- "$path")
   ts=$(date -u +%Y%m%dT%H%M%SZ)
-  dest="$QUEUE/${ts}_${owner}_${name}"
-  mv -- "$path" "$dest"
-  chown -R root:root -- "$dest"
-  chmod -R go-rwx -- "$dest"
-  if [[ -f $dest ]]; then
-    sha=$(sha256sum -- "$dest" | cut -d' ' -f1)
-  else
-    sha=$(find "$dest" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+  incoming=$(mktemp -u "$QUEUE/.incoming.XXXXXXXX")
+  # mv nie podąża za dowiązaniami (przenosi samo dowiązanie); między systemami plików kopiuje
+  # zawartość do nowego i-węzła. Wpis mógł zniknąć (badacz go usunął) — to nie błąd usługi.
+  if ! mv -T -- "$path" "$incoming" 2>/dev/null; then
+    rm -rf -- "$incoming"
+    return 0
   fi
+  # od tego miejsca wszystko na kopii w kolejce; stat bez -L nie podąża za dowiązaniem
+  owner=$(stat -c %U -- "$incoming")
+  uid=$(stat -c %u -- "$incoming")
+
+  if [[ -L $incoming ]] || [[ ! -f $incoming && ! -d $incoming ]]; then
+    log "rejected user=$owner entry=$name reason=unsupported_type"
+    rm -rf -- "$incoming"
+    return 0
+  fi
+  # drugie dowiązanie twarde do tego samego i-węzła zostaje u badacza — mógłby zmienić treść
+  # pliku już po wyliczeniu sumy kontrolnej (przez wcześniej otwarty deskryptor)
+  if [[ -f $incoming && $(stat -c %h -- "$incoming") -gt 1 ]]; then
+    log "rejected user=$owner entry=$name reason=hardlink"
+    rm -f -- "$incoming"
+    return 0
+  fi
+  if [[ -d $incoming ]]; then
+    # wewnątrz katalogu: dowiązania, pliki specjalne i dowiązania twarde usuwamy, resztę eksportujemy
+    while IFS= read -r -d '' inner; do
+      type=${inner%% *} inner=${inner#* }
+      log "rejected user=$owner entry=$name/${inner#"$incoming"/} reason=$([[ $type == f ]] && echo hardlink || echo unsupported_type)"
+      rm -f -- "$inner"
+    done < <(find -P "$incoming" -mindepth 1 \( \( ! -type f ! -type d \) -o \( -type f -links +1 \) \) -printf '%y %p\0')
+  fi
+
+  # w kolejce zostały tylko zwykłe pliki i katalogi; -h na wszelki wypadek nie podąża za dowiązaniami
+  chown -hR root:root -- "$incoming"
+  chmod -R go-rwx -- "$incoming"
+  if [[ -f $incoming ]]; then
+    sha=$(sha256sum -- "$incoming" | cut -d' ' -f1)
+  else
+    sha=$(find -P "$incoming" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+  fi
+  dest="$QUEUE/${ts}_${owner}_${name}"
+  # dwa wpisy o tej samej nazwie w tej samej sekundzie nie mogą się nadpisać
+  [[ -e $dest || -L $dest ]] && dest+=".$(basename -- "$incoming" | cut -d. -f3)"
+  mv -T -- "$incoming" "$dest"
   log "export_request user=$owner uid=$uid entry=$name sha256=$sha queued_as=$(basename -- "$dest")"
 }
 
@@ -38,17 +75,21 @@ sweep() {
   local entry newest
   shopt -s nullglob dotglob
   for entry in "$SRC"/*; do
+    # wstępna selekcja; o dopuszczeniu wpisu decyduje queue_entry na kopii w kolejce
     if [[ -f $entry && ! -L $entry ]]; then
       # plik wciąż otwarty przez proces badacza — poczekaj na zamknięcie
       fuser -s -- "$entry" 2>/dev/null && continue
       queue_entry "$entry"
     elif [[ -d $entry && ! -L $entry ]]; then
-      newest=$(find "$entry" -printf '%T@\n' | sort -n | tail -1)
-      (($(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS)) && queue_entry "$entry"
+      # badacz może w tym czasie usuwać pliki — błąd find nie może zatrzymać usługi
+      newest=$(find -P "$entry" -printf '%T@\n' 2>/dev/null | sort -n | tail -1) || true
+      [[ -n $newest ]] || continue
+      if (($(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS)); then queue_entry "$entry"; fi
     else
-      # dowiązania i pliki specjalne nie są dopuszczone do eksportu
-      log "rejected user=$(stat -c %U -- "$entry") entry=$(basename -- "$entry") reason=unsupported_type"
-      rm -f -- "$entry"
+      # dowiązania i pliki specjalne nie są dopuszczone do eksportu (rm -f nie podąża za dowiązaniem;
+      # jeśli wpis został w międzyczasie podmieniony na katalog, obsłuży go następny przegląd)
+      log "rejected user=$(stat -c %U -- "$entry" 2>/dev/null || echo '?') entry=$(basename -- "$entry") reason=unsupported_type"
+      rm -f -- "$entry" 2>/dev/null || true
     fi
   done
   shopt -u nullglob dotglob
@@ -65,6 +106,8 @@ fi
 log "start src=$SRC queue=$QUEUE"
 while true; do
   sweep
-  # budzi się po zamknięciu pliku lub przeniesieniu, najpóźniej co 30 s (katalogi)
-  inotifywait -q -t 30 -e close_write -e moved_to "$SRC" >/dev/null 2>&1 || true
+  # budzi się po zamknięciu pliku, przeniesieniu lub utworzeniu wpisu, najpóźniej co 30 s (katalogi).
+  # create: dowiązania, katalogi i pliki specjalne nie dają close_write — bez tego czekałyby do 30 s.
+  # Plik tworzony do zapisu jest wtedy jeszcze otwarty (fuser), więc poczeka na close_write.
+  inotifywait -q -t 30 -e close_write -e moved_to -e create "$SRC" >/dev/null 2>&1 || true
 done

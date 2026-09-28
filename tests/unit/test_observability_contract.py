@@ -151,6 +151,8 @@ def test_bledy_samego_kontraktu(repo):
 GOOD = [
     f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - - export_request user=jupyter-tester1 uid=10000 "
     f"entry=wynik.csv sha256={SHA} queued_as=20260925T120000Z_jupyter-tester1_wynik.csv",
+    "<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - - rejected user=jupyter-tester1 "
+    "entry=link-test reason=unsupported_type",
     '<13>1 2026-09-25T12:00:00Z lab-test01 wlb-firstboot 12 - [timeQuality isSynced="1"] '
     "Laboratorium lab-test01 skonfigurowane",
     "<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - - [I 2026 JupyterHub base:931] User logged in: tester1",

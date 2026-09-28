@@ -73,6 +73,17 @@ expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q
 expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls "$QUEUE"
 # kolejka na dysku roboczym (przeżywa wymianę dysku systemowego, #4)
 expect_ok "Kolejka eksportu na dysku roboczym" test "$(findmnt -no TARGET --target "$QUEUE")" = /workspace
+# dowiązanie do pliku systemowego: odrzucone, a root nie zmienia praw celu (#29)
+passwd_mode=$(stat -c %a /etc/passwd)
+as $R1 ln -s /etc/passwd /sluza-out/link-test
+for _ in $(seq 1 15); do
+  journalctl -t wlb-sluza-out | grep -q 'entry=link-test ' && break
+  sleep 1
+done
+expect_ok "Dowiązanie w /sluza-out odrzucone (#29)" \
+  bash -c "journalctl -t wlb-sluza-out | grep -q 'rejected user=jupyter-$R1 entry=link-test reason=unsupported_type'"
+expect_ok "Prawa /etc/passwd bez zmian (#29)" test "$(stat -c %a /etc/passwd)" = "$passwd_mode"
+expect_fail "W kolejce nie ma dowiązań ani plików specjalnych (#29)" bash -c "find '$QUEUE' ! -type f ! -type d | grep -q ."
 
 echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
