@@ -116,13 +116,25 @@ mkdir -p "$(dirname "$NTP_CONF")"
 if [[ -n $NTP_SERVERS ]]; then
   # walidacja przed zapisem: komunikat błędu nie może trafić do pliku, a plik nie może zostać połowiczny
   for s in $NTP_SERVERS; do
-    [[ $s =~ ^[A-Za-z0-9.:-]+$ ]] || die "nieprawidłowy serwer w NTP_SERVERS: '$s'"
+    # chrony nie rozumie zapisu host:port (port to osobna opcja) — wpis przeszedłby do pliku i zepsuł synchronizację
+    [[ $s == *:* && $s != *:*:* ]] &&
+      die "NTP_SERVERS: '$s' — zapis host:port nie jest obsługiwany (chrony używa portu 123)"
+    if [[ $s == *:*:* ]]; then
+      [[ $s =~ ^[0-9A-Fa-f:.]+$ ]] || die "nieprawidłowy serwer w NTP_SERVERS: '$s'" # IPv6 (także ::ffff:10.0.0.1)
+    else
+      # nazwa hosta lub IPv4: etykiety z liter, cyfr i łączników (nie na brzegach), rozdzielone kropkami
+      [[ $s =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$ ]] ||
+        die "nieprawidłowy serwer w NTP_SERVERS: '$s'"
+    fi
   done
   {
     echo "# Wygenerowane przez wlb-firstboot (${LAB_NAME}) — nie edytować ręcznie."
     for s in $NTP_SERVERS; do echo "server $s iburst"; done
   } >"$NTP_CONF"
-  chronyc reload sources >/dev/null 2>&1 || systemctl restart chrony
+  if ! err=$(chronyc reload sources 2>&1); then
+    log "chronyc reload sources nieudane (${err//$'\n'/ }) — restart usługi chrony"
+    systemctl restart chrony
+  fi
   log "NTP: $NTP_SERVERS"
 else
   rm -f "$NTP_CONF"
