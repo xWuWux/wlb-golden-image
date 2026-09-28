@@ -12,6 +12,11 @@
   ansible.builtin.command: python3 /opt/wlb/tljh-bootstrap.py --version {{ tljh_version }}
   args:
     creates: /opt/tljh/hub/bin/jupyterhub
+  environment:
+    # pip wywoływany przez instalator dziedziczy te ustawienia; domyślne 5 prób po 15 s
+    # nie wystarcza na kilkuminutową awarię PyPI
+    PIP_DEFAULT_TIMEOUT: "60"
+    PIP_RETRIES: "10"
   # instalator jest idempotentny — po przerwanym pobieraniu można go uruchomić ponownie
   register: tljh_install
   until: tljh_install is succeeded

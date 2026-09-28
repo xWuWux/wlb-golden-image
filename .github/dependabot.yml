@@ -13,6 +13,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # wlb-hub-user jest testowany na tej samej wersji JupyterHub co w obrazie (TLJH 2.0.0 -> 5.x);
+      # nowa główna wersja wchodzi razem ze zmianą wersji TLJH w obrazie, nie osobno w CI
+      - dependency-name: jupyterhub
+        update-types: ["version-update:semver-major"]
     groups:
       ci-tools:
         patterns: ["*"]

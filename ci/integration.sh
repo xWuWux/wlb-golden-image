@@ -47,9 +47,17 @@ build_image() {
   [[ -f build/packer_ed25519 ]] || ssh-keygen -q -t ed25519 -N '' -C wlb-packer-build -f build/packer_ed25519
   rm -rf "output/$FULL"
   packer init packer/ >/dev/null
-  PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false \
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false \
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
-    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" packer/
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" packer/; then
+    # budowanie przerwane przez niedostępne repozytoria pakietów (PyPI, conda-forge, CRAN, apt), a nie
+    # przez błąd w kodzie: adnotacja INFRA — ci-retry.yml ponowi przebieg jeden raz. Przy zbiegu
+    # z prawdziwym błędem kosztem jest jedno zbędne ponowienie.
+    if grep -qE 'Read timed out|ConnectTimeout|Temporary failure in name resolution|Backend is unhealthy|HTTP Error 50[234]|CondaHTTPError|Failed to fetch .* 50[234]' "$LOGS/packer.log"; then
+      echo "::error title=INFRA: repozytorium pakietów niedostępne::Budowanie obrazu przerwane przez błędy sieci (zob. packer.log w artefaktach etapu 5)"
+    fi
+    return 1
+  fi
   ls -lh "output/$FULL/"
 }
 

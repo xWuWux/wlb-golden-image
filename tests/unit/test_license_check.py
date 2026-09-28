@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -169,7 +170,6 @@ def test_python_z_locka_conda_i_pip(repo):
 
 
 def test_conda_brak_w_api_to_licencja_nieznana(repo):
-    import urllib.error
 
     (repo / "envs/python/environment.lock.yml").write_text(
         "dependencies:\n  - pakiet-spoza-api=0.1\n  - pandas=2.2.3\n"
@@ -206,3 +206,41 @@ def test_main_konczy_sie_bledem_przy_naruszeniach(repo, monkeypatch, capsys):
 
     monkeypatch.setattr(lc, "r_packages", lambda root, cran: [])
     assert lc.main(["--repo-root", str(repo)]) == 0
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (urllib.error.HTTPError("https://pypi.org/x", 503, "Backend is unhealthy", {}, None), True),
+        (urllib.error.HTTPError("https://pypi.org/x", 429, "Too Many Requests", {}, None), True),
+        (urllib.error.HTTPError("https://pypi.org/x", 404, "Not Found", {}, None), False),
+        (urllib.error.HTTPError("https://pypi.org/x", 403, "Forbidden", {}, None), False),
+        (urllib.error.URLError("timed out"), True),
+        (TimeoutError("read timed out"), True),
+        (ValueError("dozwolone tylko https"), False),
+    ],
+)
+def test_bledy_przejsciowe_rejestru(error, expected):
+    assert lc.transient(error) is expected
+
+
+def test_main_awaria_rejestru_to_infra_a_nie_naruszenie(repo, monkeypatch, capsys):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    (repo / "ci").mkdir()
+    (repo / "ansible/group_vars").mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "ci/license-policy.yml", repo / "ci/license-policy.yml")
+    (repo / "ansible/group_vars/all.yml").write_text("r_cran_snapshot_date: '2026-09-01'\n")
+
+    def pypi_down(root, cran):
+        raise urllib.error.HTTPError("https://pypi.org/pypi/x/json", 503, "Backend is unhealthy", {}, None)
+
+    monkeypatch.setattr(lc, "r_packages", pypi_down)
+    assert lc.main(["--repo-root", str(repo)]) == 1
+    assert "::error title=INFRA: rejestr pakietów niedostępny::" in capsys.readouterr().out
+
+    def forbidden(root, cran):
+        raise urllib.error.HTTPError("https://pypi.org/pypi/x/json", 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(lc, "r_packages", forbidden)
+    with pytest.raises(urllib.error.HTTPError):  # błąd trwały nie jest maskowany jako INFRA
+        lc.main(["--repo-root", str(repo)])
