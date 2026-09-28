@@ -55,6 +55,7 @@ CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
 EGRESS_ALLOW=${EGRESS_ALLOW:-}
 ADMIN_SSH_CIDR=${ADMIN_SSH_CIDR:-0.0.0.0/0}
 HUB_ALLOWED_CIDR=${HUB_ALLOWED_CIDR:-0.0.0.0/0}
+NTP_SERVERS=${NTP_SERVERS:-}
 SIEM_HOST=${SIEM_HOST:-}
 SIEM_PORT=${SIEM_PORT:-514}
 SIEM_PROTOCOL=${SIEM_PROTOCOL:-tcp}
@@ -72,6 +73,10 @@ while read -r path owner group mode; do
     log "uwaga: nie można ustawić praw $path (udział tylko do odczytu? prawa ustawia serwer)"
   fi
 done <"$DIRS_CONF"
+
+# Przy pierwszym starcie cloud-init montuje dysk roboczy i udziały dopiero w trakcie rozruchu —
+# śluza wyjściowa mogła wystartować wcześniej i widzieć katalogi sprzed montowania
+systemctl restart wlb-sluza-out.service
 
 # --- 2. Konta badaczy z dysku roboczego ------------------------------------------
 # Dysk systemowy jest jednorazowy, /workspace przechodzi na nową VM. Odtwarzamy konta
@@ -104,6 +109,37 @@ for home in "$R"/workspace/jupyter-*/; do
   log "odtworzono konto $name (UID $uid) z dysku roboczego"
 done
 shopt -u nullglob
+
+# --- 2a. Źródła czasu (znaczniki czasu audytu i logów, §21) --------------------------
+NTP_CONF=$R/etc/chrony/sources.d/wlb.sources
+mkdir -p "$(dirname "$NTP_CONF")"
+if [[ -n $NTP_SERVERS ]]; then
+  # walidacja przed zapisem: komunikat błędu nie może trafić do pliku, a plik nie może zostać połowiczny
+  for s in $NTP_SERVERS; do
+    # chrony nie rozumie zapisu host:port (port to osobna opcja) — wpis przeszedłby do pliku i zepsuł synchronizację
+    [[ $s == *:* && $s != *:*:* ]] &&
+      die "NTP_SERVERS: '$s' — zapis host:port nie jest obsługiwany (chrony używa portu 123)"
+    if [[ $s == *:*:* ]]; then
+      [[ $s =~ ^[0-9A-Fa-f:.]+$ ]] || die "nieprawidłowy serwer w NTP_SERVERS: '$s'" # IPv6 (także ::ffff:10.0.0.1)
+    else
+      # nazwa hosta lub IPv4: etykiety z liter, cyfr i łączników (nie na brzegach), rozdzielone kropkami
+      [[ $s =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$ ]] ||
+        die "nieprawidłowy serwer w NTP_SERVERS: '$s'"
+    fi
+  done
+  {
+    echo "# Wygenerowane przez wlb-firstboot (${LAB_NAME}) — nie edytować ręcznie."
+    for s in $NTP_SERVERS; do echo "server $s iburst"; done
+  } >"$NTP_CONF"
+  if ! err=$(chronyc reload sources 2>&1); then
+    log "chronyc reload sources nieudane (${err//$'\n'/ }) — restart usługi chrony"
+    systemctl restart chrony
+  fi
+  log "NTP: $NTP_SERVERS"
+else
+  rm -f "$NTP_CONF"
+  log "uwaga: NTP_SERVERS nie ustawione — brak synchronizacji czasu, znaczniki audytu mogą się rozjeżdżać"
+fi
 
 # --- 3. Proxy i mirrory pakietów --------------------------------------------------
 touch "$R/etc/environment"

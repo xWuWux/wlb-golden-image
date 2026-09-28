@@ -6,6 +6,7 @@ set -uo pipefail
 
 R1=tester1
 R2=tester2
+QUEUE=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
 
 echo "== Przygotowanie: konta testowe w hubie =="
 declare -A PW
@@ -68,8 +69,10 @@ expect_ok "Zapis do /sluza-out" as $R1 sh -c 'echo "wynik" > /sluza-out/wynik-te
 sleep 5
 expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
 expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
-expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c 'ls /var/spool/wlb/export-queue/ | grep -q "_jupyter-tester1_wynik-test.csv$"'
-expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls /var/spool/wlb/export-queue
+expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-tester1_wynik-test.csv\$'"
+expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls "$QUEUE"
+# kolejka na dysku roboczym (przeżywa wymianę dysku systemowego, #4)
+expect_ok "Kolejka eksportu na dysku roboczym" test "$(findmnt -no TARGET --target "$QUEUE")" = /workspace
 
 echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
@@ -82,6 +85,10 @@ expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep
 expect_ok "Twardy limit 12 h (culler --max-age)" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--max-age=43200"'
 expect_ok "Wygaśnięcie ciasteczka i tokenów po 12 h" grep -q 'oauth_token_expires_in = 43200' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
 skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
+
+echo "== 7a. Czas (znaczniki audytu, §21) =="
+expect_ok "chrony używa serwerów z NTP_SERVERS" bash -c 'chronyc -n sources | grep -q "10\.0\.2\.2"'
+expect_fail "Brak publicznych serwerów NTP" bash -c 'grep -hE "^(pool|server)" /etc/chrony/chrony.conf /etc/chrony/sources.d/* | grep -q ubuntu'
 
 echo "== 8. Logi i audyt =="
 expect_ok "Log huba: logowanie badacza" bash -c "journalctl -u jupyterhub | grep -q 'User logged in: $R1'"

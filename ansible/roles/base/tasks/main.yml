@@ -63,6 +63,19 @@
     enabled: true
   loop: [chrony, qemu-guest-agent, rsyslog, auditd]
 
+# VM Laboratorium nie ma dostępu do internetu — publiczne serwery NTP z konfiguracji Ubuntu
+# są nieosiągalne. Źródła czasu ustawia wlb-firstboot z NTP_SERVERS (lab.env) w sources.d. #5
+- name: Chrony bez publicznych serwerów NTP
+  ansible.builtin.lineinfile:
+    path: /etc/chrony/chrony.conf
+    regexp: "^(pool|server) "
+    state: absent
+
+- name: Chrony czyta źródła z /etc/chrony/sources.d
+  ansible.builtin.lineinfile:
+    path: /etc/chrony/chrony.conf
+    line: sourcedir /etc/chrony/sources.d
+
 - name: Grupa administratorów platformy (dostęp SSH)
   ansible.builtin.group:
     name: "{{ wlb_platform_admin_group }}"

@@ -429,6 +429,13 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
     źródłowy "linux" -> 1066 pakietów w 19 s, 1,3 GB. ci/integration.sh image-sca brał pusty katalog
     artefaktów (utworzony przez mkdir przed wyborem) -> wybór najnowszego katalogu z lockami.
     osv-scanner kończy się kodem 1, gdy ZNAJDZIE podatności -> strażnik: --ok-codes 0,1 dla raportu.
+52. Kolejka eksportu leżała na jednorazowym dysku systemowym (wnioski ginęły przy nowej wersji obrazu)
+    -> /workspace/.wlb-export-queue (dysk roboczy, 0700 root); test migracji sprawdza wniosek. #4
+53. chrony miał publiczne serwery NTP, nieosiągalne z sieci Laboratorium -> NTP_SERVERS w lab.env. #5
+    Walidację trzeba robić PRZED zapisem pliku: `die` wewnątrz `{ ...; } > plik` wypisywało komunikat
+    do pliku konfiguracyjnego zamiast do logu (wyłapał to test jednostkowy).
+54. Lokalny etap 5: "Odbiornik SIEM nie dostał żadnych zdarzeń" — port 5514 trzymał odbiornik
+    z ręcznego testu -> integration.sh sprawdza, czy odbiornik wystartował (kill -0), przed startem VM.
 
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).

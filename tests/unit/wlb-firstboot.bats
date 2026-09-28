@@ -26,12 +26,13 @@ PROXY_URL=http://10.20.0.10:3128
 PYPI_INDEX_URL=https://pypi.wlb.local/simple
 CRAN_MIRROR_URL=https://cran.wlb.local
 EGRESS_ALLOW="10.20.0.10:3128 10.30.0.0/24:5432"
+NTP_SERVERS="10.10.0.2 ntp.wlb.local"
 ADMIN_SSH_CIDR=10.10.0.0/24
 SIEM_HOST=10.40.0.20
 EOF
   mkdir -p "$SANDBOX/etc/sudoers.d"
   touch "$SANDBOX/etc/sudoers.d/jupyterhub-admins"
-  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep; do stub "$cmd"; done
+  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep chronyc; do stub "$cmd"; done
   stub getent 2
   stub tljh-config 0 "users:"
   stub wlb-hub-user 0 "haslo-poczatkowe-123"
@@ -85,6 +86,14 @@ EOF
 
   # SIEM
   grep -q 'target="10.40.0.20" port="514" protocol="tcp"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+
+  # NTP (#5): źródła z lab.env, przeładowanie chrony
+  grep -qx 'server 10.10.0.2 iburst' "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  grep -qx 'server ntp.wlb.local iburst' "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  calls | grep -qx 'chronyc reload sources'
+
+  # śluza wyjściowa restartowana po montowaniach (#4)
+  calls | grep -qx 'systemctl restart wlb-sluza-out.service'
 
   # hub: admin, brak sudo, hasło początkowe tylko dla roota
   calls | grep -qx 'tljh-config add-item users.admin admin-klienta'
@@ -142,6 +151,60 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"błędne reguły nftables"* ]]
+}
+
+@test "bez NTP_SERVERS: ostrzeżenie i brak źródeł z obrazu" {
+  mkdir -p "$SANDBOX/etc/chrony/sources.d"
+  touch "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  sed -i '/^NTP_SERVERS=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/etc/chrony/sources.d/wlb.sources" ]
+  [[ $output == *"NTP_SERVERS nie ustawione"* ]]
+}
+
+@test "nieprawidłowy serwer NTP przerywa konfigurację" {
+  sed -i 's/^NTP_SERVERS=.*/NTP_SERVERS="10.10.0.2 ;rm"/' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nieprawidłowy serwer w NTP_SERVERS: ';rm'"* ]]
+  [ ! -e "$SANDBOX/etc/chrony/sources.d/wlb.sources" ] # bez połowicznego pliku
+}
+
+@test "chronyc niedostępny: restart usługi chrony z przyczyną w logu" {
+  stub chronyc 1 "506 Cannot talk to daemon"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'systemctl restart chrony'
+  calls | grep -q 'logger -t wlb-firstboot -- chronyc reload sources nieudane (506 Cannot talk to daemon) — restart usługi chrony'
+}
+
+@test "NTP_SERVERS: nazwy hostów, IPv4 i IPv6 są przyjmowane" {
+  sed -i 's/^NTP_SERVERS=.*/NTP_SERVERS="ntp.example.com 10.0.0.1 2001:db8::1 ::ffff:10.0.0.1 ntp-1"/' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  for s in ntp.example.com 10.0.0.1 2001:db8::1 ::ffff:10.0.0.1 ntp-1; do
+    grep -qx "server $s iburst" "$SANDBOX/etc/chrony/sources.d/wlb.sources"
+  done
+}
+
+@test "NTP_SERVERS: zapis host:port jest odrzucany z wyjaśnieniem" {
+  for s in 10.0.0.1:123 ntp.example.com:123; do
+    sed -i "s/^NTP_SERVERS=.*/NTP_SERVERS=\"$s\"/" "$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -eq 1 ]
+    [[ $output == *"'$s' — zapis host:port nie jest obsługiwany"* ]]
+    [ ! -e "$SANDBOX/etc/chrony/sources.d/wlb.sources" ]
+  done
+}
+
+@test "NTP_SERVERS: niepoprawne nazwy są odrzucane" {
+  for s in -ntp.example ntp..example ntp_1 2001:db8::zz; do
+    sed -i "s/^NTP_SERVERS=.*/NTP_SERVERS=\"$s\"/" "$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -eq 1 ]
+    [[ $output == *"nieprawidłowy serwer w NTP_SERVERS: '$s'"* ]]
+  done
 }
 
 @test "bez SIEM_HOST logi zostają lokalnie" {

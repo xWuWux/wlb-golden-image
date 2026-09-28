@@ -24,12 +24,15 @@ wlb_researcher_group: jupyterhub-users   # grupa nadawana przez TLJH każdemu u�
 wlb_directories:
   - { path: /workspace, owner: root, group: root, mode: "0711" }                     # katalogi domowe; badacz widzi tylko swój
   - { path: /workspace/.wlb-hub, owner: root, group: root, mode: "0700" }            # baza huba (konta), objęta backupem
+  - { path: /workspace/.wlb-export-queue, owner: root, group: root, mode: "0700" }   # kolejka eksportu (#4)
   - { path: /sluza-in, owner: root, group: jupyterhub-users, mode: "0750" }          # tylko odczyt
   - { path: /sluza-out, owner: root, group: jupyterhub-users, mode: "1730" }         # tylko zapis, bez listowania
   - { path: /data-mart, owner: root, group: jupyterhub-users, mode: "0750" }         # tylko odczyt
   - { path: /docs, owner: root, group: root, mode: "0755" }                          # tylko odczyt
 wlb_readonly_paths: [/sluza-in, /data-mart, /docs]
-wlb_export_queue_dir: /var/spool/wlb/export-queue
+# Kolejka wniosków o eksport na dysku roboczym: przeżywa wymianę dysku systemowego (nowa wersja
+# obrazu) i jest objęta backupem. Badacze jej nie widzą (/workspace 0711, kolejka 0700 root). #4
+wlb_export_queue_dir: /workspace/.wlb-export-queue
 
 # --- The Littlest JupyterHub -------------------------------------------------
 tljh_version: "2.0.0"

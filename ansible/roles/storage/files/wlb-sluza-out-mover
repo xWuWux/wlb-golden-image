@@ -11,7 +11,7 @@ IMAGE_CONF=${WLB_IMAGE_CONF:-/etc/wlb/image.conf}
 # shellcheck source=/dev/null
 [[ -r $IMAGE_CONF ]] && . "$IMAGE_CONF"
 SRC=${WLB_SLUZA_OUT:-/sluza-out}
-QUEUE=${WLB_EXPORT_QUEUE:-/var/spool/wlb/export-queue}
+QUEUE=${WLB_EXPORT_QUEUE:-/workspace/.wlb-export-queue}
 DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }

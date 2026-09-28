@@ -39,6 +39,8 @@ write_files:
       EGRESS_ALLOW="10.0.2.254:3128"
       ADMIN_SSH_CIDR=10.0.2.0/24
       HUB_ALLOWED_CIDR=10.0.2.0/24
+      # host QEMU (sieć user) — w teście sprawdzamy konfigurację źródła, nie samą synchronizację
+      NTP_SERVERS=10.0.2.2
       # testowy odbiornik SIEM na hoście (tests/syslog_sink.py); bez niego rsyslog kolejkuje logi
       SIEM_HOST=10.0.2.2
       SIEM_PORT=5514
