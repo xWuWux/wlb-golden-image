@@ -109,7 +109,7 @@ jobs:
           key: tools-security-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-security.txt') }}
       - run: ci/install-tools.sh security
       - run: ci/guard.sh --name "3. Security" --timeout 25m --memory auto -- ci/security.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: security-reports
@@ -152,7 +152,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: ci/install-tools.sh unit
       - run: ci/guard.sh --name "4. Testy jednostkowe" --timeout 15m --memory auto -- ci/unit.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: coverage
@@ -185,7 +185,7 @@ jobs:
       - run: ci/guard.sh --name "5. Integracja i migracja" --timeout 150m --memory auto -- ci/integration.sh
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: integration-logs
@@ -206,7 +206,7 @@ jobs:
         run: ci/integration.sh image-sca
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: image-sca
@@ -239,7 +239,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage
       - run: ci/guard.sh --name "6a. Benchmarki" --timeout 45m --memory auto -- ci/perf.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: perf
