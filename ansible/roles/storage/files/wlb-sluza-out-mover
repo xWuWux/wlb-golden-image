@@ -62,7 +62,10 @@ queue_entry() {
   if [[ -f $incoming ]]; then
     sha=$(sha256sum -- "$incoming" | cut -d' ' -f1)
   else
-    sha=$(find -P "$incoming" -type f -print0 | sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+    # suma katalogu niezależna od jego położenia (nazwa tymczasowa, ścieżka w kolejce) i od locale —
+    # Kontroler odtworzy ją w dowolnym miejscu tym samym poleceniem:
+    #   cd KATALOG && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum
+    sha=$(cd -- "$incoming" && find -P . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
   fi
   dest="$QUEUE/${ts}_${owner}_${name}"
   # dwa wpisy o tej samej nazwie w tej samej sekundzie nie mogą się nadpisać
