@@ -22,12 +22,16 @@ import json
 import os
 import statistics
 import sys
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 API = "https://api.github.com"
 SERVICE = "wlb-golden-image-ci"
+EXPORT_ATTEMPTS = 3  # przerwy 1 s, 2 s — kolektor chwilowo niedostępny nie gubi telemetrii przebiegu
 STATUS = {"success": 1, "failure": 2, "cancelled": 2, "timed_out": 2}  # OTLP: 1 OK, 2 ERROR, 0 UNSET
 
 
@@ -388,17 +392,44 @@ def summary(run: dict, jobs: list[dict], stats: dict[str, dict], trace_id: str) 
     return "\n".join(lines) + "\n"
 
 
-def export_otlp(endpoint: str, headers_env: str, payloads: dict[str, dict], post=http_json) -> list[str]:
+def redact_url(url: str) -> str:
+    """Adres do logów bez danych logowania (https://user:hasło@host albo https://token@host)."""
+    parts = urllib.parse.urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urllib.parse.urlunsplit(parts._replace(netloc="***@" + parts.netloc.rsplit("@", 1)[1]))
+
+
+def retryable(e: Exception) -> bool:
+    """Ponawiamy błędy przejściowe: sieć, timeout, 429 i 5xx. Inne 4xx (np. zły token) — od razu błąd."""
+    # HTTPError dziedziczy po OSError, więc musi być sprawdzony pierwszy
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code == 429 or e.code >= 500
+    return isinstance(e, OSError)  # URLError, TimeoutError, ConnectionError
+
+
+def export_otlp(endpoint: str, headers_env: str, payloads: dict[str, dict], post=http_json, sleep=None) -> list[str]:
+    sleep = sleep or time.sleep  # wyszukiwane przy wywołaniu — testy podmieniają time.sleep
     headers = {"Content-Type": "application/json"}
     for pair in filter(None, (headers_env or "").split(",")):
         key, _, value = pair.partition("=")
         headers[key.strip()] = value.strip()
+    safe = redact_url(endpoint)
     problems = []
     for signal, body in payloads.items():
-        try:
-            post(f"{endpoint.rstrip('/')}/v1/{signal}", None, json.dumps(body).encode(), headers)
-        except Exception as e:
-            problems.append(f"{signal}: {e}")
+        data = json.dumps(body).encode()
+        for attempt in range(1, EXPORT_ATTEMPTS + 1):
+            try:
+                post(f"{endpoint.rstrip('/')}/v1/{signal}", None, data, headers)
+                break
+            except Exception as e:
+                if attempt < EXPORT_ATTEMPTS and retryable(e):
+                    sleep(2 ** (attempt - 1))
+                    continue
+                # komunikat wyjątku może zawierać adres — bez danych logowania
+                msg = str(e).replace(endpoint, safe)
+                problems.append(f"{signal}: {msg}" + (f" (po {attempt} próbach)" if attempt > 1 else ""))
+                break
     return problems
 
 
@@ -439,7 +470,7 @@ def main(argv=None, gh: GitHub | None = None, post=http_json) -> int:
         )
         for p in problems:
             print(f"::warning::Eksport OTLP nie powiódł się — {p}")
-        print(f"Eksport OTLP do {endpoint}: {'OK' if not problems else 'częściowo nieudany'}")
+        print(f"Eksport OTLP do {redact_url(endpoint)}: {'OK' if not problems else 'częściowo nieudany'}")
     else:
         print("OTEL_EXPORTER_OTLP_ENDPOINT nie ustawiony — telemetria tylko w artefaktach.")
     return 0

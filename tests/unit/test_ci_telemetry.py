@@ -1,6 +1,7 @@
 """Telemetria CI (OTLP/JSON) na danych w formacie API GitHub Actions — bez sieci."""
 
 import json
+import urllib.error
 
 import pytest
 
@@ -141,7 +142,7 @@ def test_atrybuty_typy():
 
 
 def test_export_otlp_naglowki_i_bledy():
-    sent = []
+    sent, slept = [], []
 
     def post(url, token, data, headers):
         sent.append((url, headers))
@@ -149,11 +150,64 @@ def test_export_otlp_naglowki_i_bledy():
             raise OSError("odmowa")
 
     problems = ct.export_otlp(
-        "https://otel:4318/", "Authorization=Bearer x, X-Org = wlb", {"traces": {}, "logs": {}}, post
+        "https://otel:4318/", "Authorization=Bearer x, X-Org = wlb", {"traces": {}, "logs": {}}, post, slept.append
     )
-    assert [u for u, _ in sent] == ["https://otel:4318/v1/traces", "https://otel:4318/v1/logs"]
+    assert [u for u, _ in sent] == ["https://otel:4318/v1/traces"] + ["https://otel:4318/v1/logs"] * 3
     assert sent[0][1] == {"Content-Type": "application/json", "Authorization": "Bearer x", "X-Org": "wlb"}
-    assert problems == ["logs: odmowa"]
+    assert problems == ["logs: odmowa (po 3 próbach)"]
+    assert slept == [1, 2]
+
+
+def http_error(code):
+    return urllib.error.HTTPError("https://otel:4318/v1/traces", code, "błąd", {}, None)
+
+
+@pytest.mark.parametrize(
+    ("errors", "calls", "problems"),
+    [
+        ([http_error(503), TimeoutError("timeout")], 3, []),  # przejściowe — trzecia próba udana
+        ([http_error(429)], 2, []),
+        ([http_error(401)], 1, ["traces: HTTP Error 401: błąd"]),  # zły token — bez ponawiania
+        ([ValueError("dozwolone tylko http(s)")], 1, ["traces: dozwolone tylko http(s)"]),
+    ],
+)
+def test_export_otlp_ponawia_tylko_bledy_przejsciowe(errors, calls, problems):
+    sent = []
+
+    def post(url, *a):
+        sent.append(url)
+        if len(sent) <= len(errors):
+            raise errors[len(sent) - 1]
+
+    assert ct.export_otlp("https://otel:4318", "", {"traces": {}}, post, lambda s: None) == problems
+    assert len(sent) == calls
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://user:tajne@otel:4318/x", "https://***@otel:4318/x"),
+        ("https://token123@otel:4318", "https://***@otel:4318"),
+        ("http://otel:4318", "http://otel:4318"),
+    ],
+)
+def test_redact_url(url, expected):
+    assert ct.redact_url(url) == expected
+
+
+def test_dane_logowania_z_adresu_nie_trafiaja_do_logu(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://user:tajne@otel:4318")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer sekret-z-naglowka")
+    monkeypatch.setattr(ct.time, "sleep", lambda s: None)
+
+    def post(url, *a):
+        raise OSError(f"nie można połączyć z {url}")
+
+    ct.main(["--repo", "r", "--run-id", "42", "--history", "0", "--out", str(tmp_path)], gh=FakeGitHub(), post=post)
+    out = capsys.readouterr().out
+    assert "tajne" not in out and "sekret-z-naglowka" not in out
+    assert "https://***@otel:4318" in out and "częściowo nieudany" in out
 
 
 def test_main_zapisuje_artefakty(tmp_path, monkeypatch, capsys):
