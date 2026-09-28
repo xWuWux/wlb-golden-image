@@ -3,5 +3,5 @@ pytest==9.1.1
 coverage==7.16.1
 PyYAML==6.0.3
 # wlb-hub-user testowany na tej samej głównej wersji JupyterHub co w TLJH 2.0 (jupyterhub<6)
-jupyterhub==5.5.2
+jupyterhub==6.0.1
 jupyterhub-nativeauthenticator==1.3.0
