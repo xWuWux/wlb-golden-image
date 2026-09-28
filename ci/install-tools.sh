@@ -35,10 +35,24 @@ download() {
   }
 }
 
+# PyPI bywa chwilowo niedostępny: domyślne 5 prób po 15 s nie wystarcza na kilkuminutową przerwę
+PIP_OPTS=(-q --retries 10 --timeout 60)
+
+pip_install() { # pip_install VENV ARGUMENTY... — błąd sieci oznaczony jako awaria infrastruktury
+  local log=$TMP/pip-$1.log
+  if ! "$TOOLS_DIR/$1/bin/pip" install "${PIP_OPTS[@]}" "${@:2}" 2>&1 | tee "$log"; then
+    # "from versions: none" po timeoutach = PyPI nie odpowiadał, a nie brak wersji w indeksie
+    if grep -qE 'Read timed out|ConnectTimeout|ConnectionError|Max retries exceeded|Temporary failure in name resolution' "$log"; then
+      echo "::error title=INFRA: PyPI niedostępny::Instalacja narzędzi ($1) przerwana przez błędy sieci po ${PIP_OPTS[2]} próbach"
+    fi
+    exit 1
+  fi
+}
+
 venv() { # venv NAZWA PLIK_WYMAGAŃ
   [[ -x $TOOLS_DIR/$1/bin/python ]] || python3 -m venv "$TOOLS_DIR/$1"
-  "$TOOLS_DIR/$1/bin/pip" install -q --upgrade pip
-  "$TOOLS_DIR/$1/bin/pip" install -q -r "$2"
+  pip_install "$1" --upgrade pip
+  pip_install "$1" -r "$2"
 }
 
 install_lint() {
