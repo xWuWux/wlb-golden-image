@@ -1,0 +1,11 @@
+# osv-scanner: konfiguracja skanu pakietów systemowych obrazu (stage 5, ci/integration.sh image-sca).
+#
+# Pakiet źródłowy "linux" (linux-libc-dev, linux-headers-*, linux-image-*) pomijamy: osv-scanner
+# zużywa dla niego ponad 6 GB pamięci (~4000 rekordów podatności jądra) i na runnerze CI zabijał
+# agenta GitHub Actions — https://github.com/google/osv-scanner/issues/3105, u nas issue #2.
+# Override dopasowuje nazwę ŹRÓDŁOWĄ (pole Source: w dpkg status), nie binarną.
+# CVE jądra śledzimy przez aktualizacje jądra w kolejnych wersjach obrazu (dist-upgrade przy budowaniu).
+[[PackageOverrides]]
+name = "linux"
+ignore = true
+reason = "unbounded memory usage in osv-scanner, google/osv-scanner#3105; kernel updated with each image version"

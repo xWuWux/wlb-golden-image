@@ -26,7 +26,10 @@ ansible/                playbook i role instalujące zawartość obrazu
 envs/python/            environment.yml (+ environment.lock.yml po zamrożeniu)
 envs/r/                 hades-packages.txt, renv.lock, skrypt instalacji
 cloud-init/             przykładowy user-data i opis zmiennych Laboratorium (lab.env)
-tests/                  lokalne uruchomienie obrazu i kryteria akceptacji MVP
+tests/                  lokalne uruchomienie obrazu, kryteria akceptacji MVP, test migracji
+tests/unit/             testy jednostkowe (bats: skrypty powłoki, pytest: Python)
+ci/                     etapy pipeline'u CI (te same skrypty lokalnie i w GitHub Actions)
+.github/workflows/      GitHub Actions: kolejność etapów, KVM, artefakty
 ```
 
 ## Wymagania (WSL2 / Linux)
@@ -74,6 +77,98 @@ Hasło początkowe administratora huba (`admin-klienta`) leży w VM w
 
 W teście nie ma udziałów sieciowych, proxy ani SIEM. Katalogi §10 są lokalne, a
 `EGRESS_ALLOW` wskazuje nieistniejący adres, więc każde wyjście badacza musi się nie udać.
+
+## Pipeline CI
+
+Każdy PR przechodzi etapy po kolei. Następny etap startuje dopiero wtedy, gdy poprzedni się powiedzie.
+Logika jest w `ci/*.sh`, więc lokalnie uruchamia się ją tak samo (`make tools`, potem `make ci`).
+
+| Etap | Skrypt | Co sprawdza | Kiedy |
+|---|---|---|---|
+| 1. Lint, format, sekrety | `ci/lint.sh` | shellcheck, shfmt, ruff, yamllint, ansible-lint (profil production), actionlint, packer fmt, gitleaks (historia + drzewo) | zawsze |
+| 2. Build test | `ci/build-check.sh` | packer validate, syntax-check Ansible, render szablonów i kompilacja wyniku, parsowanie R, schemat cloud-init, `nft -c` i `rsyslogd -N1` na konfiguracji z `wlb-firstboot` | zawsze |
+| 3. Security & compliance | `ci/security.sh` | SAST (semgrep, bandit), IaC (checkov), podatności zamrożonych zależności (osv-scanner), licencje (`ci/license-policy.yml`) | zawsze |
+| 3.5. Kontrakt obserwowalności | `ci/observability.sh` | zdarzenia z `observability/contract.yml` zgodne z kodem obrazu: źródła logów, pola, klucze audytu, prefiksy zapory, przekazywanie do SIEM | zawsze |
+| 4. Testy jednostkowe | `ci/unit.sh` | bats + kcov (próg 85%), pytest + coverage z gałęziami (próg 90%) | zawsze |
+| 5. Integracja i migracja | `ci/integration.sh` | budowanie obrazu na KVM, kryteria akceptacji MVP w VM, zdarzenia z kontraktu w logu centralnym (testowy SIEM), migracja na istniejący dysk roboczy, dryf locków, podatności pakietów w obrazie (raport) | zmiany poza dokumentacją |
+| 6a. Benchmarki | `ci/perf.sh` | start VM, logowanie, spawn, pandas, ładowanie HADES, dysk — względem `ci/perf-budget.env` | etykieta PR `perf` lub ręcznie |
+| 6b. Wdrożenie tymczasowe | `ci/ephemeral-openstack.sh` | obraz, wolumen i VM w projekcie testowym OpenStack, kryteria akceptacji, sprzątanie | etykieta `deploy-test`, po konfiguracji |
+| Gotowe do code review | `ci/ready.sh` | etapy 1–4 zaliczone, 5 zaliczony (jeśli dotyczy), 6 nie zawiódł | zawsze |
+
+Uwagi:
+- **Koszt:** etap 5 buduje cały obraz (1–2 h na runnerze GitHub). W repozytorium prywatnym zużywa to
+  minuty Actions z limitu planu. Zmiany samej dokumentacji go pomijają.
+- **Wymagany status check:** ustaw „Gotowe do code review” jako wymagany dla `main`
+  (Settings → Branches). Ochrona gałęzi w repozytoriach prywatnych wymaga planu GitHub Pro lub Team.
+- **Etap 6b** wymaga zmiennych repozytorium `OPENSTACK_EPHEMERAL=true`, `OS_CLOUD`, `OS_TEST_FLAVOR`,
+  `OS_TEST_NETWORK`, opcjonalnie `OPENSTACK_RUNNER` (runner self-hosted z dostępem do chmury), oraz
+  environment `openstack-test` z sekretem `OPENSTACK_CLOUDS_YAML`. Skrypt odmawia pracy na zasobach
+  z „prod” w nazwie.
+- **SCA** w etapie 3 obejmuje zamrożone wersje, więc zaczyna działać po pierwszym `make freeze`.
+  Do tego czasu podatności zależności sprawdza tylko raport z etapu 5.
+- Cotygodniowy przebieg (poniedziałek) powtarza etapy 1–4, żeby wyłapać nowe CVE i zmiany licencji.
+
+## Obsługa błędów CI
+
+Szczegółowa ścieżka dla każdego typu awarii jest w [`docs/ci-runbook.md`](docs/ci-runbook.md).
+
+- **Strażnik zasobów** (`ci/guard.sh`). Każdy etap działa z limitem czasu i pamięci. Pamięć
+  jest ograniczona cgroup do całej pamięci maszyny minus 1 GB. Proces, który się rozrośnie, zostaje
+  zabity sam (adnotacja `OOM` albo `TIMEOUT`), a runner zapisuje logi i artefakty. Wcześniej brak pamięci
+  zabijał agenta GitHub Actions i job kończył się bez logów komunikatem „The operation was canceled”.
+- **Diagnoza.** Kiedy PR nie przechodzi, „Gotowe do code review” klasyfikuje każdy nieudany job
+  (`test`, `oom`, `timeout`, `infra`, `cancelled`) i podaje link do właściwej sekcji runbooka
+  (`ci/ci_failures.py`).
+- **Automatyczne ponowienie** (`.github/workflows/ci-retry.yml`). Tylko kategoria `infra`, jeden raz,
+  tylko dla najnowszego commita. Błędy testów, OOM i przekroczenia czasu wymagają poprawki.
+  Podobnie jak telemetria działa dopiero po scaleniu do `main`.
+- **Kroki raportowe** (np. skan podatności pakietów w obrazie) mają flagę `--optional`: zgłaszają
+  ostrzeżenie, ale nie blokują.
+- **Przypięte akcje.** Wszystkie akcje GitHub są przypięte do SHA commitów (ochrona przed podmianą
+  tagu). Aktualizuje je Dependabot.
+
+## Obserwowalność
+
+Są dwie warstwy i obie działają przy każdym PR bez dodatkowej pracy.
+
+**1. Kontrakt obserwowalności obrazu** (`observability/contract.yml`). To katalog zdarzeń, które
+VM musi emitować i dostarczać do SIEM, wraz z polami, formatem i paragrafem Regulaminu:
+
+- zdarzenia: `sluza_out.export_request`, `shell.command`, `hub.login`, `firstboot.done`,
+  `network.egress_deny` i inne,
+- klucze audytu `wlb_*`,
+- pola korelacji: `user`, `uid`, `session`.
+
+Kontrakt jest sprawdzany na dwa sposoby:
+- **etap 3.5 (statycznie):** każde źródło logów w obrazie jest opisane w kontrakcie, a kod emituje
+  dokładnie zadeklarowane pola. Klucze audytu i prefiksy logów zapory zgadzają się w obie strony.
+  Zmiana formatu logu bez zmiany kontraktu zatrzymuje PR.
+- **etap 5 (dynamicznie):** VM testowa wysyła logi rsyslogiem do testowego odbiornika SIEM na hoście
+  (`tests/syslog_sink.py`). Po teście akceptacyjnym `ci/observability_contract.py verify-log` sprawdza,
+  że każde zdarzenie oznaczone `acceptance: true` dotarło do logu centralnego z poprawnymi wartościami.
+  To pokrywa kryterium MVP „wszystkie zdarzenia widoczne w logu centralnym”.
+
+Reguły korelacji i dashboardy w Wazuh lub OpenSearch warto budować na nazwach pól z kontraktu.
+
+**2. Obserwowalność potoku CI** (`.github/workflows/ci-observability.yml`, `ci/ci_telemetry.py`).
+Po każdym przebiegu CI powstają w formacie OpenTelemetry:
+- ślad: przebieg, joby i kroki, z czasem oczekiwania w kolejce, wynikiem i runnerem,
+- metryki: `wlb.ci.run.duration`, `wlb.ci.job.duration`, `wlb.ci.job.queue_time`,
+  `wlb.ci.job.success_ratio`, `wlb.ci.job.duration_p90` i `wlb.ci.job.flaky_commits`
+  (z 30 ostatnich przebiegów),
+- logi: rekord JSON na każdy job i krok, z `trace_id` i `span_id`.
+
+Wyniki trafiają do artefaktu `ci-telemetry` i podsumowania. Po ustawieniu zmiennej
+`OTEL_EXPORTER_OTLP_ENDPOINT` (i opcjonalnie sekretu `OTEL_EXPORTER_OTLP_HEADERS`) są też wysyłane
+do kolektora OTLP/HTTP. Działa to dopiero po scaleniu do `main`, bo GitHub uruchamia `workflow_run`
+tylko z gałęzi domyślnej.
+
+**Czego celowo nie ma:**
+- **śladów rozproszonych w VM,** bo nie ma tam usług wywołujących się nawzajem (zdarzenia koreluje się
+  po `user`, `uid` i `session`),
+- **metryk VM** (np. `prometheus-node-exporter`, `/hub/metrics` JupyterHuba). Wymagają wyboru systemu
+  monitoringu i otwarcia portu z sieci monitoringu. Kiedy ta decyzja zapadnie, metryki dopisuje się
+  do kontraktu, a sprawdzenia rozszerza tym samym mechanizmem.
 
 ## Wdrożenie obrazu
 
@@ -127,6 +222,12 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
 - **Reguły audytu** są ładowane po zamontowaniu udziałów i blokowane (`auditctl -e 2`).
   Zmiana reguł wymaga restartu VM.
 - **Brak automatycznych aktualizacji.** Poprawki bezpieczeństwa wchodzą przez nową wersję obrazu.
+- **Baza huba na dysku roboczym** (`/workspace/.wlb-hub/`). Dysk systemowy jest jednorazowy, więc bez
+  tego nowa wersja obrazu kasowałaby konta w hubie. `wlb-firstboot` odtwarza też konta systemowe badaczy
+  z tym samym UID co właściciel katalogu domowego, a hasło Administratora Klienta zostaje bez zmian.
+  Sprawdza to test migracji w etapie 5.
+- **Licencja `inspectomop` to AGPL-3.0.** Jest wpisana jako wyjątek w `ci/license-policy.yml` z adnotacją
+  „do potwierdzenia przez dział prawny”. Bez tej decyzji pakiet należy usunąć ze środowiska.
 
 ## Otwarte kwestie
 

@@ -2,12 +2,17 @@
 # Śluza wyjściowa: każdy wpis zapisany przez badacza w /sluza-out trafia do kolejki
 # zatwierdzenia eksportu i znika z widoku badacza. Każde przeniesienie jest logowane
 # (identyfikator badacza, znacznik czasu, suma SHA-256) do syslogu, a stamtąd do SIEM.
+#
+#   wlb-sluza-out-mover          # usługa: działa w pętli (inotify + przegląd co 30 s)
+#   wlb-sluza-out-mover --once   # jeden przegląd i koniec
 set -euo pipefail
 
-[[ -r /etc/wlb/image.conf ]] && . /etc/wlb/image.conf
+IMAGE_CONF=${WLB_IMAGE_CONF:-/etc/wlb/image.conf}
+# shellcheck source=/dev/null
+[[ -r $IMAGE_CONF ]] && . "$IMAGE_CONF"
 SRC=${WLB_SLUZA_OUT:-/sluza-out}
 QUEUE=${WLB_EXPORT_QUEUE:-/var/spool/wlb/export-queue}
-DIR_SETTLE_SECONDS=120   # katalog uznajemy za kompletny po 2 min bez zmian
+DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
 
@@ -39,7 +44,7 @@ sweep() {
       queue_entry "$entry"
     elif [[ -d $entry && ! -L $entry ]]; then
       newest=$(find "$entry" -printf '%T@\n' | sort -n | tail -1)
-      (( $(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS )) && queue_entry "$entry"
+      (($(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS)) && queue_entry "$entry"
     else
       # dowiązania i pliki specjalne nie są dopuszczone do eksportu
       log "rejected user=$(stat -c %U -- "$entry") entry=$(basename -- "$entry") reason=unsupported_type"
@@ -51,8 +56,13 @@ sweep() {
 
 mkdir -p "$QUEUE"
 chmod 0700 "$QUEUE"
-log "start src=$SRC queue=$QUEUE"
 
+if [[ ${1:-} == --once ]]; then
+  sweep
+  exit 0
+fi
+
+log "start src=$SRC queue=$QUEUE"
 while true; do
   sweep
   # budzi się po zamknięciu pliku lub przeniesieniu, najpóźniej co 30 s (katalogi)

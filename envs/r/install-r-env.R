@@ -48,9 +48,29 @@ IRkernel::installspec(user = FALSE, name = "ir", displayname = "R (HADES)",
 dir.create(jdbc_dir, recursive = TRUE, showWarnings = FALSE)
 DatabaseConnector::downloadJdbcDrivers("postgresql", pathToDriver = jdbc_dir)
 
-# Zamrożenie faktycznie zainstalowanych wersji
-project <- tempfile("wlb-renv-")
-dir.create(project)
-renv::snapshot(project = project, library = lib, type = "all", prompt = FALSE, force = TRUE,
-               lockfile = file.path(env_dir, "renv.lock.generated"))
-message("Zapisano ", file.path(env_dir, "renv.lock.generated"))
+# Zamrożenie faktycznie zainstalowanych wersji: lockfile w formacie renv budowany wprost
+# z installed.packages(). renv::snapshot() poza projektem renv pomija bibliotekę site
+# i zapisywał pusty lock (0 pakietów).
+remote_fields <- c("RemoteType", "RemoteHost", "RemoteUsername", "RemoteRepo", "RemoteRef", "RemoteSha")
+installed <- installed.packages(lib.loc = lib, fields = remote_fields)
+records <- lapply(rownames(installed), function(pkg) {
+  row <- installed[pkg, ]
+  record <- list(Package = pkg, Version = unname(row[["Version"]]))
+  if (identical(unname(row[["RemoteType"]]), "github")) {
+    remote <- as.list(row[remote_fields])
+    remote <- remote[!is.na(remote)]
+    c(record, list(Source = "GitHub"), remote)
+  } else {
+    c(record, list(Source = "Repository", Repository = "CRAN"))
+  }
+})
+names(records) <- rownames(installed)
+if (length(records) == 0) stop("Biblioteka ", lib, " jest pusta — nie ma czego zamrozić")
+lockfile <- list(
+  R = list(Version = as.character(getRversion()),
+           Repositories = list(list(Name = "CRAN", URL = unname(getOption("repos")[["CRAN"]])))),
+  Packages = records[order(names(records))]
+)
+out <- file.path(env_dir, "renv.lock.generated")
+jsonlite::write_json(lockfile, out, auto_unbox = TRUE, pretty = TRUE)
+message("Zapisano ", out, " (", length(records), " pakietów)")

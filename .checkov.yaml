@@ -1,0 +1,5 @@
+# Konfiguracja checkov (stage 3). Każde wyłączenie musi mieć uzasadnienie.
+skip-check:
+  # CKV_GHA_7 (SLSA: brak parametrów workflow_dispatch): nasze parametry (perf, ephemeral) włączają
+  # wyłącznie opcjonalne etapy testowe 6a/6b i nie wpływają na zawartość budowanego obrazu.
+  - CKV_GHA_7

@@ -1,0 +1,49 @@
+# Obserwowalność samego potoku CI: po każdym przebiegu workflow "CI" (PR, main, harmonogram)
+# ślady (przebieg -> joby -> kroki), metryki (czasy, kolejka, skuteczność, niestabilność) i logi
+# w formacie OpenTelemetry. Bez zmian w poszczególnych PR — działa dla każdego przebiegu.
+#
+# Eksport do kolektora OTLP/HTTP po ustawieniu:
+#   vars.OTEL_EXPORTER_OTLP_ENDPOINT      np. https://otel.wlb.gumed.local:4318
+#   secrets.OTEL_EXPORTER_OTLP_HEADERS    np. Authorization=Bearer <token>
+# Bez nich telemetria zostaje w artefakcie "ci-telemetry" i w podsumowaniu przebiegu.
+#
+# Uwaga: GitHub uruchamia workflow_run tylko z wersji pliku na gałęzi domyślnej (main),
+# więc telemetria zacznie działać po scaleniu tego pliku.
+name: CI observability
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  telemetry:
+    name: Telemetria przebiegu CI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # kod z gałęzi domyślnej (nie z PR) — workflow tylko czyta API, nie wykonuje kodu z PR
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Ślady, metryki i logi przebiegu (OTLP)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          OTEL_EXPORTER_OTLP_ENDPOINT: ${{ vars.OTEL_EXPORTER_OTLP_ENDPOINT }}
+          OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
+        run: >-
+          python3 ci/ci_telemetry.py --repo "$REPO" --run-id "$RUN_ID" --attempt "$RUN_ATTEMPT"
+          --history 30 --out build/ci-telemetry
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ci-telemetry
+          path: build/ci-telemetry/
+          retention-days: 90

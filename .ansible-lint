@@ -1,0 +1,11 @@
+profile: production
+exclude_paths:
+  - ../.tools/
+  - ../build/
+  - ../output/
+  - ../.github/
+  - ../cloud-init/
+  - ../tests/
+  - ../ci/
+# Kolekcje spoza ansible.builtin nie są używane — obraz buduje się samym ansible-core.
+offline: true

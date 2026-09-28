@@ -2,22 +2,37 @@
 # wlb-firstboot — konfiguracja per-Laboratorium przy pierwszym starcie VM z golden image.
 #
 # Wywoływany z cloud-init (runcmd), po zamontowaniu udziałów. Czyta /etc/wlb/lab.env
-# i ustawia to, co zależy od Laboratorium: prawa katalogów, proxy, reguły egress,
-# przekazywanie logów do SIEM i administratora huba. Opis zmiennych: /etc/wlb/lab.env.example
+# i ustawia to, co zależy od Laboratorium: prawa katalogów, konta badaczy z dysku
+# roboczego, proxy, reguły egress, przekazywanie logów do SIEM i administratora huba.
+# Opis zmiennych: /etc/wlb/lab.env.example
 #
 #   wlb-firstboot           # jednorazowo (drugi raz nic nie robi)
 #   wlb-firstboot --force   # ponownie, np. po zmianie lab.env (przed blokadą audytu)
+#
+# WLB_ROOT i WLB_* pozwalają uruchomić skrypt w piaskownicy (testy jednostkowe).
 set -euo pipefail
 
-ENV_FILE=/etc/wlb/lab.env
-STATE_DIR=/var/lib/wlb
-DONE="$STATE_DIR/firstboot.done"
-TLJH_CONFIG=/opt/tljh/hub/bin/tljh-config
-HUB_CONFIG_D=/opt/tljh/config/jupyterhub_config.d
-ADMIN_PASSWORD_FILE=/root/wlb-hub-admin-initial-password
+R=${WLB_ROOT:-}
+ENV_FILE=${WLB_ENV_FILE:-$R/etc/wlb/lab.env}
+IMAGE_CONF=${WLB_IMAGE_CONF:-$R/etc/wlb/image.conf}
+DIRS_CONF=$R/etc/wlb/directories.conf
+STATE_DIR=$R/var/lib/wlb
+DONE=$STATE_DIR/firstboot.done
+HUB_CONFIG_D=$R/opt/tljh/config/jupyterhub_config.d
+ADMIN_PASSWORD_FILE=$R/root/wlb-hub-admin-initial-password
+TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
+HUB_USER_TOOL=${WLB_HUB_USER_TOOL:-/usr/local/sbin/wlb-hub-user}
+HUB_URL=${WLB_HUB_URL:-http://127.0.0.1}
+HUB_WAIT_SECONDS=${WLB_HUB_WAIT_SECONDS:-180}
 
-log() { logger -t wlb-firstboot -- "$*"; echo "wlb-firstboot: $*"; }
-die() { log "BŁĄD: $*"; exit 1; }
+log() {
+  logger -t wlb-firstboot -- "$*"
+  echo "wlb-firstboot: $*"
+}
+die() {
+  log "BŁĄD: $*"
+  exit 1
+}
 
 [[ -r $ENV_FILE ]] || die "brak $ENV_FILE (powinien go zapisać cloud-init)"
 if [[ -f $DONE && ${1:-} != --force ]]; then
@@ -25,8 +40,10 @@ if [[ -f $DONE && ${1:-} != --force ]]; then
   exit 0
 fi
 
-. /etc/wlb/image.conf
+# shellcheck source=/dev/null
+. "$IMAGE_CONF"
 set -a
+# shellcheck source=/dev/null
 . "$ENV_FILE"
 set +a
 : "${LAB_NAME:?LAB_NAME jest wymagane w $ENV_FILE}"
@@ -50,26 +67,61 @@ chmod 0700 "$STATE_DIR"
 # --- 1. Katalogi §10 — udziały sieciowe mogły przykryć prawa z obrazu -----------
 while read -r path owner group mode; do
   [[ -z $path || $path == \#* ]] && continue
-  mkdir -p "$path"
-  chown "$owner:$group" "$path" 2>/dev/null && chmod "$mode" "$path" 2>/dev/null \
-    || log "uwaga: nie można ustawić praw $path (udział tylko do odczytu? prawa ustawia serwer)"
-done < /etc/wlb/directories.conf
+  mkdir -p "$R$path"
+  if ! { chown "$owner:$group" "$R$path" && chmod "$mode" "$R$path"; } 2>/dev/null; then
+    log "uwaga: nie można ustawić praw $path (udział tylko do odczytu? prawa ustawia serwer)"
+  fi
+done <"$DIRS_CONF"
 
-# --- 2. Proxy i mirrory pakietów --------------------------------------------------
-sed -i '/^\(http_proxy\|https_proxy\|no_proxy\|HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY\)=/d' /etc/environment
+# --- 2. Konta badaczy z dysku roboczego ------------------------------------------
+# Dysk systemowy jest jednorazowy, /workspace przechodzi na nową VM. Odtwarzamy konta
+# systemowe z tym samym UID co właściciel katalogu domowego, zanim TLJH założy je od nowa
+# z innym UID i badacz straci dostęp do własnych plików.
+shopt -s nullglob
+for home in "$R"/workspace/jupyter-*/; do
+  home=${home%/}
+  name=$(basename -- "$home")
+  uid=$(stat -c %u -- "$home")
+  gid=$(stat -c %g -- "$home") # grupa główna badacza (useradd nie zawsze daje GID = UID)
+  getent passwd "$name" >/dev/null && continue
+  if ((uid < WLB_RESEARCHER_UID_MIN || uid > WLB_RESEARCHER_UID_MAX)); then
+    log "uwaga: $home należy do UID $uid spoza zakresu badaczy — pomijam"
+    continue
+  fi
+  if getent passwd "$uid" >/dev/null; then
+    log "uwaga: UID $uid ($home) jest zajęty przez inne konto — pomijam"
+    continue
+  fi
+  if ! getent group "$name" >/dev/null; then
+    if getent group "$gid" >/dev/null; then
+      log "uwaga: GID $gid ($home) jest zajęty — grupa $name dostaje nowy GID"
+      groupadd "$name"
+    else
+      groupadd -g "$gid" "$name"
+    fi
+  fi
+  useradd -u "$uid" -g "$name" -G "$WLB_RESEARCHER_GROUP" -d "/workspace/$name" -M -s /bin/bash "$name"
+  log "odtworzono konto $name (UID $uid) z dysku roboczego"
+done
+shopt -u nullglob
+
+# --- 3. Proxy i mirrory pakietów --------------------------------------------------
+touch "$R/etc/environment"
+sed -i '/^\(http_proxy\|https_proxy\|no_proxy\|HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY\)=/d' "$R/etc/environment"
 if [[ -n $PROXY_URL ]]; then
-  for v in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do echo "$v=$PROXY_URL"; done >> /etc/environment
-  printf 'no_proxy=%s\nNO_PROXY=%s\n' "$NO_PROXY" "$NO_PROXY" >> /etc/environment
+  for v in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do echo "$v=$PROXY_URL"; done >>"$R/etc/environment"
+  printf 'no_proxy=%s\nNO_PROXY=%s\n' "$NO_PROXY" "$NO_PROXY" >>"$R/etc/environment"
 fi
 if [[ -n $PYPI_INDEX_URL ]]; then
-  printf '# wlb-firstboot (%s)\n[global]\nindex-url = %s\n' "$LAB_NAME" "$PYPI_INDEX_URL" > /etc/pip.conf
+  printf '# wlb-firstboot (%s)\n[global]\nindex-url = %s\n' "$LAB_NAME" "$PYPI_INDEX_URL" >"$R/etc/pip.conf"
 fi
 if [[ -n $CRAN_MIRROR_URL ]]; then
-  printf '# wlb-firstboot (%s)\noptions(repos = c(CRAN = "%s"))\n' "$LAB_NAME" "$CRAN_MIRROR_URL" > /etc/wlb/r-repos.R
+  printf '# wlb-firstboot (%s)\noptions(repos = c(CRAN = "%s"))\n' "$LAB_NAME" "$CRAN_MIRROR_URL" >"$R/etc/wlb/r-repos.R"
 fi
 
 # Serwery notebooków startuje systemd, więc /etc/environment ich nie dotyczy
-python3 - > "$HUB_CONFIG_D/50-wlb-lab.py" <<'PY'
+mkdir -p "$HUB_CONFIG_D"
+python3 - >"$HUB_CONFIG_D/50-wlb-lab.py" <<'PY'
 import json, os
 env = {"WLB_LAB_NAME": os.environ["LAB_NAME"]}
 if os.environ["PROXY_URL"]:
@@ -81,18 +133,18 @@ print("c = get_config()  # noqa: F821")
 print(f"c.Spawner.environment = {json.dumps(env, indent=4)}")
 PY
 
-# --- 3. Zapora: ruch wychodzący badaczy tylko do allowlisty -----------------------
+# --- 4. Zapora: ruch wychodzący badaczy tylko do allowlisty -----------------------
 # Obrona w głębi. Właściwą izolację Laboratorium zapewnia sieć (SDN/Neutron) i proxy.
 allow_rules=""
 for entry in $EGRESS_ALLOW; do
   addr=${entry%:*}
   port=${entry##*:}
-  [[ -n $addr && $port =~ ^[0-9]+$ && $addr != "$entry" ]] \
-    || die "nieprawidłowy wpis EGRESS_ALLOW: '$entry' (oczekiwano ADRES_IPv4[/maska]:PORT)"
+  [[ -n $addr && $port =~ ^[0-9]+$ && $addr != "$entry" ]] ||
+    die "nieprawidłowy wpis EGRESS_ALLOW: '$entry' (oczekiwano ADRES_IPv4[/maska]:PORT)"
   allow_rules+="        ip daddr $addr tcp dport $port accept"$'\n'
 done
 
-cat > /etc/nftables.conf <<EOF
+cat >"$R/etc/nftables.conf" <<EOF
 #!/usr/sbin/nft -f
 # Wygenerowane przez wlb-firstboot dla Laboratorium ${LAB_NAME} — nie edytować ręcznie.
 flush ruleset
@@ -123,13 +175,14 @@ ${allow_rules}        limit rate 5/second log prefix "wlb-egress-deny " level in
     }
 }
 EOF
-nft -c -f /etc/nftables.conf || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
+nft -c -f "$R/etc/nftables.conf" || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
 systemctl restart nftables
 
-# --- 4. Przekazywanie logów do centralnego SIEM (§21) ------------------------------
-SIEM_CONF=/etc/rsyslog.d/60-wlb-siem.conf
+# --- 5. Przekazywanie logów do centralnego SIEM (§21) ------------------------------
+SIEM_CONF=$R/etc/rsyslog.d/60-wlb-siem.conf
 if [[ -n $SIEM_HOST ]]; then
-  cat > "$SIEM_CONF" <<EOF
+  mkdir -p "$(dirname "$SIEM_CONF")"
+  cat >"$SIEM_CONF" <<EOF
 # Wygenerowane przez wlb-firstboot (${LAB_NAME}). Kolejka dyskowa — logi nie giną, gdy SIEM jest niedostępny.
 *.* action(type="omfwd" target="${SIEM_HOST}" port="${SIEM_PORT}" protocol="${SIEM_PROTOCOL}"
            template="RSYSLOG_SyslogProtocol23Format"
@@ -144,33 +197,45 @@ else
 fi
 systemctl restart rsyslog
 
-# --- 5. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
-[[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f /etc/sudoers.d/jupyterhub-admins
-if ! $TLJH_CONFIG show | grep -qE "^\s*-\s*${HUB_ADMIN_USER}\s*$"; then
-  $TLJH_CONFIG add-item users.admin "$HUB_ADMIN_USER"
+# --- 6. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
+[[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f "$R/etc/sudoers.d/jupyterhub-admins"
+if ! "$TLJH_CONFIG" show | grep -qE "^\s*-\s*${HUB_ADMIN_USER}\s*$"; then
+  "$TLJH_CONFIG" add-item users.admin "$HUB_ADMIN_USER"
 fi
-$TLJH_CONFIG reload hub
-for _ in $(seq 1 90); do
-  curl -sf -o /dev/null http://127.0.0.1/hub/api && break
+"$TLJH_CONFIG" reload hub
+hub_ready() { curl -sf -o /dev/null "$HUB_URL/hub/api"; }
+for ((waited = 0; waited < HUB_WAIT_SECONDS; waited += 2)); do
+  hub_ready && break
   sleep 2
 done
-curl -sf -o /dev/null http://127.0.0.1/hub/api || die "JupyterHub nie odpowiada"
+hub_ready || die "JupyterHub nie odpowiada"
 
+# Baza huba leży na dysku roboczym: po wymianie dysku systemowego konto już istnieje
+# i jego hasło zostaje bez zmian.
 if [[ ! -s $ADMIN_PASSWORD_FILE ]]; then
-  (umask 077; /usr/local/sbin/wlb-hub-user "$HUB_ADMIN_USER" > "$ADMIN_PASSWORD_FILE")
-  log "konto huba ${HUB_ADMIN_USER} utworzone; hasło początkowe: ${ADMIN_PASSWORD_FILE}"
+  password=$("$HUB_USER_TOOL" --if-missing "$HUB_ADMIN_USER")
+  if [[ -n $password ]]; then
+    mkdir -p "$(dirname "$ADMIN_PASSWORD_FILE")"
+    (
+      umask 077
+      printf '%s\n' "$password" >"$ADMIN_PASSWORD_FILE"
+    )
+    log "konto huba ${HUB_ADMIN_USER} utworzone; hasło początkowe: ${ADMIN_PASSWORD_FILE#"$R"}"
+  else
+    log "konto huba ${HUB_ADMIN_USER} już istnieje (dysk roboczy) — hasło bez zmian"
+  fi
 fi
 
-# --- 6. Dane przykładowe (wyłącznie lokalny test obrazu) ------------------------------
+# --- 7. Dane przykładowe (wyłącznie lokalny test obrazu) ------------------------------
 if [[ $LOCAL_TEST_MODE == 1 ]]; then
-  printf 'person_id,year_of_birth,gender_concept_id\n1,1970,8507\n2,1985,8532\n' > /data-mart/wlb-test-cohort.csv
-  echo "plik testowy śluzy wejściowej" > /sluza-in/wlb-test-input.txt
-  chown root:"$WLB_RESEARCHER_GROUP" /data-mart/wlb-test-cohort.csv /sluza-in/wlb-test-input.txt
-  chmod 0640 /data-mart/wlb-test-cohort.csv /sluza-in/wlb-test-input.txt
+  printf 'person_id,year_of_birth,gender_concept_id\n1,1970,8507\n2,1985,8532\n' >"$R/data-mart/wlb-test-cohort.csv"
+  echo "plik testowy śluzy wejściowej" >"$R/sluza-in/wlb-test-input.txt"
+  chown root:"$WLB_RESEARCHER_GROUP" "$R/data-mart/wlb-test-cohort.csv" "$R/sluza-in/wlb-test-input.txt"
+  chmod 0640 "$R/data-mart/wlb-test-cohort.csv" "$R/sluza-in/wlb-test-input.txt"
   log "tryb testu lokalnego: zasiano dane przykładowe"
 fi
 
-# --- 7. Koniec: reguły audytu po montowaniach, potem blokada ---------------------------
-date -Is > "$DONE"
+# --- 8. Koniec: reguły audytu po montowaniach, potem blokada ---------------------------
+date -Is >"$DONE"
 systemctl start wlb-audit-rules.service
 log "Laboratorium ${LAB_NAME} skonfigurowane"

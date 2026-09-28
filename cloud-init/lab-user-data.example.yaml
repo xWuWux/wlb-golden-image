@@ -9,7 +9,7 @@ prefer_fqdn_over_hostname: false
 
 users:
   - name: wlbadmin                      # administrator platformy (SSH + sudo)
-    uid: "1001"                         # < 10000: poza zakresem UID badaczy (audyt, nftables)
+    uid: 1001                           # < 10000: poza zakresem UID badaczy (audyt, nftables)
     groups: [sudo, wlb-platform-admins]
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     shell: /bin/bash
@@ -33,10 +33,22 @@ fs_setup:
 # Udziały Laboratorium (§10). Przykład dla CephFS; dla NFS: [serwer:/eksport, /sluza-in, nfs4, "ro,..."]
 mounts:
   - [LABEL=workspace, /workspace, ext4, "defaults,nodev,nosuid", "0", "2"]
-  - ["10.50.0.1,10.50.0.2:/labs/lab-example01/sluza-in", /sluza-in, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev", "0", "0"]
-  - ["10.50.0.1,10.50.0.2:/labs/lab-example01/sluza-out", /sluza-out, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,rw,nodev,nosuid,noexec,_netdev", "0", "0"]
-  - ["10.50.0.1,10.50.0.2:/labs/lab-example01/data-mart", /data-mart, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev", "0", "0"]
-  - ["10.50.0.1,10.50.0.2:/platform/docs", /docs, ceph, "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,_netdev", "0", "0"]
+  - - "10.50.0.1,10.50.0.2:/labs/lab-example01/sluza-in"
+    - /sluza-in
+    - ceph
+    - "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev"
+  - - "10.50.0.1,10.50.0.2:/labs/lab-example01/sluza-out"
+    - /sluza-out
+    - ceph
+    - "name=lab-example01,secretfile=/etc/ceph/lab.secret,rw,nodev,nosuid,noexec,_netdev"
+  - - "10.50.0.1,10.50.0.2:/labs/lab-example01/data-mart"
+    - /data-mart
+    - ceph
+    - "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev"
+  - - "10.50.0.1,10.50.0.2:/platform/docs"
+    - /docs
+    - ceph
+    - "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,_netdev"
 
 write_files:
   - path: /etc/ceph/lab.secret

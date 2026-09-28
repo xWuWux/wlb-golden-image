@@ -1,0 +1,30 @@
+# Renderuje szablony ról z group_vars do build/rendered/ (stage 2: sprawdzenie, czy wynik się kompiluje).
+- name: Render szablonów WLB
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../ansible/group_vars/all.yml
+  vars:
+    out: "{{ playbook_dir }}/../build/rendered"
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  tasks:
+    - name: Katalog wyników
+      ansible.builtin.file:
+        path: "{{ out }}"
+        state: directory
+        mode: "0755"
+
+    - name: Szablony ról
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../ansible/roles/{{ item.role }}/templates/{{ item.file }}"
+        dest: "{{ out }}/{{ item.file | regex_replace('\\.j2$', '') }}"
+        mode: "0644"
+      loop:
+        - { role: tljh, file: 10-wlb.py.j2 }
+        - { role: tljh, file: config.yaml.j2 }
+        - { role: audit, file: 50-wlb.rules.j2 }
+        - { role: logging, file: wlb-shell-audit.sh.j2 }
+        - { role: r_env, file: Rprofile.site.j2 }
+      loop_control:
+        label: "{{ item.file }}"

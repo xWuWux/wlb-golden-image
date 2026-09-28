@@ -3,11 +3,26 @@
     url: "https://raw.githubusercontent.com/jupyterhub/the-littlest-jupyterhub/{{ tljh_version }}/bootstrap/bootstrap.py"
     dest: /opt/wlb/tljh-bootstrap.py
     mode: "0644"
+  register: tljh_bootstrap_download
+  until: tljh_bootstrap_download is succeeded
+  retries: 3
+  delay: 30
 
 - name: Instalacja TLJH
   ansible.builtin.command: python3 /opt/wlb/tljh-bootstrap.py --version {{ tljh_version }}
   args:
     creates: /opt/tljh/hub/bin/jupyterhub
+  # instalator jest idempotentny — po przerwanym pobieraniu można go uruchomić ponownie
+  register: tljh_install
+  until: tljh_install is succeeded
+  retries: 3
+  delay: 30
+
+- name: Katalog drop-inów usługi jupyterhub
+  ansible.builtin.file:
+    path: /etc/systemd/system/jupyterhub.service.d
+    state: directory
+    mode: "0755"
 
 - name: Konfiguracja TLJH
   ansible.builtin.template:
@@ -28,6 +43,15 @@
     dest: /opt/tljh/config/jupyterhub_config.d/10-wlb.py
     mode: "0644"
   notify: Reload hub
+
+- name: Hub startuje dopiero po zamontowaniu dysku roboczego
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/jupyterhub.service.d/10-wlb.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola tljh) — baza huba leży na /workspace
+      [Unit]
+      RequiresMountsFor={{ tljh_hub_db_path | dirname }}
 
 - name: Administratorzy huba bez sudo
   ansible.builtin.file:

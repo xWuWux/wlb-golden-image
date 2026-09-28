@@ -1,6 +1,12 @@
 # Zarządzane przez Ansible (rola tljh) — ustawienia JupyterHub, których nie obsługuje tljh-config.
 c = get_config()  # noqa: F821
 
+# --- Stan huba na dysku roboczym ------------------------------------------------
+# Konta przeżywają wymianę dysku systemowego; schemat bazy jest aktualizowany
+# automatycznie, gdy nowa wersja obrazu przynosi nowszy JupyterHub (z kopią zapasową).
+c.JupyterHub.db_url = "sqlite:///{{ tljh_hub_db_path }}"
+c.JupyterHub.upgrade_db = True
+
 # --- Uwierzytelnianie: Native Authenticator (MVP) ------------------------------
 # Podmiana na OAuthenticator (Keycloak / Entra ID) = zmiana auth.type w config.yaml
 # i usunięcie tej sekcji.
