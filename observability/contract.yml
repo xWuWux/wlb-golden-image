@@ -11,7 +11,19 @@
 #
 # Zmiana formatu zdarzenia = zmiana tego pliku w tym samym PR (inaczej stage 3.5 nie przejdzie).
 # Reguły korelacji w SIEM (Wazuh/OpenSearch) należy budować na nazwach pól z tego pliku.
+#
+# Pochodzenie zdarzeń (#44): tag i treść wpisu syslog może podać każdy proces w VM, także badacz
+# (logger -t wlb-sluza-out ...). Dlatego każdy wpis w SIEM ma pola zaufane w structured data RFC 5424
+#   [wlb@32473 input="imuxsock|imklog|..." uid="..." gid="..." pid="..."]
+# dopisywane przez rsyslog: input to moduł wejściowy, a uid/gid/pid — dane uwierzytelniające nadawcy
+# z jądra (SCM_CREDENTIALS), których proces nie może podrobić. Reguła "trusted" przy zdarzeniu mówi,
+# od kogo zdarzenie musi pochodzić; wpis o pasującej treści, ale z innym pochodzeniem, jest niezaufany
+# (w SIEM: alert o próbie podszycia, nie zdarzenie). Reguły SIEM MUSZĄ sprawdzać te pola.
 version: 1
+
+# Identyfikator elementu structured data z polami zaufanymi (32473: numer z RFC 5612 do dokumentacji;
+# do zastąpienia numerem PEN GUMed, jeśli zostanie nadany).
+trusted_sd_id: wlb@32473
 
 conventions:
   event_name: "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$" # <źródło>.<zdarzenie>
@@ -30,6 +42,7 @@ events:
     description: Plik lub katalog zapisany w /sluza-out trafił do kolejki zatwierdzenia eksportu.
     regulamin: "§10, §21"
     source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: export_request }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: kv
     fields:
       user: "^jupyter-[a-z0-9._-]+$"
@@ -45,6 +58,7 @@ events:
       — reason=unsupported_type (dowiązanie symboliczne, plik specjalny) lub hardlink (drugie dowiązanie twarde). #29
     regulamin: "§10"
     source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: rejected }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: kv
     fields:
       user: ".+"
@@ -55,6 +69,7 @@ events:
   - name: sluza_out.start
     description: Start usługi śluzy wyjściowej (przy starcie VM — przed konfiguracją SIEM).
     source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: start }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: kv
     fields:
       src: "^/.+"
@@ -65,9 +80,12 @@ events:
     description: Polecenie wpisane przez badacza w powłoce (terminal JupyterLab, SSH).
     regulamin: "§21"
     source: { tag: wlb-shell, file: ansible/roles/logging/templates/wlb-shell-audit.sh.j2 }
+    # proces badacza (UID 10000–59999); uid w treści musi się zgadzać z uid nadawcy z jądra
+    trusted: { input: imuxsock, uid: "^[1-5][0-9]{4}$", uid_field: uid }
     format: kv
     fields:
       user: "^jupyter-[a-z0-9._-]+$"
+      uid: "^[0-9]+$"
       session: "^[0-9]+-[0-9]+$"
       cwd: "^/.*"
       cmd: ".+"
@@ -76,6 +94,7 @@ events:
   - name: firstboot.done
     description: Konfiguracja Laboratorium zakończona (koniec wlb-firstboot).
     source: { tag: wlb-firstboot, file: ansible/roles/lab_config/files/wlb-firstboot, marker: skonfigurowane }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: text
     pattern: "^Laboratorium (?P<lab>\\S+) skonfigurowane$"
     acceptance: true
@@ -83,6 +102,7 @@ events:
   - name: firstboot.message
     description: Pozostałe komunikaty wlb-firstboot (ostrzeżenia, błędy) — tekst dla administratora.
     source: { tag: wlb-firstboot, file: ansible/roles/lab_config/files/wlb-firstboot }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: text
     pattern: ".+"
     acceptance: false
@@ -91,6 +111,7 @@ events:
     description: Udane logowanie do JupyterHub (komunikat JupyterHub, usługa jupyterhub).
     regulamin: "§21"
     source: { journal_unit: jupyterhub }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: text
     pattern: "User logged in: (?P<user>[a-z0-9._-]+)"
     acceptance: true
@@ -99,18 +120,21 @@ events:
     description: Zablokowane połączenie wychodzące procesu badacza (nftables, obrona w głębi).
     regulamin: "§31.3"
     source: { kernel_log_prefix: "wlb-egress-deny ", file: ansible/roles/lab_config/files/wlb-firstboot }
+    trusted: { input: imklog } # dziennik jądra — procesy użytkownika nie mają zapisu do /dev/kmsg
     format: kernel
     acceptance: true
 
   - name: network.ingress_deny
     description: Odrzucony ruch przychodzący spoza dozwolonych sieci.
     source: { kernel_log_prefix: "wlb-in-deny ", file: ansible/roles/lab_config/files/wlb-firstboot }
+    trusted: { input: imklog } # dziennik jądra — procesy użytkownika nie mają zapisu do /dev/kmsg
     format: kernel
     acceptance: false
 
 # Zdarzenia auditd (przekazywane do syslogu przez audisp-syslog; klucz w polu key="...").
 audit:
   rules_file: ansible/roles/audit/templates/50-wlb.rules.j2
+  trusted: { input: imuxsock, uid: "^0$" } # audisp-syslog działa jako root
   keys:
     - { key: wlb_sluza_in, description: "Każda operacja na plikach śluzy wejściowej", regulamin: "§10, §21", acceptance: true }
     - { key: wlb_sluza_out, description: "Zapis w śluzie wyjściowej", regulamin: "§10, §21", acceptance: true }
@@ -130,3 +154,5 @@ audit:
 siem:
   forwarder_file: ansible/roles/lab_config/files/wlb-firstboot
   forward_all: '*.* action(type="omfwd"' # wszystkie zdarzenia, nie wybrane facility
+  template: WLB_SyslogProtocol23Trusted # szablon z polami zaufanymi (trusted_sd_id)
+  trusted_input: { file: ansible/roles/logging/tasks/main.yml, marker: 'SysSock.ParseTrusted="on"' }

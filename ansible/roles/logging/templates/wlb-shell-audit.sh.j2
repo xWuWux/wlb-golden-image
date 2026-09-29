@@ -10,7 +10,7 @@ if [ -n "${BASH_VERSION:-}" ] && [ -z "${__WLB_SHELL_AUDIT:-}" ] \
     local cmd
     cmd=$(HISTTIMEFORMAT='' history 1 | sed 's/^ *[0-9]* *//')
     if [ -n "$cmd" ] && [ "$cmd" != "${__wlb_last_cmd:-}" ]; then
-      logger -p local6.info -t wlb-shell -- "user=$USER session=$__WLB_SESSION cwd=$PWD cmd=$cmd"
+      logger -p local6.info -t wlb-shell -- "user=$USER uid=$UID session=$__WLB_SESSION cwd=$PWD cmd=$cmd"
       __wlb_last_cmd=$cmd
     fi
   }

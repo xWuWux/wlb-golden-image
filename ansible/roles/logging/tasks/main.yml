@@ -18,6 +18,21 @@
       SystemMaxUse=2G
   notify: Restart journald
 
+# Pola zaufane: rsyslog dopisuje do każdego wpisu z gniazda systemowego uid/gid/pid nadawcy odczytane
+# z jądra (SCM_CREDENTIALS; journald przekazuje dane uwierzytelniające pierwotnego procesu). Treść
+# i tag wpisu może podać każdy proces (np. logger z dowolnym tagiem), tych pól — nie. Na nich SIEM odróżnia
+# zdarzenie usługi systemowej od wpisu podrobionego przez badacza (#44, observability/contract.yml).
+- name: Rsyslog — pola zaufane nadawcy (imuxsock)
+  ansible.builtin.replace:
+    path: /etc/rsyslog.conf
+    regexp: '^module\(load="imuxsock"\)'
+    replace: 'module(load="imuxsock" SysSock.Annotate="on" SysSock.ParseTrusted="on")'
+  notify: Restart rsyslog
+
+- name: Rsyslog — pola zaufane włączone
+  ansible.builtin.command: grep -q 'SysSock.ParseTrusted="on"' /etc/rsyslog.conf
+  changed_when: false
+
 - name: Rejestrowanie poleceń powłoki badaczy
   ansible.builtin.template:
     src: wlb-shell-audit.sh.j2

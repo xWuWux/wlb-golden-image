@@ -148,47 +148,134 @@ def test_bledy_samego_kontraktu(repo):
 
 # --- log z SIEM -------------------------------------------------------------------------------
 
+ROOT = '[wlb@32473 input="imuxsock" uid="0" gid="0" pid="99"]'
+KERNEL = '[wlb@32473 input="imklog" uid="" gid="" pid=""]'
+R1 = '[wlb@32473 input="imuxsock" uid="10000" gid="10000" pid="4242"]'  # proces badacza
+FORGED_EXPORT = (
+    "export_request user=jupyter-tester2 uid=0 entry=podrobiony.csv "
+    f"sha256={SHA} queued_as=20260101T000000Z_jupyter-tester2_podrobiony.csv"
+)
+
 GOOD = [
-    f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - - export_request user=jupyter-tester1 uid=10000 "
-    f"entry=wynik.csv sha256={SHA} queued_as=20260925T120000Z_jupyter-tester1_wynik.csv",
-    "<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - - rejected user=jupyter-tester1 "
+    f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - {ROOT}  export_request user=jupyter-tester1 "
+    f"uid=10000 entry=wynik.csv sha256={SHA} queued_as=20260925T120000Z_jupyter-tester1_wynik.csv",
+    f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - {ROOT}  rejected user=jupyter-tester1 "
     "entry=link-test reason=unsupported_type",
-    '<13>1 2026-09-25T12:00:00Z lab-test01 wlb-firstboot 12 - [timeQuality isSynced="1"] '
-    "Laboratorium lab-test01 skonfigurowane",
-    "<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - - [I 2026 JupyterHub base:931] User logged in: tester1",
-    "<4>Sep 25 12:00:00 lab-test01 kernel: [ 12.3] wlb-egress-deny IN= OUT=eth0 DST=93.184.216.34",
+    f"<13>1 2026-09-25T12:00:00Z lab-test01 wlb-firstboot 12 - {ROOT}  Laboratorium lab-test01 skonfigurowane",
+    f"<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - {ROOT}  [I 2026 JupyterHub base:931] User logged in: tester1",
+    f"<4>1 2026-09-25T12:00:00Z lab-test01 kernel - - {KERNEL}  [ 12.3] wlb-egress-deny IN= OUT=eth0 DST=93.184.216.34",
     *[
-        f'<14>1 2026-09-25T12:00:00Z lab-test01 audisp-syslog - - - type=SYSCALL msg=audit(1:2): success=no key="{k}"'
+        f"<14>1 2026-09-25T12:00:00Z lab-test01 audisp-syslog - - {ROOT}  type=SYSCALL msg=audit(1:2): "
+        f'success=no key="{k}"'
         for k in ("wlb_sluza_in", "wlb_sluza_out", "wlb_export_queue", "wlb_exec", "wlb_access_denied")
     ],
     "śmieci, które nie są syslogiem",
 ]
 
 
+def rows_of(lines, *expect_untrusted):
+    rows, failures = oc.verify_log(oc.load_contract(REPO_ROOT), lines, expect_untrusted)
+    return {name: (status, detail) for name, status, detail in rows}, failures
+
+
 def test_log_ze_wszystkimi_zdarzeniami():
-    rows, failures = oc.verify_log(oc.load_contract(REPO_ROOT), GOOD)
+    rows, failures = rows_of(GOOD)
     assert failures == 0
-    assert all(status == "OK" for _, status, _ in rows)
+    assert all(status == "OK" for status, _ in rows.values())
 
 
 def test_niepoprawne_wartosci_i_brakujace_zdarzenia():
     bad = [line.replace(SHA, "abc") for line in GOOD if "wlb_exec" not in line and "User logged in" not in line]
-    rows = {name: (status, detail) for name, status, detail in oc.verify_log(oc.load_contract(REPO_ROOT), bad)[0]}
+    rows, _ = rows_of(bad)
     assert rows["sluza_out.export_request"] == ("BRAK", "niepoprawne wartości: sha256='abc'")
     assert rows["hub.login"] == ("BRAK", "nie dotarło do SIEM")
     assert rows["audit:wlb_exec"][0] == "BRAK"
 
 
-def test_format_prawdziwego_rsyslog_z_vm():
-    # linie z odbiornika SIEM w CI (przebieg #6): rsyslog daje dwie spacje przed treścią
-    lines = [
-        "<13>1 2026-09-25T23:54:33.903441+02:00 lab-test01 wlb-firstboot - - -  Laboratorium lab-test01 skonfigurowane",
-        "<85>1 2026-09-25T23:54:51.490111+02:00 lab-test01 wlb-sluza-out - - -  export_request user=jupyter-tester1 "
-        f"uid=10000 entry=wynik-test.csv sha256={SHA} queued_as=20260925T215451Z_jupyter-tester1_wynik-test.csv",
+def test_zdarzenie_podrobione_przez_badacza_nie_jest_liczone():
+    # badacz: logger -t wlb-sluza-out ... — tag i treść jak prawdziwe, ale uid nadawcy z jądra = 10000
+    lines = [line for line in GOOD if "export_request" not in line and "User logged in" not in line] + [
+        f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - {R1}  {FORGED_EXPORT}",
+        f"<14>1 2026-09-25T12:00:00Z lab-test01 python3 - - {R1}  User logged in: tester2",
     ]
-    rows = {name: status for name, status, _ in oc.verify_log(oc.load_contract(REPO_ROOT), lines)[0]}
-    assert rows["firstboot.done"] == "OK"
-    assert rows["sluza_out.export_request"] == "OK"
+    rows, failures = rows_of(lines)
+    assert failures == 2
+    assert rows["sluza_out.export_request"] == (
+        "BRAK",
+        "nie dotarło do SIEM; niezaufane (odrzucone): 1, np. uid='10000'",
+    )
+    assert rows["hub.login"][0] == "BRAK"
+
+
+def test_podszycie_przez_pola_zaufane_w_tresci_nie_dziala():
+    # pola wpisane przez nadawcę w treść stoją po spacji — nie są structured data z rsyslog
+    line = f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - {R1}  {ROOT} {FORGED_EXPORT}"
+    rec = oc.parse_syslog([line])[0]
+    assert rec["sd"]["wlb@32473"]["uid"] == "10000"
+    assert rec["msg"].startswith("[wlb@32473")
+    no_sd = f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - - {ROOT} {FORGED_EXPORT}"
+    assert oc.parse_syslog([no_sd])[0]["sd"] == {}
+    rows, _ = rows_of([line, no_sd])
+    assert rows["sluza_out.export_request"] == ("BRAK", "nie dotarło do SIEM")  # żaden nie liczy się jako zdarzenie
+
+
+def test_test_podszycia_wymaga_rozpoznania_wpisu():
+    rows, failures = rows_of(GOOD, "sluza_out.export_request")
+    assert failures == 1
+    assert rows["sluza_out.export_request (podrobione)"][0] == "BRAK"
+
+
+def test_pochodzenie_zdarzen_regula_po_regule():
+    ev = next(e for e in oc.load_contract(REPO_ROOT)["events"] if e["name"] == "shell.command")
+    msg = "user=jupyter-tester1 uid=10000 session=1-2 cwd=/w cmd=ls"
+    ok = oc.parse_syslog([f"<182>1 2026-09-25T12:00:00Z h wlb-shell - - {R1}  {msg}"])[0]
+    assert oc.event_matches(ev, ok, "wlb@32473") == (True, "", "")
+    other_uid = oc.parse_syslog(
+        [f"<182>1 2026-09-25T12:00:00Z h wlb-shell - - {R1}  {msg.replace('uid=10000', 'uid=10001')}"]
+    )[0]
+    assert "uid=" in oc.event_matches(ev, other_uid, "wlb@32473")[2]  # uid w treści ≠ uid nadawcy
+    as_root = oc.parse_syslog([f"<182>1 2026-09-25T12:00:00Z h wlb-shell - - {ROOT}  {msg}"])[0]
+    assert oc.event_matches(ev, as_root, "wlb@32473")[2] == "uid='0'"
+    kernel_rule = {"input": "imklog"}
+    assert oc.untrusted_reason(kernel_rule, ok, {}, "wlb@32473") == "input='imuxsock'"
+    assert oc.untrusted_reason(kernel_rule, {"sd": {}}, {}, "wlb@32473") == "brak pól zaufanych [wlb@32473]"
+
+
+def test_parse_sd_z_wieloma_elementami_i_escapowaniem():
+    sd = '[timeQuality isSynced="1"][wlb@32473 input="imuxsock" uid="0" note="a\\"b\\]c"]'
+    assert oc.parse_sd(sd) == {
+        "timeQuality": {"isSynced": "1"},
+        "wlb@32473": {"input": "imuxsock", "uid": "0", "note": 'a"b]c'},
+    }
+    assert oc.parse_sd("-") == {}
+
+
+def test_kontrakt_wymaga_regul_pochodzenia(repo):
+    data = contract(repo)
+    del data["events"][0]["trusted"]
+    data["events"][1]["trusted"] = {"input": "imuxsock", "uid": "(", "uid_field": "nie_ma", "inne": 1}
+    del data["audit"]["trusted"]
+    save(repo, data)
+    text = "\n".join(oc.check_static(repo, contract(repo)))
+    for expected in [
+        f"{data['events'][0]['name']}: brak reguły trusted",
+        "nieznany klucz reguły trusted: inne",
+        "trusted.uid: błędne wyrażenie",
+        "trusted.uid_field: pola 'nie_ma' nie ma",
+        "audyt: brak reguły trusted",
+    ]:
+        assert expected in text, expected
+
+
+def test_siem_bez_pol_zaufanych(repo):
+    edit(repo / "ansible/roles/lab_config/files/wlb-firstboot", 'uid=\\"%\\$!uid%\\"', "")
+    tasks = repo / "ansible/roles/logging/tasks/main.yml"
+    tasks.write_text(tasks.read_text().replace('SysSock.ParseTrusted="on"', ""))
+    text = "\n".join(oc.check_static(repo, contract(repo)))
+    assert "nie dopisuje pól zaufanych" in text
+    assert "rsyslog bez pól zaufanych nadawcy" in text
+    edit(repo / "ansible/roles/lab_config/files/wlb-firstboot", 'template="WLB_SyslogProtocol23Trusted"', "")
+    assert any("nie przekazuje zdarzeń szablonem" in e for e in oc.check_static(repo, contract(repo)))
 
 
 def test_parse_kv_wartosc_ze_spacjami():

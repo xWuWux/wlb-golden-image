@@ -86,6 +86,9 @@ EOF
 
   # SIEM
   grep -q 'target="10.40.0.20" port="514" protocol="tcp"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  # pola zaufane nadawcy w każdym wpisie (#44)
+  grep -q 'template="WLB_SyslogProtocol23Trusted"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  grep -qF '[wlb@32473 input=\"%inputname%\" uid=\"%$!uid%\" gid=\"%$!gid%\" pid=\"%$!pid%\"]' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
 
   # NTP (#5): źródła z lab.env, przeładowanie chrony
   grep -qx 'server 10.10.0.2 iburst' "$SANDBOX/etc/chrony/sources.d/wlb.sources"
