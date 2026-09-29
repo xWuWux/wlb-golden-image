@@ -109,6 +109,16 @@ expect_ok "Audyt: odczyt /sluza-in" ausearch --input-logs -k wlb_sluza_in -ui "$
 expect_ok "Audyt: odmowa dostępu" ausearch --input-logs -k wlb_access_denied -ui "$(id -u jupyter-$R1)"
 expect_ok "Audyt: polecenia badacza (execve)" ausearch --input-logs -k wlb_exec -ui "$(id -u jupyter-$R1)"
 expect_ok "Reguły audytu zablokowane (-e 2)" bash -c 'auditctl -s | grep -q "^enabled 2"'
+# #44: badacz podszywa się pod śluzę (ten sam tag i treść). Dociera do SIEM, ale z jego UID
+# z jądra — ci/observability_contract.py verify-log --expect-untrusted musi go odrzucić
+as $R1 logger -t wlb-sluza-out -p authpriv.notice -- "export_request user=jupyter-$R2 uid=0 \
+entry=podrobiony-44.csv sha256=$(printf '%064d' 0) queued_as=20260101T000000Z_jupyter-${R2}_podrobiony-44.csv"
+# pola zaufane nie mogą powodować odmów AppArmor — każda to zdarzenie audytu, które wraca do rsyslog
+# (pętla zalewająca audyt, zob. rola logging)
+expect_fail "rsyslog bez odmów AppArmor (#44)" bash -c "journalctl -k -b | grep -q 'apparmor=\"DENIED\".*profile=\"rsyslogd\"'"
+expect_fail "Jądro nie gubi zdarzeń audytu (backlog)" bash -c "journalctl -k -b | grep -q 'audit: backlog limit exceeded'"
+expect_ok "Wpis podrobiony przez badacza ma w journald jego UID (#44)" \
+  bash -c "journalctl -t wlb-sluza-out _UID=$(id -u jupyter-$R1) -o cat | grep -q podrobiony-44.csv"
 if grep -q '^SIEM_HOST=.' /etc/wlb/lab.env; then
   expect_ok "Przekazywanie do SIEM skonfigurowane" test -s /etc/rsyslog.d/60-wlb-siem.conf
 else

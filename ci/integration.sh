@@ -114,7 +114,7 @@ siem_delivery() {
     return 1
   }
   echo "Odebrano $(wc -l <"$LOGS/siem.log") zdarzeń"
-  python3 ci/observability_contract.py verify-log "$LOGS/siem.log"
+  python3 ci/observability_contract.py verify-log "$LOGS/siem.log" --expect-untrusted sluza_out.export_request
 }
 
 migration() {

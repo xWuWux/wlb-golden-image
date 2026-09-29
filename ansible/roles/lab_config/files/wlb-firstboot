@@ -220,8 +220,12 @@ if [[ -n $SIEM_HOST ]]; then
   mkdir -p "$(dirname "$SIEM_CONF")"
   cat >"$SIEM_CONF" <<EOF
 # Wygenerowane przez wlb-firstboot (${LAB_NAME}). Kolejka dyskowa — logi nie giną, gdy SIEM jest niedostępny.
+# RFC 5424 z polami zaufanymi [wlb@32473 ...]: źródło w rsyslog (imuxsock/imklog) oraz uid/gid/pid
+# nadawcy z jądra — SIEM rozpoznaje po nich zdarzenia podrobione przez badacza (#44).
+template(name="WLB_SyslogProtocol23Trusted" type="string"
+         string="<%PRI%>1 %TIMESTAMP:::date-rfc3339% %HOSTNAME% %APP-NAME% %PROCID% %MSGID% [wlb@32473 input=\"%inputname%\" uid=\"%\$!uid%\" gid=\"%\$!gid%\" pid=\"%\$!pid%\"] %msg%\n")
 *.* action(type="omfwd" target="${SIEM_HOST}" port="${SIEM_PORT}" protocol="${SIEM_PROTOCOL}"
-           template="RSYSLOG_SyslogProtocol23Format"
+           template="WLB_SyslogProtocol23Trusted"
            queue.type="LinkedList" queue.filename="wlb_siem" queue.maxDiskSpace="2g"
            queue.saveOnShutdown="on" action.resumeRetryCount="-1")
 EOF
