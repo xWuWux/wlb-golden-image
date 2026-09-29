@@ -22,6 +22,21 @@
 # z jądra (SCM_CREDENTIALS; journald przekazuje dane uwierzytelniające pierwotnego procesu). Treść
 # i tag wpisu może podać każdy proces (np. logger z dowolnym tagiem), tych pól — nie. Na nich SIEM odróżnia
 # zdarzenie usługi systemowej od wpisu podrobionego przez badacza (#44, observability/contract.yml).
+# ParseTrusted czyta też nazwę i wiersz poleceń nadawcy każdego wpisu z /proc. Profil AppArmor rsyslogd
+# z Ubuntu tego nie zezwala, a każda odmowa to zdarzenie audytu, które audisp-syslog wysyła z powrotem
+# do rsyslog — pętla, która zalewa audyt i gubi prawdziwe zdarzenia ("backlog limit exceeded").
+- name: AppArmor rsyslogd — odczyt danych nadawcy z /proc (pola zaufane)
+  ansible.builtin.copy:
+    dest: /etc/apparmor.d/local/usr.sbin.rsyslogd
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola logging). imuxsock z ParseTrusted (#44): comm i cmdline nadawcy.
+      @{PROC}/[0-9]*/comm r,
+      @{PROC}/[0-9]*/cmdline r,
+  notify:
+    - Reload AppArmor rsyslogd
+    - Restart rsyslog
+
 - name: Rsyslog — pola zaufane nadawcy (imuxsock)
   ansible.builtin.replace:
     path: /etc/rsyslog.conf
