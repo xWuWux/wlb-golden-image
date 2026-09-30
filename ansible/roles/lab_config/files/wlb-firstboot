@@ -237,6 +237,10 @@ if [[ -n $SIEM_HOST ]]; then
         die "nieprawidłowe SIEM_TLS_NAME: '${SIEM_TLS_NAME}'"
       compgen -G "$R/usr/lib/*/rsyslog/lmnsd_gtls.so" >/dev/null ||
         die "brak modułu TLS rsyslog (lmnsd_gtls.so, pakiet rsyslog-gnutls)"
+      # profil AppArmor rsyslogd (rola logging) pozwala czytać tylko /etc/wlb/*.pem — inny plik root
+      # przeczyta (sprawdzenie niżej przejdzie), ale rsyslog już nie i logi zostaną tylko w kolejce
+      [[ $SIEM_CA_CERT =~ ^/etc/wlb/[A-Za-z0-9._-]+\.pem$ ]] ||
+        die "SIEM_CA_CERT=${SIEM_CA_CERT}: certyfikat CA musi leżeć w /etc/wlb/*.pem (AppArmor rsyslogd)"
       [[ -r $R$SIEM_CA_CERT ]] || die "SIEM_TLS=1: brak certyfikatu CA SIEM ${SIEM_CA_CERT} (cloud-init write_files)"
       openssl x509 -noout -in "$R$SIEM_CA_CERT" 2>/dev/null ||
         die "SIEM_TLS=1: ${SIEM_CA_CERT} nie jest poprawnym certyfikatem PEM"

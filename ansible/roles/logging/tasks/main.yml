@@ -33,6 +33,8 @@
       # Zarządzane przez Ansible (rola logging). imuxsock z ParseTrusted (#44): comm i cmdline nadawcy.
       @{PROC}/[0-9]*/comm r,
       @{PROC}/[0-9]*/cmdline r,
+      # certyfikat CA SIEM (TLS, #6) — wlb-firstboot wymaga, żeby SIEM_CA_CERT leżał w /etc/wlb/*.pem
+      /etc/wlb/*.pem r,
   notify:
     - Reload AppArmor rsyslogd
     - Restart rsyslog

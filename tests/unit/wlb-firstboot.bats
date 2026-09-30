@@ -355,6 +355,15 @@ siem_env() { # siem_env KLUCZ=WARTOŚĆ... — nadpisuje lub dopisuje zmienne w 
   [ ! -e "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf" ]
 }
 
+@test "SIEM TLS: certyfikat CA poza /etc/wlb/*.pem jest odrzucany (AppArmor rsyslogd)" {
+  mkdir -p "$SANDBOX/etc/ssl"
+  touch "$SANDBOX/etc/ssl/siem-ca.pem"
+  siem_env SIEM_CA_CERT=/etc/ssl/siem-ca.pem
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"certyfikat CA musi leżeć w /etc/wlb/*.pem (AppArmor rsyslogd)"* ]]
+}
+
 @test "SIEM TLS: nieczytelny certyfikat CA przerywa konfigurację" {
   stub openssl 1
   run "$FIRSTBOOT"
