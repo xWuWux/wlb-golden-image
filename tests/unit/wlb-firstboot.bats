@@ -29,10 +29,14 @@ EGRESS_ALLOW="10.20.0.10:3128 10.30.0.0/24:5432"
 NTP_SERVERS="10.10.0.2 ntp.wlb.local"
 ADMIN_SSH_CIDR=10.10.0.0/24
 SIEM_HOST=10.40.0.20
+SIEM_TLS_NAME=siem.wlb.local
 EOF
   mkdir -p "$SANDBOX/etc/sudoers.d"
   touch "$SANDBOX/etc/sudoers.d/jupyterhub-admins"
-  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep chronyc; do stub "$cmd"; done
+  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep chronyc openssl; do stub "$cmd"; done
+  # TLS do SIEM (#6): moduł rsyslog i CA z cloud-init; openssl (atrapa) "potwierdza" poprawny PEM
+  mkdir -p "$SANDBOX/usr/lib/x86_64-linux-gnu/rsyslog"
+  touch "$SANDBOX/usr/lib/x86_64-linux-gnu/rsyslog/lmnsd_gtls.so" "$SANDBOX/etc/wlb/siem-ca.pem"
   stub getent 2
   stub tljh-config 0 "users:"
   stub wlb-hub-user 0 "haslo-poczatkowe-123"
@@ -85,7 +89,12 @@ EOF
   calls | grep -q "nft -c -f $nftcfg"
 
   # SIEM
-  grep -q 'target="10.40.0.20" port="514" protocol="tcp"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  grep -q 'target="10.40.0.20" port="6514" protocol="tcp"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  # TLS z weryfikacją nazwy serwera (#6)
+  grep -q 'StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  grep -q 'StreamDriverPermittedPeers="siem.wlb.local" streamDriver.CAFile="/etc/wlb/siem-ca.pem"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  calls | grep -q "openssl x509 -noout -in $SANDBOX/etc/wlb/siem-ca.pem"
+  [[ $output == *"logi przekazywane do 10.40.0.20:6514/tcp (TLS, serwer siem.wlb.local)"* ]]
   # pola zaufane nadawcy w każdym wpisie (#44)
   grep -q 'template="WLB_SyslogProtocol23Trusted"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
   grep -qF '[wlb@32473 input=\"%inputname%\" uid=\"%$!uid%\" gid=\"%$!gid%\" pid=\"%$!pid%\"]' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
@@ -326,4 +335,79 @@ EOF
   [ "$status" -eq 0 ]
   [[ $output == *"jest zajęty przez inne konto"* ]]
   refute called useradd
+}
+
+# --- TLS do SIEM (#6) ------------------------------------------------------------------------
+
+siem_env() { # siem_env KLUCZ=WARTOŚĆ... — nadpisuje lub dopisuje zmienne w lab.env
+  local kv
+  for kv in "$@"; do
+    sed -i "/^${kv%%=*}=/d" "$SANDBOX/etc/wlb/lab.env"
+    echo "$kv" >>"$SANDBOX/etc/wlb/lab.env"
+  done
+}
+
+@test "SIEM TLS: brak certyfikatu CA przerywa konfigurację (fail-secure)" {
+  rm "$SANDBOX/etc/wlb/siem-ca.pem"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak certyfikatu CA SIEM /etc/wlb/siem-ca.pem"* ]]
+  [ ! -e "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf" ]
+}
+
+@test "SIEM TLS: nieczytelny certyfikat CA przerywa konfigurację" {
+  stub openssl 1
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nie jest poprawnym certyfikatem PEM"* ]]
+}
+
+@test "SIEM TLS: brak modułu lmnsd_gtls przerywa konfigurację" {
+  rm "$SANDBOX/usr/lib/x86_64-linux-gnu/rsyslog/lmnsd_gtls.so"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak modułu TLS rsyslog (lmnsd_gtls.so, pakiet rsyslog-gnutls)"* ]]
+}
+
+@test "SIEM TLS: adres IP bez SIEM_TLS_NAME przerywa konfigurację" {
+  sed -i '/^SIEM_TLS_NAME=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"SIEM_HOST=10.40.0.20 to adres IP — ustaw SIEM_TLS_NAME"* ]]
+}
+
+@test "SIEM TLS: nazwa serwera domyślnie z SIEM_HOST, gdy to nazwa DNS" {
+  sed -i '/^SIEM_TLS_NAME=/d' "$SANDBOX/etc/wlb/lab.env"
+  siem_env SIEM_HOST=siem.gumed.local
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  grep -q 'StreamDriverPermittedPeers="siem.gumed.local"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+}
+
+@test "SIEM TLS: nieprawidłowa nazwa serwera i UDP są odrzucane" {
+  siem_env 'SIEM_TLS_NAME="siem.local\" x=\"1"'
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nieprawidłowe SIEM_TLS_NAME"* ]]
+  siem_env SIEM_TLS_NAME=siem.wlb.local SIEM_PROTOCOL=udp
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"SIEM_TLS=1 wymaga SIEM_PROTOCOL=tcp"* ]]
+}
+
+@test "SIEM_TLS=0: bez TLS, port 514 i wyraźne ostrzeżenie" {
+  siem_env SIEM_TLS=0
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  grep -q 'target="10.40.0.20" port="514" protocol="tcp"' "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  refute grep -q StreamDriver "$SANDBOX/etc/rsyslog.d/60-wlb-siem.conf"
+  [[ $output == *"uwaga: SIEM_TLS=0 — logi (polecenia badaczy, loginy, eksporty) idą do SIEM otwartym tekstem"* ]]
+  calls | grep -q "logger -t wlb-firstboot -- uwaga: SIEM_TLS=0"
+}
+
+@test "SIEM_TLS: wartość inna niż 0/1 jest odrzucana" {
+  siem_env SIEM_TLS=tak
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"SIEM_TLS musi być 0 albo 1, jest 'tak'"* ]]
 }

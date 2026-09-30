@@ -155,4 +155,5 @@ siem:
   forwarder_file: ansible/roles/lab_config/files/wlb-firstboot
   forward_all: '*.* action(type="omfwd"' # wszystkie zdarzenia, nie wybrane facility
   template: WLB_SyslogProtocol23Trusted # szablon z polami zaufanymi (trusted_sd_id)
+  tls: 'StreamDriverAuthMode=\"x509/name\"' # TLS z weryfikacją nazwy serwera SIEM (#6, §20)
   trusted_input: { file: ansible/roles/logging/tasks/main.yml, marker: 'SysSock.ParseTrusted="on"' }

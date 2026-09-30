@@ -71,9 +71,10 @@ collect_vm_logs() {
 
 acceptance() {
   local rc=0 sink
-  # testowy SIEM: VM (sieć QEMU user) wysyła logi do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
+  # testowy SIEM: VM (sieć QEMU user) wysyła logi po TLS do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
   rm -f "$LOGS/siem.log"
-  python3 tests/syslog_sink.py --port 5514 --out "$LOGS/siem.log" &
+  tests/lib/test-pki.sh build/test
+  python3 tests/syslog_sink.py --port 5514 --out "$LOGS/siem.log" --tls-cert build/test/siem.pem --tls-key build/test/siem.key &
   sink=$!
   sleep 1
   # odbiornik musi słuchać, zanim wystartuje VM — inaczej zdarzenia trafią gdzie indziej

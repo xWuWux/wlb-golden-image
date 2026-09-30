@@ -132,6 +132,12 @@ expect_ok "Wpis podrobiony przez badacza ma w journald jego UID (#44)" \
   bash -c "journalctl -t wlb-sluza-out _UID=$(id -u jupyter-$R1) -o cat | grep -q podrobiony-44.csv"
 if grep -q '^SIEM_HOST=.' /etc/wlb/lab.env; then
   expect_ok "Przekazywanie do SIEM skonfigurowane" test -s /etc/rsyslog.d/60-wlb-siem.conf
+  # rsyslogd -N1 nie wykrywa braku modułu TLS — ładowany dopiero przy pierwszym połączeniu (#6)
+  expect_ok "Moduł TLS rsyslog zainstalowany (lmnsd_gtls, #6)" bash -c 'compgen -G "/usr/lib/*/rsyslog/lmnsd_gtls.so"'
+  expect_ok "SIEM po TLS z weryfikacją nazwy serwera (#6)" \
+    grep -q 'StreamDriverAuthMode="x509/name"' /etc/rsyslog.d/60-wlb-siem.conf
+  expect_fail "rsyslog bez błędów TLS (moduł, nazwa i zaufanie certyfikatu, #6)" \
+    bash -c "journalctl -u rsyslog -b | grep -qE 'could not load module|lmnsd_gtls.*error|not permitted to talk|peer name not authorized|not trusted'"
 else
   skip "Log centralny (SIEM) — brak SIEM_HOST w teście lokalnym"
 fi

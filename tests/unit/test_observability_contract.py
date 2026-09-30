@@ -267,6 +267,11 @@ def test_kontrakt_wymaga_regul_pochodzenia(repo):
         assert expected in text, expected
 
 
+def test_siem_bez_tls(repo):
+    edit(repo / "ansible/roles/lab_config/files/wlb-firstboot", 'StreamDriverAuthMode=\\"x509/name\\"', "")
+    assert any("nie wymusza TLS z weryfikacją nazwy" in e for e in oc.check_static(repo, contract(repo)))
+
+
 def test_siem_bez_pol_zaufanych(repo):
     edit(repo / "ansible/roles/lab_config/files/wlb-firstboot", 'uid=\\"%\\$!uid%\\"', "")
     tasks = repo / "ansible/roles/logging/tasks/main.yml"

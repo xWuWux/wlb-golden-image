@@ -170,6 +170,8 @@ def check_static(root: Path, contract: dict) -> list[str]:
         errors.append(f"SIEM: {siem['forwarder_file']} nie przekazuje zdarzeń szablonem {template!r}")
     elif not re.search(rf"\[{re.escape(sd_id)} " + r'input=\\"%inputname%\\" uid=\\"%\\\$!uid%\\"', forwarder):
         errors.append(f"SIEM: szablon {template!r} nie dopisuje pól zaufanych [{sd_id} input=... uid=...]")
+    if siem.get("tls") not in forwarder:
+        errors.append(f"SIEM: {siem['forwarder_file']} nie wymusza TLS z weryfikacją nazwy ({siem.get('tls')})")
     trusted_input = siem.get("trusted_input", {})
     if not trusted_input or trusted_input["marker"] not in (root / trusted_input["file"]).read_text():
         errors.append(
