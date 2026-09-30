@@ -226,6 +226,13 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
   tego nowa wersja obrazu kasowałaby konta w hubie. `wlb-firstboot` odtwarza też konta systemowe badaczy
   z tym samym UID co właściciel katalogu domowego, a hasło Administratora Klienta zostaje bez zmian.
   Sprawdza to test migracji w etapie 5.
+- **Blokada pobierania plików jest częściowa (#7, §14, §24.e).** Traefik przed hubem zwraca 403 dla
+  `/user/*/files`, `/nbconvert` i `/view` (przycisk Download, „Export Notebook As”, bezpośredni URL), a każda
+  odmowa trafia do SIEM (`hub.download_denied`). Przyciski pobierania są ukryte w JupyterLab, ale to tylko
+  wygoda: blokadę daje serwer. **Otwarte zostają:** `/api/contents`, przez które JupyterLab otwiera i zapisuje
+  każdy plik, schowek i zrzuty ekranu. Pełną egzekucję daje dopiero dostęp przez VDI (#18), zgodnie ze
+  specyfikacją. Koszt: obrazki wstawione w Markdown (`![](plik.png)`) się nie wyświetlają, bo JupyterLab
+  ładuje je przez `/files`. Wykresy w wynikach komórek działają normalnie.
 - **Licencja `inspectomop` to AGPL-3.0.** Jest wpisana jako wyjątek w `ci/license-policy.yml` z adnotacją
   „do potwierdzenia przez dział prawny”. Bez tej decyzji pakiet należy usunąć ze środowiska.
 
