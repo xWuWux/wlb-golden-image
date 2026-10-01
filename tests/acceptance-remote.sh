@@ -142,7 +142,8 @@ expect_ok "Limit procesów badacza (RESEARCHER_TASKS_MAX z lab.env)" test "$(sys
 expect_ok "OOMPolicy=continue (OOM nie zatrzymuje serwera)" test "$(systemctl show -p OOMPolicy --value $unit)" = continue
 expect_ok "Procesy badacza pierwsze dla OOM killera (500)" \
   test "$(cat /proc/"$(systemctl show -p MainPID --value $unit)"/oom_score_adj)" = 500
-for s in auditd:-1000 rsyslog:-900 jupyterhub:-900 traefik:-900 wlb-sluza-out:-900 ssh:-900; do
+# ssh: -1000 ustawia sam sshd (SSHD_OOM_ADJUST) procesowi nasłuchującemu
+for s in auditd:-1000 rsyslog:-900 jupyterhub:-900 traefik:-900 wlb-sluza-out:-900 ssh:-1000; do
   expect_ok "Usługa ${s%%:*} chroniona przed OOM (${s#*:})" \
     test "$(cat /proc/"$(systemctl show -p MainPID --value "${s%%:*}")"/oom_score_adj 2>/dev/null)" = "${s#*:}"
 done
