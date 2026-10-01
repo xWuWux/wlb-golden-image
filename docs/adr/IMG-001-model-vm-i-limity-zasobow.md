@@ -61,8 +61,8 @@ Pozostałe ustawienia z #30 są wspólne dla obu modeli i nadal potrzebne także
 | Storage | `/workspace` należy do jednego badacza (dysk VM). **Współdzielony system plików projektu (§10)** musi być osobnym montowaniem wspólnym dla wszystkich VM zespołu (CephFS/NFS), z decyzją o prawach (kto czyta i zapisuje). | #19 |
 | Śluzy | `/sluza-in` i `/sluza-out` montowane w każdej VM projektu. Kolejka eksportu jest dziś per VM (dysk roboczy), więc trzeba zdecydować, czy Kontroler widzi kolejki wszystkich VM projektu w jednym miejscu. | #20, #33 |
 | Hub | Zostaje wieloużytkownikowy (badacz i Administrator Klienta). Przy C izolacja między badaczami na jednej VM pozostaje granicą bezpieczeństwa (testy tester1/tester2). | — |
-| Wspólny katalog zespołu | §10 wymaga katalogu wspólnego dla członków zespołu. Przy C potrzebny także **w jednej VM** (dziś go nie ma). | nowe zgłoszenie |
-| Rola Administratora Klienta | Przy kilku badaczach na VM rośnie znaczenie tego, że rola admina huba daje dostęp do serwerów i plików badaczy. | nowe zgłoszenie (`decyzja`) |
+| Wspólny katalog zespołu | §10 wymaga katalogu wspólnego dla członków zespołu. Przy C potrzebny także **w jednej VM** (dziś go nie ma). | #50 |
+| Rola Administratora Klienta | Przy kilku badaczach na VM rośnie znaczenie tego, że rola admina huba daje dostęp do serwerów i plików badaczy. | #51 |
 | Koszty | Liczba VM = liczba aktywnych badaczy. Ma to wpływ na budżet projektu (§11) i wyłączanie nieużywanych pulpitów (§9). | — |
 | Specyfikacja | Aktualizacja `WLB_Specs.txt`: „jedna VM per badacz” zamiast „jedna VM per Laboratorium … wszyscy badacze jako osobni użytkownicy Hub”. | — |
 | Testy | Testy izolacji dwóch badaczy (tester1/tester2) zostają jako obrona w głębi. Dochodzi test współdzielonego systemu plików między dwiema VM (po #19). | #19 |
