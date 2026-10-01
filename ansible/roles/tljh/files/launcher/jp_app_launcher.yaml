@@ -1,0 +1,9 @@
+# Zarządzane przez Ansible (rola tljh) — kafelki w Launcherze JupyterLab (#54).
+# Instalowane do /opt/tljh/user/share/jupyter/jupyter_app_launcher/ (ścieżka danych Jupytera).
+- id: wlb-pomoc
+  title: Pomoc i zgłoszenia
+  description: Kontakt do wsparcia technicznego IP_CMC i dane do zgłoszenia problemu.
+  icon: ''
+  type: markdown
+  source: /opt/tljh/user/share/jupyter/jupyter_app_launcher/pomoc.md
+  catalog: WLB

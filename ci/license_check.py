@@ -291,7 +291,10 @@ def python_packages(repo_root: Path, fetcher=fetch) -> list[Package]:
         if not lic:
             prefix = "License :: OSI Approved ::"
             osi = [c.removeprefix(prefix).strip() for c in info.get("classifiers", []) if c.startswith(prefix)]
-            lic = " OR ".join(osi) if osi else ((info.get("license") or "").strip().splitlines() or [None])[0]
+            # pole license bywa pełnym tekstem licencji (nazwa + "Copyright..." + treść, czasem bez
+            # znaków nowej linii) — bierzemy samą nazwę z początku, sprzed "Copyright"
+            text = re.split(r"\bcopyright\b", (info.get("license") or "").strip(), maxsplit=1, flags=re.I)[0]
+            lic = " OR ".join(osi) if osi else ((text.strip().splitlines() or [None])[0] or None)
         return Package("pypi", name, version or info.get("version", "?"), lic)
 
     # umiarkowana równoległość: przy 16 wątkach API conda-forge zwracało timeouty

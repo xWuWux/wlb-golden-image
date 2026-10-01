@@ -154,19 +154,25 @@ def test_r_z_renv_lock(repo):
 def test_python_z_locka_conda_i_pip(repo):
     (repo / "envs/python/environment.lock.yml").write_text(
         "name: x\ndependencies:\n  - pandas=2.2.3\n  - pip=24.0\n"
-        "  - pip:\n      - inspectomop==0.2.3\n      - other[extra]>=1\n"
+        "  - pip:\n      - inspectomop==0.2.3\n      - other[extra]>=1\n      - pelny-tekst==2.0\n"
     )
+    # pelny-tekst: pole license = cały tekst licencji bez nowych linii (jak simpervisor) — nazwa jest sprzed "Copyright"
+    bsd_full = "BSD 3-Clause License  Copyright (c) 2018, X  Redistribution and use ... DAMAGE."
     fetcher = FakeFetcher({
         "anaconda.org/package/conda-forge/pandas": {"license": "BSD-3-Clause"},
         "pypi.org/pypi/inspectomop/0.2.3/json": {"info": {"classifiers": [
             "License :: OSI Approved :: GNU Affero General Public License v3"]}},
         "pypi.org/pypi/other/json": {"info": {"version": "1.5", "license": "Apache 2.0\nfull text..."}},
+        "pypi.org/pypi/pelny-tekst/2.0/json": {"info": {"version": "2.0", "license": bsd_full}},
     })  # fmt: skip
     pkgs = {p.name: p for p in lc.python_packages(repo, fetcher)}
     assert pkgs["pandas"].license == "BSD-3-Clause"
     assert pkgs["pip"].license == "MIT"
     assert pkgs["inspectomop"].license == "GNU Affero General Public License v3"
     assert (pkgs["other"].version, pkgs["other"].license) == ("1.5", "Apache 2.0")
+    assert pkgs["pelny-tekst"].license == "BSD 3-Clause License"
+    lc.apply_policy(list(pkgs.values()), POLICY)
+    assert pkgs["pelny-tekst"].verdict == "allowed"
 
 
 def test_conda_brak_w_api_to_licencja_nieznana(repo):

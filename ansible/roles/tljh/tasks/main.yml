@@ -49,6 +49,36 @@
     mode: "0644"
   notify: Reload hub
 
+- name: Katalog identyfikacji wizualnej huba (#53)
+  ansible.builtin.file:
+    path: /opt/tljh/config/branding
+    state: directory
+    mode: "0755"
+
+- name: Logo IP_CMC (#53)
+  ansible.builtin.copy:
+    src: branding/ipcmc-logo.png
+    dest: /opt/tljh/config/branding/ipcmc-logo.png
+    mode: "0644"
+  notify: Reload hub
+
+# Kafelek "Pomoc i zgłoszenia" w Launcherze JupyterLab. Pakiet jupyter-app-launcher jest w
+# środowisku użytkowników (envs/python); tu tylko konfiguracja kafelka i strona pomocy. #54
+- name: Katalog konfiguracji Launchera (jupyter-app-launcher)
+  ansible.builtin.file:
+    path: /opt/tljh/user/share/jupyter/jupyter_app_launcher
+    state: directory
+    mode: "0755"
+
+- name: Kafelek pomocy i strona pomocy (#54)
+  ansible.builtin.copy:
+    src: "launcher/{{ item }}"
+    dest: "/opt/tljh/user/share/jupyter/jupyter_app_launcher/{{ item }}"
+    mode: "0644"
+  loop:
+    - jp_app_launcher.yaml
+    - pomoc.md
+
 - name: Hub startuje dopiero po zamontowaniu dysku roboczego
   ansible.builtin.copy:
     dest: /etc/systemd/system/jupyterhub.service.d/10-wlb.conf

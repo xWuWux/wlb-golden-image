@@ -33,3 +33,4 @@ dependencies:
   - hpack>=4.2.0        # GHSA-8v8h-hg4w-mvq2
   - pip:
       - inspectomop
+      - jupyter-app-launcher  # kafelek "Pomoc i zgłoszenia" w Launcherze JupyterLab (#54)

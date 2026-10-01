@@ -42,13 +42,13 @@ dependencies:
   - charset-normalizer=3.3.2
   - cloudpickle=3.1.2
   - colorama=0.4.6
-  - conda=26.7.2
+  - conda=26.7.3
   - conda-index=0.13.0
   - conda-libmamba-solver=26.7.0
   - conda-lockfiles=0.2.2
   - conda-package-handling=2.3.0
   - conda-package-streaming=0.13.0
-  - conda-pypi=0.12.0
+  - conda-pypi=0.13.0
   - conda-rattler-solver=0.2.0
   - conda-self=0.3.0
   - contourpy=1.4.0
@@ -67,7 +67,7 @@ dependencies:
   - fontconfig=2.18.3
   - fonts-conda-ecosystem=1
   - fonts-conda-forge=1
-  - fonttools=4.66.0
+  - fonttools=4.66.1
   - formulaic=1.2.2
   - freetype=2.14.3
   - fribidi=1.0.17
@@ -158,7 +158,7 @@ dependencies:
   - libopentelemetry-cpp-headers=1.27.0
   - libparquet=25.0.0
   - libpciaccess=0.19
-  - libpng=1.6.58
+  - libpng=1.6.59
   - libpq=18.6
   - libprotobuf=7.35.1
   - libpsl=0.23.1
@@ -189,7 +189,7 @@ dependencies:
   - matplotlib=3.11.2
   - matplotlib-base=3.11.2
   - menuinst=2.1.2
-  - msgpack-python=1.2.2
+  - msgpack-python=1.2.3
   - munkres=1.1.4
   - narwhals=2.26.0
   - ncurses=6.5
@@ -266,7 +266,7 @@ dependencies:
   - urllib3=2.8.0
   - wayland=1.26.0
   - wheel=0.48.0
-  - wrapt=2.4.1
+  - wrapt=2.5.0
   - xcb-util=0.4.1
   - xcb-util-cursor=0.1.6
   - xcb-util-image=0.4.0
@@ -300,6 +300,9 @@ dependencies:
   - zstandard=0.25.0
   - zstd=1.5.7
   - pip:
+      - aiohappyeyeballs==2.7.1
+      - aiohttp==3.14.3
+      - aiosignal==1.4.0
       - alembic==1.20.0
       - argon2-cffi==25.1.0
       - argon2-cffi-bindings==26.1.0
@@ -313,14 +316,15 @@ dependencies:
       - certipy==0.2.3
       - cffi==2.1.1
       - comm==0.2.3
-      - cryptography==50.0.1
+      - cryptography==50.0.2
       - debugpy==1.8.22
       - defusedxml==0.7.1
       - executing==2.2.1
       - fastjsonschema==2.22.2
-      - fqdn==1.5.1
+      - fqdn==1.6.0
+      - frozenlist==1.8.0
       - inspectomop==0.2.3
-      - ipykernel==7.3.0
+      - ipykernel==7.4.0
       - ipython==9.17.1
       - ipython-pygments-lexers==1.1.1
       - ipywidgets==8.1.9
@@ -329,6 +333,7 @@ dependencies:
       - json5==0.15.0
       - jsonschema==4.26.0
       - jsonschema-specifications==2025.9.1
+      - jupyter-app-launcher==0.3.2
       - jupyter-builder==1.2.3
       - jupyter-client==8.10.0
       - jupyter-core==5.9.1
@@ -336,6 +341,7 @@ dependencies:
       - jupyter-lsp==2.3.1
       - jupyter-resource-usage==1.3.0
       - jupyter-server==2.21.1
+      - jupyter-server-proxy==4.6.0
       - jupyter-server-terminals==0.5.4
       - jupyterhub==5.5.2
       - jupyterlab==4.6.4
@@ -346,6 +352,7 @@ dependencies:
       - mako==1.4.3
       - matplotlib-inline==0.2.2
       - mistune==3.3.4
+      - multidict==6.9.1
       - nbclient==0.11.0
       - nbconvert==7.17.1
       - nbformat==5.11.1
@@ -353,13 +360,14 @@ dependencies:
       - nest-asyncio2==1.7.3
       - notebook==7.6.3
       - notebook-shim==0.2.4
-      - oauthlib==3.3.1
+      - oauthlib==4.0.0
       - pamela==1.2.0
       - pandocfilters==1.5.1
       - parso==0.8.7
       - pexpect==4.9.0
       - prometheus-client==0.26.0
       - prompt-toolkit==3.0.53
+      - propcache==0.5.4
       - psutil==7.2.2
       - ptyprocess==0.7.0
       - pure-eval==0.2.4
@@ -373,6 +381,7 @@ dependencies:
       - rfc3987-syntax==1.1.0
       - rpds-py==2026.6.3
       - send2trash==2.1.0
+      - simpervisor==1.0.0
       - soupsieve==2.10
       - stack-data==0.6.3
       - terminado==0.18.1
@@ -385,3 +394,4 @@ dependencies:
       - webencodings==0.6.1
       - websocket-client==1.9.2
       - widgetsnbextension==4.0.16
+      - yarl==1.25.1
