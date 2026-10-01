@@ -437,6 +437,20 @@ OBSŁUGA BŁĘDÓW CI (docs/ci-runbook.md)
 54. Lokalny etap 5: "Odbiornik SIEM nie dostał żadnych zdarzeń" — port 5514 trzymał odbiornik
     z ręcznego testu -> integration.sh sprawdza, czy odbiornik wystartował (kill -0), przed startem VM.
 
+PIERWSZE URUCHOMIENIE PRZEZ TESTERA (2026-10-01) — pełny opis: docs/pierwsze-uruchomienie.md
+55. env: 'bash\r' — repozytorium sklonowane na dysku Windows (/mnt/c) z CRLF -> .gitattributes (eol=lf),
+    make doctor wykrywa CRLF; klonować w WSL (~/projekty).
+56. "Brak narzędzia: ansible-playbook" i make uruchamiane w ci/ ("No rule to make target") -> komunikat
+    wskazuje make tools w katalogu głównym; przewodnik: wszystkie polecenia make z katalogu głównego.
+57. make build: ansible-playbook nie w PATH (narzędzia w .tools/) -> Makefile eksportuje PATH z .tools/
+    i ANSIBLE_CONFIG; bez ręcznego export PATH (u testera literówka "ansible=playbook").
+58. Na /mnt/c: "world writable directory" (ansible.cfg ignorowany) i "UNPROTECTED PRIVATE KEY FILE
+    0777" (ssh odrzuca klucz budowania, Permission denied) -> make doctor blokuje budowanie z /mnt/*.
+59. make freeze -> "nothing to commit": wersje zgodne z obrazem -> freeze pisze "Bez zmian" wprost;
+    zmiany wersji tylko przez gałąź i PR.
+60. Hasło admina huba: nano /root/... w WSL, cd/su w VM -> plik jest w VM, tylko dla roota; wlbadmin
+    bez hasła -> make test-password (albo sudo cat w VM).
+
 WYNIKI I NIEZWERYFIKOWANE (stan na 2026-09-25)
  - Obraz buduje się w CI w ~14 min (R/HADES z binariów Posit Package Manager: ~75 s).
  - Na prawdziwej VM przechodzą wszystkie kryteria akceptacji (37 PASS, 0 FAIL, 3 SKIP) i test

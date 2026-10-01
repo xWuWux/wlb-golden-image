@@ -35,14 +35,24 @@ ci/                     etapy pipeline'u CI (te same skrypty lokalnie i w GitHub
 
 ## Wymagania (WSL2 / Linux)
 
+**Pierwsze uruchomienie krok po kroku, z typowymi problemami: [`docs/pierwsze-uruchomienie.md`](docs/pierwsze-uruchomienie.md).**
+
+- Repozytorium w systemie plików WSL/Linuksa (`~/…`), **nie na dysku Windows (`/mnt/c/…`)**: tam pliki mają
+  prawa 0777 (ssh odrzuca klucz budowania) i zakończenia linii CRLF.
 - QEMU/KVM z dostępem do `/dev/kvm` (użytkownik w grupie `kvm`; w WSL po dodaniu grupy
-  uruchom `wsl --shutdown`)
-- Packer ≥ 1.10, Ansible ≥ 2.15, `cloud-image-utils`, `genisoimage`
-- ok. 40 GB miejsca, 6 GB RAM dla maszyny budującej
+  uruchom `wsl --shutdown`), `cloud-image-utils`, `genisoimage`, `python3-venv`
+- Packer i Ansible w przypiętych wersjach instaluje `make tools` (do `.tools/`, bez sudo)
+- ok. 40 GB miejsca, 6 GB RAM dla maszyny budującej, 8 GB dla VM testowej
+
+`make doctor` sprawdza wszystkie wymagania i podaje polecenie naprawcze dla każdego braku.
 
 ## Budowanie
 
+Wszystkie polecenia `make` uruchamia się w katalogu głównym repozytorium:
+
 ```bash
+make tools                      # narzędzia projektu do .tools/ (raz; make dodaje je do PATH sam)
+make doctor                     # sprawdzenie środowiska
 make init                       # wtyczki Packera (raz)
 make validate
 make build IMAGE_VERSION=0.1.0  # -> output/wlb-general-0.1.0-<data>/*.qcow2 + sha256 + manifest
@@ -52,12 +62,9 @@ Pierwsze budowanie trwa długo: kompilacja i instalacja pakietów HADES może za
 
 ### Zamrożone wersje pakietów
 
-Po pierwszym budowaniu w `build/artifacts/<obraz>/` lądują `environment.lock.yml`
-i `renv.lock` z dokładnymi wersjami. Przenieś je do repozytorium:
-
-```bash
-make freeze && git add envs/ && git commit -m "Zamrożenie środowisk dla 0.1.0"
-```
+Po budowaniu w `build/artifacts/<obraz>/` lądują `environment.lock.yml`
+i `renv.lock` z dokładnymi wersjami. `make freeze` przenosi je do `envs/` i mówi, czy coś się zmieniło.
+Zmiana wersji trafia na osobną gałąź i do PR (opiekun repozytorium); „Bez zmian” oznacza zgodność.
 
 Od tej chwili każde budowanie odtwarza te same wersje. Zmiana pakietów wygląda tak:
 edycja `environment.yml` lub `hades-packages.txt`, usunięcie locka, budowanie, `make freeze`, commit.
@@ -78,8 +85,8 @@ make test-down
 
 Hub jest dostępny pod `http://localhost:8080`, a SSH przez
 `ssh -p 2222 -i build/test/id_ed25519 wlbadmin@127.0.0.1`.
-Hasło początkowe administratora huba (`admin-klienta`) leży w VM w
-`/root/wlb-hub-admin-initial-password`.
+Hasło początkowe administratora huba (`admin-klienta`) wypisuje `make test-password`
+(w VM: `sudo cat /root/wlb-hub-admin-initial-password`).
 
 W teście nie ma udziałów sieciowych, proxy ani SIEM. Katalogi §10 są lokalne, a
 `EGRESS_ALLOW` wskazuje nieistniejący adres, więc każde wyjście badacza musi się nie udać.
