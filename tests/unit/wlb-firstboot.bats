@@ -41,6 +41,10 @@ EOF
   stub tljh-config 0 "users:"
   stub wlb-hub-user 0 "haslo-poczatkowe-123"
   export WLB_TLJH_CONFIG="$STUBS/tljh-config" WLB_HUB_USER_TOOL="$STUBS/wlb-hub-user" WLB_HUB_WAIT_SECONDS=4
+  # zasoby VM (#30): domyślnie 16 GiB RAM, 8 vCPU
+  meminfo 16384
+  stub nproc 0 8
+  export WLB_MEMINFO="$SANDBOX/proc/meminfo"
 }
 
 @test "brak lab.env kończy się błędem" {
@@ -419,4 +423,86 @@ siem_env() { # siem_env KLUCZ=WARTOŚĆ... — nadpisuje lub dopisuje zmienne w 
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"SIEM_TLS musi być 0 albo 1, jest 'tak'"* ]]
+# --- Limity zasobów badaczy (#30) --------------------------------------------------------------
+
+meminfo() { # meminfo MiB — MemTotal w piaskownicy
+  mkdir -p "$SANDBOX/proc"
+  printf 'MemTotal:       %d kB\nMemFree:        1000 kB\n' $(($1 * 1024)) >"$SANDBOX/proc/meminfo"
+}
+limits() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"; }
+slice_conf() { cat "$SANDBOX/etc/systemd/system/wlb-badacze.slice.d/50-wlb-limits.conf"; }
+lab_env() { # lab_env KLUCZ=WARTOŚĆ...
+  local kv
+  for kv in "$@"; do echo "$kv" >>"$SANDBOX/etc/wlb/lab.env"; done
+}
+
+@test "limity: 16 GiB / 8 vCPU — rezerwa 3 GiB, połowa puli i połowa vCPU na badacza" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  slice_conf | grep -qx 'MemoryMax=13312M'
+  limits | grep -qx 'c.SystemdSpawner.mem_limit = "6656M"'
+  limits | grep -qx 'c.SystemdSpawner.cpu_limit = float("4")'
+  limits | grep -q '"TasksMax": "2048"'
+  limits | grep -q '"OOMScoreAdjust": "500"'
+  limits | grep -q '"OOMPolicy": "continue"'
+  calls | grep -qx 'systemctl daemon-reload'
+  [[ $output == *"limity: RAM 16384 MiB, rezerwa 3072 MiB, badacze razem 13312 MiB; na badacza 6656 MiB, CPU 4, procesy 2048"* ]]
+  python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"
+}
+
+@test "limity: duża VM — rezerwa 10% RAM" {
+  meminfo 65536
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  slice_conf | grep -qx 'MemoryMax=58983M'
+  limits | grep -qx 'c.SystemdSpawner.mem_limit = "29491M"'
+}
+
+@test "limity: 1 vCPU — co najmniej jeden rdzeń na badacza" {
+  stub nproc 0 1
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  limits | grep -qx 'c.SystemdSpawner.cpu_limit = float("1")'
+}
+
+@test "limity: nadpisania z lab.env" {
+  lab_env SYSTEM_MEM_RESERVE=4G RESEARCHER_MEM_LIMIT=8192M RESEARCHER_CPU_LIMIT=1.5 RESEARCHER_TASKS_MAX=512
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  slice_conf | grep -qx 'MemoryMax=12288M'
+  limits | grep -qx 'c.SystemdSpawner.mem_limit = "8192M"'
+  limits | grep -qx 'c.SystemdSpawner.cpu_limit = float("1.5")'
+  limits | grep -q '"TasksMax": "512"'
+}
+
+@test "limity: za mała VM przerywa konfigurację" {
+  meminfo 3584
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"za mało pamięci dla badaczy: 3584 MiB RAM, rezerwa 3072 MiB"* ]]
+}
+
+@test "limity: nieprawidłowe wartości w lab.env są odrzucane" {
+  lab_env RESEARCHER_MEM_LIMIT=8GB
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"RESEARCHER_MEM_LIMIT: nieprawidłowy rozmiar '8GB'"* ]]
+  sed -i '/^RESEARCHER_MEM_LIMIT=/d' "$SANDBOX/etc/wlb/lab.env"
+
+  lab_env RESEARCHER_MEM_LIMIT=20G
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"RESEARCHER_MEM_LIMIT=20G większe niż pula badaczy (13312 MiB)"* ]]
+  sed -i '/^RESEARCHER_MEM_LIMIT=/d' "$SANDBOX/etc/wlb/lab.env"
+
+  lab_env RESEARCHER_CPU_LIMIT=dwa
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nieprawidłowe RESEARCHER_CPU_LIMIT: 'dwa'"* ]]
+  sed -i '/^RESEARCHER_CPU_LIMIT=/d' "$SANDBOX/etc/wlb/lab.env"
+
+  lab_env RESEARCHER_TASKS_MAX=10
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"RESEARCHER_TASKS_MAX musi być liczbą >= 64, jest '10'"* ]]
 }

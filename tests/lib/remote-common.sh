@@ -40,6 +40,16 @@ as() {
   (cd / && sudo -u "jupyter-$u" -H "$@")
 }
 
+# in_unit LOGIN POLECENIE... — jako badacz, ale w cgroup jego serwera notebooków (limity jednostki
+# SystemdSpawnera: pamięć, CPU, TasksMax). as() działa poza jednostką, więc limitów nie sprawdza.
+in_unit() {
+  local u=$1 cg
+  shift
+  cg=$(systemctl show -p ControlGroup --value "jupyter-$u")
+  [[ -n $cg ]] || return 1
+  (cd / && bash -c 'echo $$ >"/sys/fs/cgroup$0/cgroup.procs" && exec sudo -u "jupyter-$1" -H "${@:2}"' "$cg" "$u" "$@")
+}
+
 # logowanie formularzem Native Authenticator; wypisuje kod HTTP (302 = sukces)
 hub_login() {
   local user=$1 pass=$2 jar=/tmp/wlb-test-$1.jar xsrf

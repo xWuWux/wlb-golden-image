@@ -9,16 +9,6 @@ users:
 user_environment:
   default_app: jupyterlab
 
-{% if tljh_limit_memory or tljh_limit_cpu %}
-limits:
-{% if tljh_limit_memory %}
-  memory: {{ tljh_limit_memory }}
-{% endif %}
-{% if tljh_limit_cpu %}
-  cpu: {{ tljh_limit_cpu }}
-{% endif %}
-
-{% endif %}
 services:
   cull:
     enabled: true

@@ -48,6 +48,8 @@ write_files:
       SIEM_PROTOCOL=tcp
       SIEM_TLS_NAME=siem.test.local
       LOCAL_TEST_MODE=1
+      # niski limit procesów, żeby test fork bomb w VM był krótki i lekki (#30)
+      RESEARCHER_TASKS_MAX=256
   - path: /etc/wlb/siem-ca.pem
     permissions: "0644"
     encoding: b64

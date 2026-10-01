@@ -131,6 +131,46 @@ echo "== 7a. Czas (znaczniki audytu, §21) =="
 expect_ok "chrony używa serwerów z NTP_SERVERS" bash -c 'chronyc -n sources | grep -q "10\.0\.2\.2"'
 expect_fail "Brak publicznych serwerów NTP" bash -c 'grep -hE "^(pool|server)" /etc/chrony/chrony.conf /etc/chrony/sources.d/* | grep -q ubuntu'
 
+echo "== 7b. Limity zasobów badaczy (#30) =="
+unit=jupyter-$R1
+expect_ok "Serwer badacza w wlb-badacze.slice" test "$(systemctl show -p Slice --value $unit)" = wlb-badacze.slice
+expect_fail "Pula badaczy bez limitu pamięci" test "$(systemctl show -p MemoryMax --value wlb-badacze.slice)" = infinity
+mem_max=$(systemctl show -p MemoryMax --value $unit)
+expect_ok "Limit pamięci badacza (${mem_max} B)" bash -c "[[ $mem_max =~ ^[0-9]+$ ]]"
+expect_fail "Limit CPU badacza" test "$(systemctl show -p CPUQuotaPerSecUSec --value $unit)" = infinity
+expect_ok "Limit procesów badacza (RESEARCHER_TASKS_MAX z lab.env)" test "$(systemctl show -p TasksMax --value $unit)" = 256
+expect_ok "OOMPolicy=continue (OOM nie zatrzymuje serwera)" test "$(systemctl show -p OOMPolicy --value $unit)" = continue
+expect_ok "Procesy badacza pierwsze dla OOM killera (500)" \
+  test "$(cat /proc/"$(systemctl show -p MainPID --value $unit)"/oom_score_adj)" = 500
+for s in auditd:-1000 rsyslog:-900 jupyterhub:-900 traefik:-900 wlb-sluza-out:-900 ssh:-900; do
+  expect_ok "Usługa ${s%%:*} chroniona przed OOM (${s#*:})" \
+    test "$(cat /proc/"$(systemctl show -p MainPID --value "${s%%:*}")"/oom_score_adj 2>/dev/null)" = "${s#*:}"
+done
+# proces ponad limit pamięci (w cgroup serwera badacza): ginie tylko on
+rc=0
+in_unit $R1 python3 -c "x = bytearray($mem_max + 256 * 1024 * 1024)" 2>/dev/null || rc=$?
+expect_ok "Proces ponad limit pamięci zabity przez OOM (kod 137)" test "$rc" = 137
+expect_ok "Serwer notebooków przetrwał (OOMPolicy=continue)" systemctl is-active --quiet $unit
+expect_ok "Hub działa po OOM u badacza" curl -sf -o /dev/null "$HUB/hub/api"
+expect_ok "Inny badacz loguje się po OOM u pierwszego" test "$(hub_login $R2 "${PW[$R2]}")" = 302
+# fork bomb (ograniczony): fork kończy się EAGAIN przed 400 procesami, bo TasksMax=256
+fork_out=$(in_unit $R1 python3 -c '
+import errno, os, time
+n = 0
+try:
+    for _ in range(400):
+        if os.fork() == 0:
+            time.sleep(10)
+            os._exit(0)
+        n += 1
+    print("fork", n, "OK")
+except OSError as e:
+    print("fork", n, errno.errorcode[e.errno])
+' 2>&1)
+expect_ok "Fork bomb zatrzymany przez TasksMax ($fork_out)" bash -c "[[ '$fork_out' =~ ^fork\ [0-9]+\ EAGAIN$ ]]"
+expect_ok "Usługi działają po obciążeniu (audyt, logi, hub)" systemctl is-active --quiet auditd rsyslog jupyterhub
+sleep 10 # procesy z testu fork kończą się same
+
 echo "== 8. Logi i audyt =="
 expect_ok "Log huba: logowanie badacza" bash -c "journalctl -u jupyterhub | grep -q 'User logged in: $R1'"
 expect_ok "Log śluzy: wniosek o eksport" bash -c "journalctl -t wlb-sluza-out | grep -q 'user=jupyter-$R1 .*entry=wynik-test.csv'"
