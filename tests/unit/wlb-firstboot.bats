@@ -436,17 +436,17 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   for kv in "$@"; do echo "$kv" >>"$SANDBOX/etc/wlb/lab.env"; done
 }
 
-@test "limity: 16 GiB / 8 vCPU — rezerwa 3 GiB, połowa puli i połowa vCPU na badacza" {
+@test "limity: 16 GiB / 8 vCPU, jeden badacz (domyślnie) — rezerwa 3 GiB, cała pula i wszystkie vCPU" {
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
   slice_conf | grep -qx 'MemoryMax=13312M'
-  limits | grep -qx 'c.SystemdSpawner.mem_limit = "6656M"'
-  limits | grep -qx 'c.SystemdSpawner.cpu_limit = float("4")'
+  limits | grep -qx 'c.SystemdSpawner.mem_limit = "13312M"'
+  limits | grep -qx 'c.SystemdSpawner.cpu_limit = float("8")'
   limits | grep -q '"TasksMax": "2048"'
   limits | grep -q '"OOMScoreAdjust": "500"'
   limits | grep -q '"OOMPolicy": "continue"'
   calls | grep -qx 'systemctl daemon-reload'
-  [[ $output == *"limity: RAM 16384 MiB, rezerwa 3072 MiB, badacze razem 13312 MiB; na badacza 6656 MiB, CPU 4, procesy 2048"* ]]
+  [[ $output == *"limity: RAM 16384 MiB, rezerwa 3072 MiB, badacze razem 13312 MiB (1 równolegle); na badacza 13312 MiB, CPU 8, procesy 2048"* ]]
   python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"
 }
 
@@ -455,7 +455,17 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
   slice_conf | grep -qx 'MemoryMax=58983M'
-  limits | grep -qx 'c.SystemdSpawner.mem_limit = "29491M"'
+  limits | grep -qx 'c.SystemdSpawner.mem_limit = "58983M"'
+}
+
+@test "limity: kilku badaczy na VM (RESEARCHERS_PER_VM) dzieli pulę i vCPU" {
+  lab_env RESEARCHERS_PER_VM=4
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  slice_conf | grep -qx 'MemoryMax=13312M'
+  limits | grep -qx 'c.SystemdSpawner.mem_limit = "3328M"'
+  limits | grep -qx 'c.SystemdSpawner.cpu_limit = float("2")'
+  [[ $output == *"(4 równolegle); na badacza 3328 MiB, CPU 2"* ]]
 }
 
 @test "limity: 1 vCPU — co najmniej jeden rdzeń na badacza" {
@@ -505,4 +515,10 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"RESEARCHER_TASKS_MAX musi być liczbą >= 64, jest '10'"* ]]
+  sed -i '/^RESEARCHER_TASKS_MAX=/d' "$SANDBOX/etc/wlb/lab.env"
+
+  lab_env RESEARCHERS_PER_VM=0
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"RESEARCHERS_PER_VM musi być liczbą 1–64, jest '0'"* ]]
 }

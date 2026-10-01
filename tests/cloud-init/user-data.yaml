@@ -50,6 +50,8 @@ write_files:
       LOCAL_TEST_MODE=1
       # niski limit procesów, żeby test fork bomb w VM był krótki i lekki (#30)
       RESEARCHER_TASKS_MAX=256
+      # w teście dwóch badaczy (tester1, tester2) na jednej VM — wariant C z IMG-001
+      RESEARCHERS_PER_VM=2
   - path: /etc/wlb/siem-ca.pem
     permissions: "0644"
     encoding: b64

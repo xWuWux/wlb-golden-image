@@ -67,8 +67,9 @@ SIEM_PORT=${SIEM_PORT:-$([[ $SIEM_TLS == 1 ]] && echo 6514 || echo 514)} # 6514:
 LOCAL_TEST_MODE=${LOCAL_TEST_MODE:-0}
 # limity zasobów badaczy (#30) — puste = wyliczane z RAM i vCPU VM
 SYSTEM_MEM_RESERVE=${SYSTEM_MEM_RESERVE:-}         # rezerwa na usługi, np. 4G; domyślnie max(3G, 10% RAM)
-RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT:-}     # pamięć na badacza, np. 8G; domyślnie 50% puli badaczy
-RESEARCHER_CPU_LIMIT=${RESEARCHER_CPU_LIMIT:-}     # rdzenie na badacza, np. 2 albo 1.5; domyślnie 50% vCPU (min. 1)
+RESEARCHERS_PER_VM=${RESEARCHERS_PER_VM:-1}        # ilu badaczy równolegle na tej VM (IMG-001: domyślnie VM na badacza)
+RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT:-}     # pamięć na badacza, np. 8G; domyślnie pula / RESEARCHERS_PER_VM
+RESEARCHER_CPU_LIMIT=${RESEARCHER_CPU_LIMIT:-}     # rdzenie na badacza, np. 2 albo 1.5; domyślnie vCPU / RESEARCHERS_PER_VM (min. 1)
 RESEARCHER_TASKS_MAX=${RESEARCHER_TASKS_MAX:-2048} # procesy i wątki na badacza (ochrona przed fork bomb)
 export PROXY_URL NO_PROXY LAB_NAME
 
@@ -304,17 +305,20 @@ else
 fi
 pool=$((mem_total - reserve))
 ((pool >= 1024)) || die "za mało pamięci dla badaczy: ${mem_total} MiB RAM, rezerwa ${reserve} MiB (SYSTEM_MEM_RESERVE)"
+if [[ ! $RESEARCHERS_PER_VM =~ ^[0-9]+$ ]] || ((RESEARCHERS_PER_VM < 1 || RESEARCHERS_PER_VM > 64)); then
+  die "RESEARCHERS_PER_VM musi być liczbą 1–64, jest '${RESEARCHERS_PER_VM}'"
+fi
 if [[ -n $RESEARCHER_MEM_LIMIT ]]; then
   mem_limit=$(to_mib RESEARCHER_MEM_LIMIT "$RESEARCHER_MEM_LIMIT")
   ((mem_limit <= pool)) || die "RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT} większe niż pula badaczy (${pool} MiB)"
 else
-  mem_limit=$((pool / 2))
+  mem_limit=$((pool / RESEARCHERS_PER_VM))
 fi
 if [[ -n $RESEARCHER_CPU_LIMIT ]]; then
   [[ $RESEARCHER_CPU_LIMIT =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "nieprawidłowe RESEARCHER_CPU_LIMIT: '${RESEARCHER_CPU_LIMIT}'"
   cpu_limit=$RESEARCHER_CPU_LIMIT
 else
-  cpu_limit=$((cpus / 2 > 1 ? cpus / 2 : 1))
+  cpu_limit=$((cpus / RESEARCHERS_PER_VM > 1 ? cpus / RESEARCHERS_PER_VM : 1))
 fi
 if [[ ! $RESEARCHER_TASKS_MAX =~ ^[0-9]+$ ]] || ((RESEARCHER_TASKS_MAX < 64)); then
   die "RESEARCHER_TASKS_MAX musi być liczbą >= 64, jest '${RESEARCHER_TASKS_MAX}'"
@@ -337,7 +341,7 @@ c.SystemdSpawner.unit_extra_properties = {
 }
 EOF
 systemctl daemon-reload
-log "limity: RAM ${mem_total} MiB, rezerwa ${reserve} MiB, badacze razem ${pool} MiB; na badacza ${mem_limit} MiB, CPU ${cpu_limit}, procesy ${RESEARCHER_TASKS_MAX}"
+log "limity: RAM ${mem_total} MiB, rezerwa ${reserve} MiB, badacze razem ${pool} MiB (${RESEARCHERS_PER_VM} równolegle); na badacza ${mem_limit} MiB, CPU ${cpu_limit}, procesy ${RESEARCHER_TASKS_MAX}"
 
 # --- 6. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
 [[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f "$R/etc/sudoers.d/jupyterhub-admins"

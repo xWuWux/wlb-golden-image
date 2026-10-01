@@ -236,11 +236,13 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
 - **Limity zasobów badaczy (#30)** wylicza `wlb-firstboot` z RAM i vCPU danej VM, bo kategorie VM się różnią:
   - rezerwa na usługi (audyt, logi, hub, SSH): max(3 GB, 10% RAM),
   - pozostała pula: wspólny limit `wlb-badacze.slice`,
-  - na badacza: 50% puli pamięci, 50% vCPU (co najmniej 1) i 2048 procesów.
+  - na badacza: pula / `RESEARCHERS_PER_VM` i vCPU / `RESEARCHERS_PER_VM` (co najmniej 1) oraz 2048 procesów.
+    Domyślnie `RESEARCHERS_PER_VM=1` (VM na badacza, ADR IMG-001); przy kilku kontach na jednej VM ustawia
+    się ich liczbę w `lab.env`.
 
   Wszystkie wartości można nadpisać w `lab.env`. `OOMPolicy=continue`: przekroczenie limitu zabija proces
   (zwykle kernel), a nie cały serwer notebooków. Usługi systemowe mają ujemne `OOMScoreAdjust`, audyt -1000.
-  Domyślne przeliczniki (ilu badaczy równolegle na VM) wymagają zatwierdzenia przez Właściciela Platformy.
+  Model przydziału VM opisuje `docs/adr/IMG-001-model-vm-i-limity-zasobow.md`.
 - **Licencja `inspectomop` to AGPL-3.0.** Jest wpisana jako wyjątek w `ci/license-policy.yml` z adnotacją
   „do potwierdzenia przez dział prawny”. Bez tej decyzji pakiet należy usunąć ze środowiska.
 
