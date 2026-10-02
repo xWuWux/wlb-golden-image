@@ -77,8 +77,11 @@ dirs = yaml.safe_load(open("ansible/group_vars/all.yml"))["wlb_directories"]
 open(sys.argv[1], "w").write("".join(f"{d['path']} {d['owner']} {d['group']} {d['mode']}\n" for d in dirs))
 PY
   cp cloud-init/lab.env.example "$sb/root/etc/wlb/lab.env"
+  # TLS do SIEM (#6): moduł rsyslog i CA z cloud-init jak w obrazie (openssl — atrapa)
+  mkdir -p "$sb/root/usr/lib/x86_64-linux-gnu/rsyslog"
+  touch "$sb/root/usr/lib/x86_64-linux-gnu/rsyslog/lmnsd_gtls.so" "$sb/root/etc/wlb/siem-ca.pem"
   local cmd
-  for cmd in logger systemctl nft rsyslogd chown chmod curl groupadd useradd sleep tljh-config; do
+  for cmd in logger systemctl nft rsyslogd chown chmod curl groupadd useradd sleep tljh-config openssl; do
     printf '#!/bin/sh\nexit 0\n' >"$stubs/$cmd"
   done
   printf '#!/bin/sh\nexit 2\n' >"$stubs/getent"

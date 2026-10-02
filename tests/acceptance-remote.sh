@@ -126,12 +126,20 @@ as $R1 logger -t wlb-sluza-out -p authpriv.notice -- "export_request user=jupyte
 entry=podrobiony-44.csv sha256=$(printf '%064d' 0) queued_as=20260101T000000Z_jupyter-${R2}_podrobiony-44.csv"
 # pola zaufane nie mogą powodować odmów AppArmor — każda to zdarzenie audytu, które wraca do rsyslog
 # (pętla zalewająca audyt, zob. rola logging)
-expect_fail "rsyslog bez odmów AppArmor (#44)" bash -c "journalctl -k -b | grep -q 'apparmor=\"DENIED\".*profile=\"rsyslogd\"'"
+# odmowy AppArmor przy działającym auditd trafiają do audytu, nie do dziennika jądra (journalctl -k)
+expect_fail "rsyslog bez odmów AppArmor (#44, #6)" \
+  bash -c "ausearch --input-logs -m AVC </dev/null 2>/dev/null | grep -q 'profile=\"rsyslogd\"'"
 expect_fail "Jądro nie gubi zdarzeń audytu (backlog)" bash -c "journalctl -k -b | grep -q 'audit: backlog limit exceeded'"
 expect_ok "Wpis podrobiony przez badacza ma w journald jego UID (#44)" \
   bash -c "journalctl -t wlb-sluza-out _UID=$(id -u jupyter-$R1) -o cat | grep -q podrobiony-44.csv"
 if grep -q '^SIEM_HOST=.' /etc/wlb/lab.env; then
   expect_ok "Przekazywanie do SIEM skonfigurowane" test -s /etc/rsyslog.d/60-wlb-siem.conf
+  # rsyslogd -N1 nie wykrywa braku modułu TLS — ładowany dopiero przy pierwszym połączeniu (#6)
+  expect_ok "Moduł TLS rsyslog zainstalowany (lmnsd_gtls, #6)" bash -c 'compgen -G "/usr/lib/*/rsyslog/lmnsd_gtls.so"'
+  expect_ok "SIEM po TLS z weryfikacją nazwy serwera (#6)" \
+    grep -q 'StreamDriverAuthMode="x509/name"' /etc/rsyslog.d/60-wlb-siem.conf
+  expect_fail "rsyslog bez błędów TLS (moduł, nazwa i zaufanie certyfikatu, #6)" \
+    bash -c "journalctl -u rsyslog -b | grep -qE 'could not load module|lmnsd_gtls.*error|error reading certificate|not permitted to talk|peer name not authorized|not trusted|certificate.*(invalid|expired|revoked)'"
 else
   skip "Log centralny (SIEM) — brak SIEM_HOST w teście lokalnym"
 fi

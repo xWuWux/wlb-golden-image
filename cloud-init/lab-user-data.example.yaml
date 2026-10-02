@@ -68,8 +68,18 @@ write_files:
       HUB_ALLOWED_CIDR=10.10.1.0/24
       NTP_SERVERS="10.10.0.2 10.10.0.3"
       SIEM_HOST=10.40.0.20
-      SIEM_PORT=514
       SIEM_PROTOCOL=tcp
+      SIEM_TLS=1
+      SIEM_TLS_NAME=siem.wlb.local
+      SIEM_CA_CERT=/etc/wlb/siem-ca.pem
+      SIEM_PORT=6514
+  # CA, które wystawiło certyfikat SIEM (sam certyfikat publiczny — bez klucza prywatnego)
+  - path: /etc/wlb/siem-ca.pem
+    permissions: "0644"
+    content: |
+      -----BEGIN CERTIFICATE-----
+      <certyfikat CA SIEM z PKI GUMed>
+      -----END CERTIFICATE-----
 
 runcmd:
   - [/usr/local/sbin/wlb-firstboot]

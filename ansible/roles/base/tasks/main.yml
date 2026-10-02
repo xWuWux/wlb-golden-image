@@ -35,6 +35,7 @@
       - python3-venv
       - qemu-guest-agent
       - rsyslog
+      - rsyslog-gnutls # moduł lmnsd_gtls: TLS do SIEM (#6)
       - unzip
     state: present
 
