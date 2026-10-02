@@ -423,6 +423,8 @@ siem_env() { # siem_env KLUCZ=WARTOŚĆ... — nadpisuje lub dopisuje zmienne w 
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"SIEM_TLS musi być 0 albo 1, jest 'tak'"* ]]
+}
+
 # --- Limity zasobów badaczy (#30) --------------------------------------------------------------
 
 meminfo() { # meminfo MiB — MemTotal w piaskownicy
