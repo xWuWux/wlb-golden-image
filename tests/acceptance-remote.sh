@@ -85,6 +85,17 @@ expect_ok "Dowiązanie w /sluza-out odrzucone (#29)" \
 expect_ok "Prawa /etc/passwd bez zmian (#29)" test "$(stat -c %a /etc/passwd)" = "$passwd_mode"
 expect_fail "W kolejce nie ma dowiązań ani plików specjalnych (#29)" bash -c "find '$QUEUE' ! -type f ! -type d | grep -q ."
 
+echo "== 5b. Identyfikacja IP_CMC i pomoc (#53, #54) =="
+expect_ok "Logo na stronie logowania wskazuje /hub/logo (#53)" bash -c "curl -s '$HUB/hub/login' | grep -qE \"src=['\\\"]/hub/logo['\\\"]\""
+expect_ok "Nazwa platformy na stronie logowania (#53)" bash -c "curl -s '$HUB/hub/login' | grep -q 'Wirtualne Laboratorium Badawcze IP_CMC'"
+expect_ok "Logo to przesłany plik PNG IP_CMC (#53)" \
+  bash -c "curl -s '$HUB/hub/logo' | cmp -s - /opt/tljh/config/branding/ipcmc-logo.png"
+expect_ok "jupyter-app-launcher zainstalowany (#54)" /opt/tljh/user/bin/python -c "import jupyter_app_launcher"
+expect_ok "Kafelek pomocy w konfiguracji Launchera (#54)" \
+  bash -c "grep -q 'Pomoc i zgłoszenia' /opt/tljh/user/share/jupyter/jupyter_app_launcher/jp_app_launcher.yaml"
+expect_ok "Strona pomocy z kontaktem helpdesku (#54)" \
+  bash -c "grep -q 'helpdesk@gumed.edu.pl' /opt/tljh/user/share/jupyter/jupyter_app_launcher/pomoc.md"
+
 echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
 expect_fail "Bezpośrednie połączenie po adresie IP" as $R1 curl -s --noproxy '*' --max-time 5 http://1.1.1.1

@@ -20,6 +20,22 @@ c.NativeAuthenticator.seconds_before_next_try = {{ tljh_lockout_seconds }}
 # konta w NativeAuthenticator (is_authorized).
 c.NativeAuthenticator.allow_all = True
 
+# --- Identyfikacja wizualna IP_CMC (#53) ---------------------------------------
+# Logo w nagłówku wszystkich stron huba (w tym logowania). announcement_login dokłada na stronie
+# logowania nazwę platformy i odnośnik do Regulaminu — przez template_vars, bez własnych szablonów,
+# żeby aktualizacja TLJH/JupyterHub/Native Authenticatora niczego nie psuła.
+c.JupyterHub.logo_file = "/opt/tljh/config/branding/ipcmc-logo.png"
+c.JupyterHub.template_vars = {
+    "announcement_login": (
+        '<div style="text-align:center;margin:1em 0">'
+        '<strong>Wirtualne Laboratorium Badawcze IP_CMC</strong><br>'
+        'Interdyscyplinarne Pomorskie Centrum Medycyny Cyfrowej, Gdański Uniwersytet Medyczny<br>'
+        '<small>Korzystanie z WLB oznacza akceptację Regulaminu WLB '
+        '(dostępny po zalogowaniu w katalogu <code>/docs</code>).</small>'
+        '</div>'
+    )
+}
+
 # --- §9.5 Regulaminu: twardy limit sesji -----------------------------------------
 # Serwer notebooków zatrzymuje culler (services.cull.max_age); ciasteczko huba i tokeny
 # wygasają po tym samym czasie, więc po 12 h trzeba zalogować się od nowa.
