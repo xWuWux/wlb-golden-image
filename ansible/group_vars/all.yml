@@ -42,8 +42,7 @@ tljh_hub_db_path: /workspace/.wlb-hub/jupyterhub.sqlite
 tljh_idle_timeout_seconds: 1800        # 30 min bezczynności
 tljh_max_session_seconds: 43200        # §9.5: twardy limit 12 h
 tljh_cull_every_seconds: 60
-tljh_limit_memory: null                # np. "24G" — limit na badacza; null = brak
-tljh_limit_cpu: null
+# limity zasobów badaczy wylicza wlb-firstboot z RAM/vCPU VM (nadpisania w lab.env, #30)
 tljh_admins_have_sudo: false           # TLJH domyślnie daje adminom huba sudo; wyłączamy (§21, §24.c)
 tljh_enable_signup: true               # wniosek o konto; aktywacja wymaga zatwierdzenia admina
 tljh_password_min_length: 12

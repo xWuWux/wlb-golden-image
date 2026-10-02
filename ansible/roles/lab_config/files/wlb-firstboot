@@ -24,6 +24,7 @@ TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
 HUB_USER_TOOL=${WLB_HUB_USER_TOOL:-/usr/local/sbin/wlb-hub-user}
 HUB_URL=${WLB_HUB_URL:-http://127.0.0.1}
 HUB_WAIT_SECONDS=${WLB_HUB_WAIT_SECONDS:-180}
+MEMINFO=${WLB_MEMINFO:-/proc/meminfo}
 
 log() {
   logger -t wlb-firstboot -- "$*"
@@ -64,6 +65,12 @@ SIEM_TLS_NAME=${SIEM_TLS_NAME:-}                                         # nazwa
 SIEM_CA_CERT=${SIEM_CA_CERT:-/etc/wlb/siem-ca.pem}                       # CA, które wystawiło certyfikat SIEM (cloud-init write_files)
 SIEM_PORT=${SIEM_PORT:-$([[ $SIEM_TLS == 1 ]] && echo 6514 || echo 514)} # 6514: syslog po TLS (RFC 5425)
 LOCAL_TEST_MODE=${LOCAL_TEST_MODE:-0}
+# limity zasobów badaczy (#30) — puste = wyliczane z RAM i vCPU VM
+SYSTEM_MEM_RESERVE=${SYSTEM_MEM_RESERVE:-}         # rezerwa na usługi, np. 4G; domyślnie max(3G, 10% RAM)
+RESEARCHERS_PER_VM=${RESEARCHERS_PER_VM:-1}        # ilu badaczy równolegle na tej VM (IMG-001: domyślnie VM na badacza)
+RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT:-}     # pamięć na badacza, np. 8G; domyślnie pula / RESEARCHERS_PER_VM
+RESEARCHER_CPU_LIMIT=${RESEARCHER_CPU_LIMIT:-}     # rdzenie na badacza, np. 2 albo 1.5; domyślnie vCPU / RESEARCHERS_PER_VM (min. 1)
+RESEARCHER_TASKS_MAX=${RESEARCHER_TASKS_MAX:-2048} # procesy i wątki na badacza (ochrona przed fork bomb)
 export PROXY_URL NO_PROXY LAB_NAME
 
 mkdir -p "$STATE_DIR"
@@ -275,6 +282,66 @@ else
   log "uwaga: SIEM_HOST nie ustawiony — logi tylko lokalnie"
 fi
 systemctl restart rsyslog
+
+# --- 5a. Limity zasobów badaczy (#30) --------------------------------------------------------
+# Jeden badacz nie może zająć całej VM: serwery notebooków są w wlb-badacze.slice z limitem
+# pamięci (RAM minus rezerwa na audyt, logi, hub i SSH), a każdy ma własny limit pamięci, CPU
+# i liczby procesów. OOMPolicy=continue: przy przekroczeniu limitu ginie proces (zwykle kernel),
+# a nie cały serwer badacza — domyślne "stop" zatrzymywało całą sesję.
+to_mib() { # 8G, 8192M, 8192 (MiB) -> MiB
+  # wywoływane w $(...): komunikat na stderr, bo stdout to wynik
+  [[ $2 =~ ^([0-9]+)([MmGg]?)$ ]] || { log "BŁĄD: $1: nieprawidłowy rozmiar '$2' (np. 8G albo 8192M)" >&2 && exit 1; }
+  case ${BASH_REMATCH[2]} in
+    [Gg]) echo $((BASH_REMATCH[1] * 1024)) ;;
+    *) echo "${BASH_REMATCH[1]}" ;;
+  esac
+}
+mem_total=$(($(awk '/^MemTotal:/ {print $2}' "$MEMINFO") / 1024))
+cpus=$(nproc)
+if [[ -n $SYSTEM_MEM_RESERVE ]]; then
+  reserve=$(to_mib SYSTEM_MEM_RESERVE "$SYSTEM_MEM_RESERVE")
+else
+  reserve=$((mem_total / 10 > 3072 ? mem_total / 10 : 3072))
+fi
+pool=$((mem_total - reserve))
+((pool >= 1024)) || die "za mało pamięci dla badaczy: ${mem_total} MiB RAM, rezerwa ${reserve} MiB (SYSTEM_MEM_RESERVE)"
+if [[ ! $RESEARCHERS_PER_VM =~ ^[0-9]+$ ]] || ((RESEARCHERS_PER_VM < 1 || RESEARCHERS_PER_VM > 64)); then
+  die "RESEARCHERS_PER_VM musi być liczbą 1–64, jest '${RESEARCHERS_PER_VM}'"
+fi
+if [[ -n $RESEARCHER_MEM_LIMIT ]]; then
+  mem_limit=$(to_mib RESEARCHER_MEM_LIMIT "$RESEARCHER_MEM_LIMIT")
+  ((mem_limit <= pool)) || die "RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT} większe niż pula badaczy (${pool} MiB)"
+else
+  mem_limit=$((pool / RESEARCHERS_PER_VM))
+fi
+if [[ -n $RESEARCHER_CPU_LIMIT ]]; then
+  [[ $RESEARCHER_CPU_LIMIT =~ ^[0-9]+(\.[0-9]+)?$ ]] || die "nieprawidłowe RESEARCHER_CPU_LIMIT: '${RESEARCHER_CPU_LIMIT}'"
+  cpu_limit=$RESEARCHER_CPU_LIMIT
+else
+  cpu_limit=$((cpus / RESEARCHERS_PER_VM > 1 ? cpus / RESEARCHERS_PER_VM : 1))
+fi
+if [[ ! $RESEARCHER_TASKS_MAX =~ ^[0-9]+$ ]] || ((RESEARCHER_TASKS_MAX < 64)); then
+  die "RESEARCHER_TASKS_MAX musi być liczbą >= 64, jest '${RESEARCHER_TASKS_MAX}'"
+fi
+mkdir -p "$R/etc/systemd/system/wlb-badacze.slice.d" "$HUB_CONFIG_D"
+cat >"$R/etc/systemd/system/wlb-badacze.slice.d/50-wlb-limits.conf" <<EOF
+# Wygenerowane przez wlb-firstboot (${LAB_NAME}): RAM ${mem_total} MiB, rezerwa ${reserve} MiB.
+[Slice]
+MemoryMax=${pool}M
+EOF
+cat >"$HUB_CONFIG_D/60-wlb-limits.py" <<EOF
+# Wygenerowane przez wlb-firstboot (${LAB_NAME}) — limity zasobów na badacza (#30).
+c = get_config()  # noqa: F821
+c.SystemdSpawner.mem_limit = "${mem_limit}M"
+c.SystemdSpawner.cpu_limit = float("${cpu_limit}")
+c.SystemdSpawner.unit_extra_properties = {
+    "TasksMax": "${RESEARCHER_TASKS_MAX}",
+    "OOMScoreAdjust": "500",  # przy braku pamięci w VM najpierw procesy badaczy, nie usługi
+    "OOMPolicy": "continue",  # przekroczenie limitu zabija proces, nie cały serwer notebooków
+}
+EOF
+systemctl daemon-reload
+log "limity: RAM ${mem_total} MiB, rezerwa ${reserve} MiB, badacze razem ${pool} MiB (${RESEARCHERS_PER_VM} równolegle); na badacza ${mem_limit} MiB, CPU ${cpu_limit}, procesy ${RESEARCHER_TASKS_MAX}"
 
 # --- 6. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
 [[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f "$R/etc/sudoers.d/jupyterhub-admins"

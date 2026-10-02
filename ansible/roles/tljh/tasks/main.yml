@@ -142,6 +142,24 @@
       | combine({'disabledExtensions': {'@jupyterlab/filebrowser-extension:download': true,
                                        '@jupyterlab/docmanager-extension:download': true}}, recursive=true)
       | to_nice_json }}\n"
+# --- Limity zasobów badaczy (#30) --------------------------------------------------------------
+# Wszystkie serwery notebooków w jednym slice. Jego limit pamięci (RAM VM minus rezerwa na usługi)
+# oraz limity na badacza wylicza wlb-firstboot z RAM i vCPU danej VM (kategorie VM się różnią).
+# "-" w nazwie to hierarchia systemd: wlb-badacze.slice leży w wlb.slice.
+- name: Slice procesów badaczy
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/wlb-badacze.slice
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola tljh) — #30. Limity: wlb-badacze.slice.d/ (wlb-firstboot).
+      [Unit]
+      Description=WLB: serwery notebooków badaczy (JupyterHub)
+      Before=slices.target
+
+      [Slice]
+      MemoryAccounting=yes
+      CPUAccounting=yes
+      TasksAccounting=yes
 
 - name: Hub startuje dopiero po zamontowaniu dysku roboczego
   ansible.builtin.copy:

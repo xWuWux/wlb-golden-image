@@ -48,3 +48,6 @@ c.SystemdSpawner.disable_user_sudo = True  # NoNewPrivileges — brak sudo/setui
 c.SystemdSpawner.isolate_tmp = True
 c.SystemdSpawner.isolate_devices = True
 c.SystemdSpawner.readonly_paths = {{ wlb_readonly_paths | to_json }}
+# Wszystkie serwery w jednym slice z limitem pamięci; limity na badacza (pamięć, CPU, liczba procesów,
+# OOMPolicy) dopisuje wlb-firstboot w 60-wlb-limits.py, bo zależą od RAM i vCPU danej VM (#30)
+c.SystemdSpawner.slice = "wlb-badacze.slice"

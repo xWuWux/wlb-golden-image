@@ -90,10 +90,11 @@ PY
   PATH="$stubs:$PATH" WLB_ROOT="$sb/root" WLB_TLJH_CONFIG="$stubs/tljh-config" \
     WLB_HUB_USER_TOOL="$stubs/wlb-hub-user" ansible/roles/lab_config/files/wlb-firstboot >/dev/null
   cp "$sb/root/etc/nftables.conf" "$sb/root/etc/rsyslog.d/60-wlb-siem.conf" \
-    "$sb/root/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py" "$OUT/"
+    "$sb/root/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py" \
+    "$sb/root/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py" "$OUT/"
   rm -rf "$sb"
 
-  python3 -m py_compile "$OUT/50-wlb-lab.py"
+  python3 -m py_compile "$OUT/50-wlb-lab.py" "$OUT/60-wlb-limits.py"
   if command -v nft >/dev/null && sudo -n true 2>/dev/null; then
     sudo nft -c -f "$OUT/nftables.conf"
   else

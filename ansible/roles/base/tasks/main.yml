@@ -106,6 +106,39 @@
       ClientAliveInterval 300
   notify: Restart ssh
 
+# --- Ochrona usług systemowych przed OOM killerem (#30) ----------------------------------
+# Przy braku pamięci jądro zabija najpierw procesy badaczy (OOMScoreAdjust=500 w ich jednostkach,
+# rola tljh), a usługi audytu, logów, huba i dostępu — na końcu. Audyt nigdy (-1000), bo przerwa
+# w audycie narusza §21. MemoryMin pominięte: ochrona memory.min działa tylko wtedy, gdy mają ją też
+# wszystkie nadrzędne slice (system.slice) — główną rezerwę daje limit slice badaczy (wlb-firstboot).
+# Bez ssh: sshd sam ustawia procesowi nasłuchującemu -1000 (SSHD_OOM_ADJUST), a sesjom przywraca
+# wartość jednostki — drop-in chroniłby tylko sesje administratorów i wszystko, co w nich uruchomią.
+# Drop-iny działają od następnego startu usług (VM z obrazu startuje od zera).
+- name: Katalogi drop-in usług chronionych przed OOM
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.d"
+    state: directory
+    mode: "0755"
+  loop: [auditd.service, rsyslog.service, jupyterhub.service, traefik.service, wlb-sluza-out.service]
+
+- name: Usługi systemowe chronione przed OOM killerem
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.unit }}.d/50-wlb-oom.conf"
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola base) — #30
+      [Service]
+      OOMScoreAdjust={{ item.score }}
+  loop:
+    - { unit: auditd.service, score: -1000 }
+    - { unit: rsyslog.service, score: -900 }
+    - { unit: jupyterhub.service, score: -900 }
+    - { unit: traefik.service, score: -900 }
+    - { unit: wlb-sluza-out.service, score: -900 }
+  loop_control:
+    label: "{{ item.unit }}"
+  notify: Reload systemd
+
 - name: Utwardzenie jądra
   ansible.builtin.copy:
     dest: /etc/sysctl.d/60-wlb.conf

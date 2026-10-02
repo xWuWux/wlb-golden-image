@@ -40,6 +40,20 @@ as() {
   (cd / && sudo -u "jupyter-$u" -H "$@")
 }
 
+# in_unit LOGIN POLECENIE... — jako badacz, ale w cgroup jego serwera notebooków (limity jednostki
+# SystemdSpawnera: pamięć, CPU, TasksMax) i z jego oom_score_adj (jak kernele uruchomione z JupyterLab).
+# as() działa poza jednostką, więc limitów nie sprawdza; bez oom_score_adj proces testu dziedziczyłby
+# wartość sesji SSH i OOM killer wybrałby serwer notebooków zamiast procesu, który przekroczył limit.
+in_unit() {
+  local u=$1 cg adj
+  shift
+  cg=$(systemctl show -p ControlGroup --value "jupyter-$u")
+  [[ -n $cg ]] || return 1
+  adj=$(cat "/proc/$(systemctl show -p MainPID --value "jupyter-$u")/oom_score_adj")
+  (cd / && bash -c 'echo $$ >"/sys/fs/cgroup$0/cgroup.procs" && echo "$1" >/proc/self/oom_score_adj &&
+    exec sudo -u "jupyter-$2" -H "${@:3}"' "$cg" "$adj" "$u" "$@")
+}
+
 # logowanie formularzem Native Authenticator; wypisuje kod HTTP (302 = sukces)
 hub_login() {
   local user=$1 pass=$2 jar=/tmp/wlb-test-$1.jar xsrf
