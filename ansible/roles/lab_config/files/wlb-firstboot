@@ -56,6 +56,19 @@ CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
 EGRESS_ALLOW=${EGRESS_ALLOW:-}
 ADMIN_SSH_CIDR=${ADMIN_SSH_CIDR:-0.0.0.0/0}
 HUB_ALLOWED_CIDR=${HUB_ALLOWED_CIDR:-0.0.0.0/0}
+# Uwierzytelnianie: native (MVP, Native Authenticator) albo oidc (Entra ID / Keycloak przez OAuth). #18
+AUTH_MODE=${AUTH_MODE:-native}
+OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+OIDC_AUTHORIZE_URL=${OIDC_AUTHORIZE_URL:-} # .../authorize
+OIDC_TOKEN_URL=${OIDC_TOKEN_URL:-}         # .../token
+OIDC_USERDATA_URL=${OIDC_USERDATA_URL:-}   # .../userinfo
+OIDC_CALLBACK_URL=${OIDC_CALLBACK_URL:-}   # https://<portal>/hub/oauth_callback (wymaga HTTPS, #18)
+OIDC_SCOPE=${OIDC_SCOPE:-openid email profile}
+OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username} # claim -> login; musi dać jupyter-<login>
+OIDC_GROUPS_CLAIM=${OIDC_GROUPS_CLAIM:-groups}
+OIDC_ALLOWED_GROUPS=${OIDC_ALLOWED_GROUPS:-} # grupy IdP z dostępem do Laboratorium (oddzielone przecinkami)
+OIDC_ADMIN_GROUPS=${OIDC_ADMIN_GROUPS:-}     # grupy IdP z rolą administratora huba
 NTP_SERVERS=${NTP_SERVERS:-}
 SIEM_HOST=${SIEM_HOST:-}
 SIEM_PROTOCOL=${SIEM_PROTOCOL:-tcp}
@@ -342,6 +355,63 @@ c.SystemdSpawner.unit_extra_properties = {
 EOF
 systemctl daemon-reload
 log "limity: RAM ${mem_total} MiB, rezerwa ${reserve} MiB, badacze razem ${pool} MiB (${RESEARCHERS_PER_VM} równolegle); na badacza ${mem_limit} MiB, CPU ${cpu_limit}, procesy ${RESEARCHER_TASKS_MAX}"
+
+# --- 5c. Uwierzytelnianie: native (MVP) albo OIDC (Entra ID / Keycloak), #18 -----------------
+# Domyślnie Native Authenticator (konta lokalne w bazie huba). AUTH_MODE=oidc przełącza na
+# GenericOAuthenticator: logowanie webowe SSO, MFA po stronie IdP, hub bez haseł. Nadpisuje
+# authenticator_class z config.yaml, bo plik 70 ładuje się po nim. Fail-secure: brak wymaganej
+# zmiennej przerywa konfigurację, zamiast po cichu wrócić do logowania lokalnego.
+AUTH_CONF=$HUB_CONFIG_D/70-wlb-auth.py
+mkdir -p "$HUB_CONFIG_D"
+case $AUTH_MODE in
+  native)
+    rm -f "$AUTH_CONF"
+    log "uwierzytelnianie: native (Native Authenticator)"
+    ;;
+  oidc)
+    for v in OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_AUTHORIZE_URL OIDC_TOKEN_URL OIDC_USERDATA_URL OIDC_CALLBACK_URL; do
+      [[ -n ${!v} ]] || die "AUTH_MODE=oidc: brak wymaganej zmiennej ${v}"
+    done
+    for u in "$OIDC_AUTHORIZE_URL" "$OIDC_TOKEN_URL" "$OIDC_USERDATA_URL"; do
+      [[ $u == https://* ]] || die "AUTH_MODE=oidc: punkty końcowe OIDC muszą być https (${u})"
+    done
+    [[ $OIDC_CALLBACK_URL == https://* ]] || die "AUTH_MODE=oidc: OIDC_CALLBACK_URL musi być https (#18)"
+    # zmienne z wartościami domyślnymi są przypisane po `set +a`, więc eksportujemy je do python3 jawnie
+    export OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_AUTHORIZE_URL OIDC_TOKEN_URL OIDC_USERDATA_URL \
+      OIDC_CALLBACK_URL OIDC_SCOPE OIDC_USERNAME_CLAIM OIDC_GROUPS_CLAIM OIDC_ALLOWED_GROUPS OIDC_ADMIN_GROUPS
+    python3 - >"$AUTH_CONF" <<'PY'
+import os
+def groups(name):
+    return sorted({g for g in (x.strip() for x in os.environ.get(name, "").split(",")) if g})
+print("# Wygenerowane przez wlb-firstboot — nie edytować ręcznie. Uwierzytelnianie OIDC (#18).")
+print("c = get_config()  # noqa: F821")
+print("c.JupyterHub.authenticator_class = 'generic-oauth'")
+print(f"c.GenericOAuthenticator.client_id = {os.environ['OIDC_CLIENT_ID']!r}")
+print(f"c.GenericOAuthenticator.client_secret = {os.environ['OIDC_CLIENT_SECRET']!r}")
+print(f"c.GenericOAuthenticator.authorize_url = {os.environ['OIDC_AUTHORIZE_URL']!r}")
+print(f"c.GenericOAuthenticator.token_url = {os.environ['OIDC_TOKEN_URL']!r}")
+print(f"c.GenericOAuthenticator.userdata_url = {os.environ['OIDC_USERDATA_URL']!r}")
+print(f"c.GenericOAuthenticator.oauth_callback_url = {os.environ['OIDC_CALLBACK_URL']!r}")
+print(f"c.GenericOAuthenticator.scope = {os.environ['OIDC_SCOPE'].split()!r}")
+print(f"c.GenericOAuthenticator.username_claim = {os.environ['OIDC_USERNAME_CLAIM']!r}")
+print(f"c.GenericOAuthenticator.claim_groups_key = {os.environ['OIDC_GROUPS_CLAIM']!r}")
+allowed, admin = groups("OIDC_ALLOWED_GROUPS"), groups("OIDC_ADMIN_GROUPS")
+if allowed:
+    # posortowana lista (deterministycznie); allowed_groups i tak traktuje ją jak zbiór
+    print(f"c.GenericOAuthenticator.allowed_groups = {allowed!r}")
+else:
+    # brak grup: każdy uwierzytelniony w IdP ma dostęp — do zawężenia grupami (#18)
+    print("c.GenericOAuthenticator.allow_all = True")
+if admin:
+    print(f"c.GenericOAuthenticator.admin_groups = {admin!r}")
+PY
+    chmod 0600 "$AUTH_CONF" # zawiera client_secret
+    log "uwierzytelnianie: OIDC (${OIDC_AUTHORIZE_URL})"
+    ;;
+  *)
+    die "AUTH_MODE musi być native albo oidc, jest '${AUTH_MODE}'"
+    ;;
+esac
 
 # --- 6. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
 [[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f "$R/etc/sudoers.d/jupyterhub-admins"

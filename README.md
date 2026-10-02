@@ -254,6 +254,10 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
   (ochrona przed tunelowaniem) trzeba zrobić na poziomie sieci Laboratorium.
 - `pip install --user` przez mirror PyPI jest technicznie możliwe. Trzeba zdecydować, czy mirror
   ma być dostępny dla badaczy (§24.c), czy tylko dla budowania obrazu.
+- Uwierzytelnianie: domyślnie Native Authenticator (`AUTH_MODE=native`). `AUTH_MODE=oidc` przełącza na
+  SSO przez OpenID Connect (Entra ID / Keycloak, MFA po stronie IdP) — `wlb-firstboot` z `OIDC_*` w `lab.env`
+  pisze `70-wlb-auth.py` z `GenericOAuthenticator`. Wymaga rejestracji aplikacji w IdP, HTTPS (#18) oraz
+  mapowania claimu na istniejące konta `jupyter-<login>` i grup IdP zamiast `allow_all` (decyzje w #18).
 - HTTPS: hub nasłuchuje na porcie 80 i zakłada TLS na portalu WLB lub bramce VDI. Ewentualnie
   można włączyć `https.*` w TLJH.
 - GPU (RTX PRO 6000, passthrough), wybór Proxmox vs OpenStack, dostęp testera (portal czy
