@@ -95,6 +95,25 @@ expect_ok "Kafelek pomocy w konfiguracji Launchera (#54)" \
   bash -c "grep -q 'Pomoc i zgłoszenia' /opt/tljh/user/share/jupyter/jupyter_app_launcher/jp_app_launcher.yaml"
 expect_ok "Strona pomocy z kontaktem helpdesku (#54)" \
   bash -c "grep -q 'helpdesk@gumed.edu.pl' /opt/tljh/user/share/jupyter/jupyter_app_launcher/pomoc.md"
+echo "== 5a. Blokada pobierania plików na urządzenie badacza (#7, §14, §24.e — środek częściowy) =="
+# jako zalogowany badacz: najpierw strona serwera notebooków (logowanie OAuth huba -> ciasteczko
+# serwera), bo API serwera bez sesji odpowiada 403 zamiast przekierowania — wtedy 403 niżej
+# nie odróżniałoby blokady w Traefiku od braku logowania
+dl() { curl -s -o /dev/null -w '%{http_code}' -b "/tmp/wlb-test-$R1.jar" -c "/tmp/wlb-test-$R1.jar" -L "$HUB/user/$R1/$1"; }
+as $R1 sh -c 'echo "id,wynik" > ~/pobranie-test.csv'
+expect_ok "Sesja w serwerze notebooków (JupyterLab)" test "$(dl lab)" = 200
+expect_ok "Pobranie przez /files odrzucone (403)" test "$(dl files/pobranie-test.csv)" = 403
+expect_ok "Przycisk Download (/files?download=1) odrzucony (403)" test "$(dl 'files/pobranie-test.csv?download=1')" = 403
+expect_ok "Eksport nbconvert odrzucony (403)" test "$(dl 'nbconvert/html/test-py.ipynb?download=true')" = 403
+expect_ok "Podgląd /view odrzucony (403)" test "$(dl view/pobranie-test.csv)" = 403
+expect_ok "Obejście przez wielkość liter (/FILES) odrzucone" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -b /tmp/wlb-test-$R1.jar -L '$HUB/user/$R1/FILES/pobranie-test.csv')\" != 200 ]"
+# edycja i otwieranie plików działa dalej (JupyterLab korzysta z /api/contents)
+expect_ok "Otwieranie plików w JupyterLab działa (/api/contents)" \
+  bash -c "curl -s -b /tmp/wlb-test-$R1.jar -c /tmp/wlb-test-$R1.jar -L '$HUB/user/$R1/api/contents/pobranie-test.csv?content=1' | grep -q '\"name\": *\"pobranie-test.csv\"'"
+expect_ok "Odmowa pobrania w logu (Traefik access log)" \
+  bash -c "journalctl -u traefik -b | grep -q '\"RouterName\":\"wlb-block-download@file\"'"
+expect_ok "Przyciski pobierania ukryte w JupyterLab" \
+  grep -q '"@jupyterlab/filebrowser-extension:download": true' /opt/tljh/user/etc/jupyter/labconfig/page_config.json
 
 echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com

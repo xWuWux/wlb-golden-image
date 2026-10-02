@@ -116,6 +116,17 @@ events:
     pattern: "User logged in: (?P<user>[a-z0-9._-]+)"
     acceptance: true
 
+  - name: hub.download_denied
+    description: >-
+      Odmowa pobrania pliku z serwera notebooków (/files, /nbconvert, /view) przez blokadę w Traefiku
+      (#7) — wpis access logu Traefika (JSON), badacz w ścieżce /user/<login>/.
+    regulamin: "§14, §21, §24.e"
+    source: { journal_unit: traefik }
+    trusted: { input: imuxsock, uid: "^0$" } # Traefik z TLJH działa jako root
+    format: text
+    pattern: '^(?=.*"RouterName":"wlb-block-download@file")(?=.*"DownstreamStatus":403).*"RequestPath":"/user/(?P<user>[^/"]+)/'
+    acceptance: true
+
   - name: network.egress_deny
     description: Zablokowane połączenie wychodzące procesu badacza (nftables, obrona w głębi).
     regulamin: "§31.3"

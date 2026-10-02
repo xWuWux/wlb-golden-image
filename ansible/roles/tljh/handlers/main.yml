@@ -1,3 +1,8 @@
 - name: Reload hub
   ansible.builtin.command: /opt/tljh/hub/bin/tljh-config reload hub
   changed_when: true
+
+# przegenerowuje traefik.toml (z traefik_config.d) i restartuje Traefika
+- name: Reload proxy
+  ansible.builtin.command: /opt/tljh/hub/bin/tljh-config reload proxy
+  changed_when: true

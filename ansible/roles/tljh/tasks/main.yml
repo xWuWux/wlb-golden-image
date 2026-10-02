@@ -79,6 +79,70 @@
     - jp_app_launcher.yaml
     - pomoc.md
 
+# --- Blokada pobierania plików na urządzenie badacza (#7, Regulamin §14, §24.e — środek częściowy) ---
+# Po stronie serwera, w Traefiku przed hubem — poza zasięgiem badacza (ukrycie przycisków w JupyterLab
+# badacz cofa własnym ~/.jupyter/labconfig). Zamyka jawne drogi: /files (Download, ?download=1),
+# /nbconvert (Export Notebook As), /view. Otwarte zostają: /api/contents (przez nie JupyterLab
+# otwiera i zapisuje każdy plik), schowek i zrzuty ekranu — pełną egzekucję daje dopiero VDI (#18).
+# Koszt: obrazki z Markdown (![](plik.png)) JupyterLab ładuje przez /files i się nie wyświetlą.
+# TLJH nadpisuje w katalogu reguł tylko dynamic.toml i rules.toml; Traefik obserwuje cały katalog.
+- name: Traefik — blokada pobierania plików (403 dla /files, /nbconvert, /view)
+  ansible.builtin.copy:
+    dest: /opt/tljh/state/rules/wlb-block-download.toml
+    mode: "0600"
+    content: |
+      # Zarządzane przez Ansible (rola tljh) — #7
+      # 1) jawne drogi pobierania; 2) ścieżki nieznormalizowane (segment "." lub "..", pusty segment "//") —
+      # Traefik dopasowuje surową ścieżkę, więc ./files czy x/../files omijałyby regułę 1, gdyby serwer
+      # za proxy je normalizował. Klient JupyterLab takich ścieżek nie wysyła.
+      [http.routers.wlb-block-download]
+        rule = """PathRegexp(`(?i)^/user/[^/]+/(files|nbconvert|view)(/|$)`) || \
+                  PathRegexp(`^/user/[^/]+/(.*/)?\\.\\.?(/|$)`) || PathRegexp(`^/user/[^/]+(/.*)?//`)"""
+        priority = 1000000
+        middlewares = ["wlb-deny-all"]
+        service = "wlb-deny-all"
+
+      # odmowa 403 dla każdego adresu (żaden nie pasuje do 192.0.2.0/32 — sieć dokumentacyjna)
+      [http.middlewares.wlb-deny-all.ipAllowList]
+        sourceRange = ["192.0.2.0/32"]
+
+      # usługa nigdy nie jest wywoływana (middleware odrzuca wcześniej) — wymagana przez router
+      [[http.services.wlb-deny-all.loadBalancer.servers]]
+        url = "http://127.0.0.1:9"
+
+# ślad odmów w logu: Traefik (access log JSON -> journald -> SIEM) domyślnie loguje tylko 5xx
+- name: Traefik — log odmów 403 (próby pobrania, §21)
+  ansible.builtin.copy:
+    dest: /opt/tljh/config/traefik_config.d/10-wlb-accesslog.toml
+    mode: "0600"
+    content: |
+      # Zarządzane przez Ansible (rola tljh) — #7: odmowy blokady pobierania trafiają do SIEM
+      [accessLog.filters]
+      statusCodes = ["403", "500-999"]
+  notify: Reload proxy
+
+- name: JupyterLab — katalog konfiguracji stron
+  ansible.builtin.file:
+    path: /opt/tljh/user/etc/jupyter/labconfig
+    state: directory
+    mode: "0755"
+
+- name: JupyterLab — obecna konfiguracja stron
+  ansible.builtin.slurp:
+    path: /opt/tljh/user/etc/jupyter/labconfig/page_config.json
+  register: tljh_page_config
+  failed_when: false
+
+# wygoda, nie kontrola: bez przycisków badacz nie trafia na błąd 403 przy zwykłym kliknięciu
+- name: JupyterLab — ukryte polecenia pobierania (blokadę daje Traefik)
+  ansible.builtin.copy:
+    dest: /opt/tljh/user/etc/jupyter/labconfig/page_config.json
+    mode: "0644"
+    content: "{{ (tljh_page_config.content | default('e30=') | b64decode | from_json)
+      | combine({'disabledExtensions': {'@jupyterlab/filebrowser-extension:download': true,
+                                       '@jupyterlab/docmanager-extension:download': true}}, recursive=true)
+      | to_nice_json }}\n"
+
 - name: Hub startuje dopiero po zamontowaniu dysku roboczego
   ansible.builtin.copy:
     dest: /etc/systemd/system/jupyterhub.service.d/10-wlb.conf

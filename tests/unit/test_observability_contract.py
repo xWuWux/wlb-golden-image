@@ -163,6 +163,9 @@ GOOD = [
     "entry=link-test reason=unsupported_type",
     f"<13>1 2026-09-25T12:00:00Z lab-test01 wlb-firstboot 12 - {ROOT}  Laboratorium lab-test01 skonfigurowane",
     f"<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - {ROOT}  [I 2026 JupyterHub base:931] User logged in: tester1",
+    f"<14>1 2026-09-25T12:00:00Z lab-test01 traefik 77 - {ROOT}  "
+    '{"ClientHost":"127.0.0.1","DownstreamStatus":403,"RequestPath":"/user/tester1/files/dane.csv",'
+    '"RouterName":"wlb-block-download@file","level":"info"}',
     f"<4>1 2026-09-25T12:00:00Z lab-test01 kernel - - {KERNEL}  [ 12.3] wlb-egress-deny IN= OUT=eth0 DST=93.184.216.34",
     *[
         f"<14>1 2026-09-25T12:00:00Z lab-test01 audisp-syslog - - {ROOT}  type=SYSCALL msg=audit(1:2): "
