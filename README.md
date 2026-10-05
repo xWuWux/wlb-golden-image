@@ -62,6 +62,11 @@ Od tej chwili każde budowanie odtwarza te same wersje. Zmiana pakietów wygląd
 edycja `environment.yml` lub `hades-packages.txt`, usunięcie locka, budowanie, `make freeze`, commit.
 Wersje CRAN wyznacza też data snapshotu Posit Package Managera (`r_cran_snapshot_date`).
 
+Czasami pakiet zmienia menedżera (np. `markupsafe` chcą zależności conda i pip) — wtedy `conda env export`
+zapisuje go w innym dziale przy tej samej wersji. Test dryfu traktuje to jako uwagę, nie błąd; suchy dryf
+jest wtedy, gdy różni się wersja. Który menedżer zainstalował pakiet widać w `conda-env-update.log`
+(artefakty etapu 5).
+
 ## Test lokalny
 
 ```bash
@@ -107,6 +112,8 @@ Uwagi:
 - **SCA** w etapie 3 obejmuje zamrożone wersje, więc zaczyna działać po pierwszym `make freeze`.
   Do tego czasu podatności zależności sprawdza tylko raport z etapu 5.
 - Cotygodniowy przebieg (poniedziałek) powtarza etapy 1–4, żeby wyłapać nowe CVE i zmiany licencji.
+- Nocny przebieg (codziennie 03:00) powtarza **pełny** pipeline (etapy 1–6, bez zależności od zakresu zmian) —
+  łapie dryf zamrożonych wersji i nowe CVE, zanim uderzą w czyjś PR.
 
 ## Obsługa błędów CI
 

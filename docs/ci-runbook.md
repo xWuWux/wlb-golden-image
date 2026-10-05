@@ -45,6 +45,12 @@ gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-rep
    `acceptance.log` (wynik każdego kryterium), `migration.log`, `*-journal.log` (dziennik VM),
    `*-serial.log` (konsola VM), `packer.log` (budowanie) i `siem.log` (co dotarło do testowego SIEM).
    Przy nieudanym `wlb-firstboot` jego ostatnie wpisy są też w logu joba.
+   W `build/artifacts/<wersja>/` są zamrożone locki z obrazu oraz `conda-env-update.log` — przebieg
+   `conda env update`, po którym widać, który menedżer zainstalował pakiet.
+   Linia `uwaga: … zmienił menedżera conda → pip, wersja bez zmian` nie jest błędem: to migracja pakietu
+   między menedżerami. Failuje dopiero `DRYF:` z różnymi wersjami — wtedy podbij wersję w
+   `envs/python/environment.lock.yml` w tym dziale, w którym pokazał ją `conda env export` z obrazu
+   (`make freeze` robi to automatycznie).
 4. Popraw kod. Jeśli znalazłeś nowy rodzaj błędu, dopisz go do listy w `przewodnik-vm.sh bledy`.
 
 ## oom

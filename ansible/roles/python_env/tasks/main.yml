@@ -38,8 +38,25 @@
     executable: /bin/bash
   changed_when: true
 
+- name: Zapisz przebieg instalacji środowiska (diagnostyka migracji menedżerów pakietów)
+  ansible.builtin.copy:
+    content: |
+      # {{ python_env_update.cmd | default('conda env update') }}
+      # rc={{ python_env_update.rc | default('?') }} (proba {{ python_env_update.attempts | default(1) }})
+      {{ python_env_update.stdout_lines[-2000:] | join('\n') }}
+      --- stderr ---
+      {{ python_env_update.stderr_lines[-500:] | join('\n') }}
+    dest: /opt/wlb/envs/python/conda-env-update.log
+    mode: "0644"
+
 - name: Pobierz lock do artefaktów budowania
   ansible.builtin.fetch:
     src: /opt/wlb/envs/python/environment.lock.yml
     dest: "{{ wlb_artifacts_dir }}/environment.lock.yml"
+    flat: true
+
+- name: Pobierz przebieg instalacji do artefaktów budowania
+  ansible.builtin.fetch:
+    src: /opt/wlb/envs/python/conda-env-update.log
+    dest: "{{ wlb_artifacts_dir }}/conda-env-update.log"
     flat: true
