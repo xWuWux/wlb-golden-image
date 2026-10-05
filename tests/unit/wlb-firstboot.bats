@@ -524,3 +524,85 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   [ "$status" -eq 1 ]
   [[ $output == *"RESEARCHERS_PER_VM musi być liczbą 1–64, jest '0'"* ]]
 }
+
+# --- Uwierzytelnianie: native / OIDC (#18) ---------------------------------------------------
+
+oidc_env() {
+  cat >>"$SANDBOX/etc/wlb/lab.env" <<EOF
+AUTH_MODE=oidc
+OIDC_CLIENT_ID=klient-wlb
+OIDC_CLIENT_SECRET=sekret-123
+OIDC_AUTHORIZE_URL=https://login.example.com/oauth2/authorize
+OIDC_TOKEN_URL=https://login.example.com/oauth2/token
+OIDC_USERDATA_URL=https://login.example.com/oauth2/userinfo
+OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+EOF
+}
+authconf() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"; }
+
+@test "AUTH_MODE native (domyślnie): bez pliku OIDC" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+  [[ $output == *"uwierzytelnianie: native"* ]]
+}
+
+@test "AUTH_MODE oidc: poprawny config GenericOAuthenticator (allow_all bez grup)" {
+  oidc_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  python3 -m py_compile "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
+  authconf | grep -qx "c.JupyterHub.authenticator_class = 'generic-oauth'"
+  authconf | grep -qx "c.GenericOAuthenticator.client_id = 'klient-wlb'"
+  authconf | grep -qx "c.GenericOAuthenticator.authorize_url = 'https://login.example.com/oauth2/authorize'"
+  authconf | grep -qx "c.GenericOAuthenticator.oauth_callback_url = 'https://portal.wlb.local/hub/oauth_callback'"
+  authconf | grep -qxF "c.GenericOAuthenticator.scope = ['openid', 'email', 'profile']"
+  authconf | grep -qx "c.GenericOAuthenticator.username_claim = 'preferred_username'"
+  authconf | grep -qx "c.GenericOAuthenticator.allow_all = True"
+  [ "$(stat -c %a "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py")" = 600 ]
+  [[ $output == *"uwierzytelnianie: OIDC"* ]]
+}
+
+@test "AUTH_MODE oidc: grupy IdP zamiast allow_all" {
+  oidc_env
+  cat >>"$SANDBOX/etc/wlb/lab.env" <<'EOF'
+OIDC_ALLOWED_GROUPS="wlb-lab01, wlb-wszyscy"
+OIDC_ADMIN_GROUPS=wlb-admini
+OIDC_USERNAME_CLAIM=email
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  authconf | grep -qxF "c.GenericOAuthenticator.allowed_groups = ['wlb-lab01', 'wlb-wszyscy']"
+  authconf | grep -qxF "c.GenericOAuthenticator.admin_groups = ['wlb-admini']"
+  authconf | grep -qx "c.GenericOAuthenticator.username_claim = 'email'"
+  refute grep -q "allow_all" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
+}
+
+@test "AUTH_MODE oidc: brak wymaganej zmiennej przerywa (fail-secure)" {
+  oidc_env
+  sed -i '/^OIDC_CLIENT_SECRET=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak wymaganej zmiennej OIDC_CLIENT_SECRET"* ]]
+  [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+}
+
+@test "AUTH_MODE oidc: punkty końcowe i callback muszą być https" {
+  oidc_env
+  sed -i 's#^OIDC_AUTHORIZE_URL=.*#OIDC_AUTHORIZE_URL=http://login.example.com/oauth2/authorize#' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"punkty końcowe OIDC muszą być https"* ]]
+  sed -i 's#^OIDC_AUTHORIZE_URL=.*#OIDC_AUTHORIZE_URL=https://login.example.com/oauth2/authorize#' "$SANDBOX/etc/wlb/lab.env"
+  sed -i 's#^OIDC_CALLBACK_URL=.*#OIDC_CALLBACK_URL=http://portal.wlb.local/hub/oauth_callback#' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"OIDC_CALLBACK_URL musi być https"* ]]
+}
+
+@test "AUTH_MODE: wartość inna niż native/oidc jest odrzucana" {
+  echo "AUTH_MODE=ldap" >>"$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"AUTH_MODE musi być native albo oidc, jest 'ldap'"* ]]
+}
