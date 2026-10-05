@@ -18,6 +18,7 @@ on:
     branches: [main]
   schedule:
     - cron: "0 5 * * 1" # poniedziałki: etapy 1–4 (nowe CVE w zamrożonych wersjach, zmiany licencji)
+    - cron: "0 3 * * *" # nocny pełny build: etapy 1–6 niezależnie od zmian (dryf wersji, CVE, e2e)
   workflow_dispatch:
     inputs:
       perf:
@@ -70,6 +71,7 @@ jobs:
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           IN_PERF: ${{ inputs.perf }}
           IN_EPHEMERAL: ${{ inputs.ephemeral }}
+          SCHEDULE: ${{ github.event.schedule }}
         run: ci/changes.sh | tee -a "$GITHUB_OUTPUT"
 
   build-check:
