@@ -17,14 +17,18 @@ SAMPLES=build/perf/samples.txt
 : >"$RESULTS"
 : >"$SAMPLES"
 
-# VM dobrana do hosta (bez nadsubskrypcji zagnieżdżonej wirtualizacji) i liczba powtórzeń (#10)
+# VM dobrana do hosta (bez nadsubskrypcji zagnieżdżonej wirtualizacji) i liczba powtórzeń (#10).
+# PERF_REPEAT dotyczy tanich metryk w VM; boot jest kosztowny, więc ma osobny (domyślnie 1)
+# PERF_BOOT_REPEAT — 5 pełnych bootów łatwo przekroczyłoby limit czasu etapu 6a.
 perf_vm_resources
 REPEAT=${PERF_REPEAT:-1}
 [[ $REPEAT =~ ^[0-9]+$ ]] && ((REPEAT >= 1)) || REPEAT=1
+BOOT_REPEAT=${PERF_BOOT_REPEAT:-1}
+[[ $BOOT_REPEAT =~ ^[0-9]+$ ]] && ((BOOT_REPEAT >= 1)) || BOOT_REPEAT=1
 
-# boot_to_ready: REPEAT osobnych startów VM; mediana jako wartość, próbki do kalibracji
+# boot_to_ready: BOOT_REPEAT osobnych startów VM; mediana jako wartość, próbki do kalibracji
 boot_samples=()
-for _ in $(seq 1 "$REPEAT"); do
+for _ in $(seq 1 "$BOOT_REPEAT"); do
   tests/stop-local.sh >/dev/null
   t0=$(date +%s)
   tests/run-local.sh "$IMAGE" >/dev/null
