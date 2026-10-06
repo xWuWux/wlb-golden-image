@@ -36,6 +36,7 @@
       - qemu-guest-agent
       - rsyslog
       - rsyslog-gnutls # moduł lmnsd_gtls: TLS do SIEM (#6)
+      - sqlite3 # spójna kopia bazy huba: sqlite3 .backup (#8)
       - unzip
     state: present
 

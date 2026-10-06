@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-05). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-06). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -20,6 +20,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-05). Odświ
 
 ### #7 — Blokada pobierania plików z JupyterLab na urządzenia badaczy (§24.e, częściowo)  ·  _scalone_
 - `tests/acceptance-remote.sh` — *5a. Blokada pobierania plików na urządzenie badacza (#7, §14, §24.e — środek częściowy)*
+
+### #8 — Spójna kopia bazy huba (SQLite) przed snapshotem storage  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Hub działa po odtworzeniu z kopii (#8)`, `Kopia bazy huba wykonana na żądanie (#8)`, `Kopia spójna (integrity_check, #8)`, `Kopia tylko dla roota (0600, #8)`, `Kopia zawiera konta huba (#8)`, `Logowanie $R1 po odtworzeniu z kopii (konta i hasła działają, #8)`, `Timer kopii bazy huba włączony (#8)`, *9. Spójna kopia i odtworzenie bazy huba (#8)*, `Świeża kopia istnieje (#8)`
 
 ### #18 — Dostęp: MFA (Keycloak / Entra ID) i HTTPS przez portal WLB lub bramkę VDI  ·  _otwarte_
 - `tests/unit/wlb-firstboot.bats` — *Uwierzytelnianie: native / OIDC (#18)*

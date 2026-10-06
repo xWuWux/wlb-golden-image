@@ -181,3 +181,49 @@
     src: wlb-hub-user
     dest: /usr/local/sbin/wlb-hub-user
     mode: "0750"
+
+# --- Spójna kopia bazy huba przed snapshotem storage (#8) -----------------------------
+- name: Narzędzie do spójnej kopii bazy huba (#8)
+  ansible.builtin.copy:
+    src: wlb-hub-db-backup
+    dest: /usr/local/sbin/wlb-hub-db-backup
+    mode: "0750"
+
+- name: Usługa kopii bazy huba (#8)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/wlb-hub-db-backup.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=WLB: spójna kopia bazy huba (SQLite) dla snapshotu storage (#8)
+      # baza i kopie leżą na dysku roboczym — bez niego kopia trafiłaby na dysk systemowy
+      RequiresMountsFor={{ hub_db_backup_dir | dirname }}
+
+      [Service]
+      Type=oneshot
+      Environment=HUB_DB={{ tljh_hub_db_path }}
+      Environment=BACKUP_DIR={{ hub_db_backup_dir }}
+      Environment=KEEP={{ hub_db_backup_keep }}
+      ExecStart=/usr/local/sbin/wlb-hub-db-backup
+
+- name: Timer kopii bazy huba (#8)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/wlb-hub-db-backup.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=WLB: harmonogram spójnej kopii bazy huba (#8)
+
+      [Timer]
+      OnBootSec=5min
+      OnCalendar={{ hub_db_backup_oncalendar }}
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: Włącz timer kopii bazy huba (#8)
+  ansible.builtin.systemd_service:
+    name: wlb-hub-db-backup.timer
+    enabled: true
+    daemon_reload: true

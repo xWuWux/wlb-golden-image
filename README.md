@@ -233,6 +233,12 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
   tego nowa wersja obrazu kasowałaby konta w hubie. `wlb-firstboot` odtwarza też konta systemowe badaczy
   z tym samym UID co właściciel katalogu domowego, a hasło Administratora Klienta zostaje bez zmian.
   Sprawdza to test migracji w etapie 5.
+- **Spójna kopia bazy huba przed snapshotem storage (#8).** Snapshot działającej bazy SQLite bywa
+  niespójny, więc timer `wlb-hub-db-backup.timer` robi migawkę online (`sqlite3 .backup`) do
+  `/workspace/.wlb-hub/backup/` — gotowy, spójny plik, który wchodzi do snapshotu Ceph. Harmonogram i
+  rotacja w `group_vars/all.yml` (`hub_db_backup_oncalendar` domyślnie `hourly`, `hub_db_backup_keep`
+  domyślnie 24). Procedura odtworzenia: [`docs/runbook-kopia-bazy-huba.md`](docs/runbook-kopia-bazy-huba.md);
+  test odtworzenia (konta i hasła działają) w etapie 5.
 - **Blokada pobierania plików jest częściowa (#7, §14, §24.e).** Traefik przed hubem zwraca 403 dla
   `/user/*/files`, `/nbconvert` i `/view` (przycisk Download, „Export Notebook As”, bezpośredni URL), a każda
   odmowa trafia do SIEM (`hub.download_denied`). Przyciski pobierania są ukryte w JupyterLab, ale to tylko

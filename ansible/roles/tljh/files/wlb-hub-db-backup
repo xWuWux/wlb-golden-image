@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Spójna kopia bazy huba (SQLite) na dysku roboczym — źródło dla snapshotu storage (#8).
+#
+# Snapshot działającej bazy SQLite na poziomie storage bywa niespójny (plik w trakcie zapisu,
+# WAL poza głównym plikiem). `sqlite3 .backup` używa API kopii online: robi spójną migawkę
+# działającej bazy bez zatrzymywania huba. Kopia + rotacja leżą na dysku roboczym, więc wchodzą
+# do snapshotu Ceph jako gotowy, spójny plik.
+#
+# Konfiguracja przez środowisko (ustawiane w usłudze systemd):
+#   HUB_DB      ścieżka bazy huba          (domyślnie /workspace/.wlb-hub/jupyterhub.sqlite)
+#   BACKUP_DIR  katalog kopii              (domyślnie <katalog bazy>/backup)
+#   KEEP        ile kopii zostawić         (domyślnie 24)
+set -euo pipefail
+
+HUB_DB=${HUB_DB:-/workspace/.wlb-hub/jupyterhub.sqlite}
+BACKUP_DIR=${BACKUP_DIR:-$(dirname "$HUB_DB")/backup}
+KEEP=${KEEP:-24}
+
+log() { echo "wlb-hub-db-backup: $*"; }
+die() {
+  log "BŁĄD: $*"
+  exit 1
+}
+
+if [[ ! $KEEP =~ ^[0-9]+$ ]] || ((KEEP < 1)); then
+  die "KEEP musi być liczbą >= 1, jest '${KEEP}'"
+fi
+
+# Przed pierwszym logowaniem hub nie założył jeszcze bazy — to nie błąd, nie ma czego kopiować.
+if [[ ! -f $HUB_DB ]]; then
+  log "baza ${HUB_DB} jeszcze nie istnieje — pomijam"
+  exit 0
+fi
+
+mkdir -p "$BACKUP_DIR"
+chmod 0700 "$BACKUP_DIR" # konta/hasła huba — tylko root
+
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+tmp="$BACKUP_DIR/.jupyterhub-$ts.sqlite.part"
+final="$BACKUP_DIR/jupyterhub-$ts.sqlite"
+trap 'rm -f "$tmp"' EXIT
+
+# Kopia online (spójna migawka działającej bazy, obejmuje WAL).
+sqlite3 "$HUB_DB" ".backup '$tmp'" || die "sqlite3 .backup nie powiódł się"
+
+# Nie rotujemy dobrych kopii na rzecz uszkodzonej — kopia musi przejść integrity_check.
+check=$(sqlite3 "$tmp" 'PRAGMA integrity_check;' 2>&1) || die "integrity_check nie wykonał się: ${check}"
+[[ $check == ok ]] || die "kopia niespójna (integrity_check: ${check})"
+
+chmod 0600 "$tmp"
+mv -f "$tmp" "$final" # atomowo w obrębie katalogu: albo stara, albo nowa pełna kopia
+trap - EXIT
+
+# Rotacja: zostaw KEEP najnowszych (nazwy z czasem UTC sortują się leksykograficznie = chronologicznie).
+mapfile -t copies < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'jupyterhub-*.sqlite' -printf '%f\n' | sort)
+surplus=$((${#copies[@]} - KEEP))
+for ((i = 0; i < surplus; i++)); do
+  rm -f "$BACKUP_DIR/${copies[i]}"
+done
+
+size=$(stat -c %s "$final")
+log "kopia ${final##*/} (${size} B), kopii w rotacji: $((${#copies[@]} > KEEP ? KEEP : ${#copies[@]}))/${KEEP}"

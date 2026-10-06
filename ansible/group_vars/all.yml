@@ -39,6 +39,11 @@ tljh_version: "2.0.0"
 # Baza huba na dysku roboczym: konta badaczy przeżywają wymianę dysku systemowego
 # (nowa wersja obrazu) i są objęte backupem razem z /workspace.
 tljh_hub_db_path: /workspace/.wlb-hub/jupyterhub.sqlite
+# Spójna kopia bazy huba przed snapshotem storage (#8): timer robi migawkę online
+# (sqlite3 .backup) na dysku roboczym, z której da się odtworzyć konta i hasła.
+hub_db_backup_dir: "{{ tljh_hub_db_path | dirname }}/backup"
+hub_db_backup_keep: 24                  # ile kopii zostawić (rotacja); przy hourly ~1 doba
+hub_db_backup_oncalendar: hourly        # jak często robić kopię (format systemd OnCalendar)
 tljh_idle_timeout_seconds: 1800        # 30 min bezczynności
 tljh_max_session_seconds: 43200        # §9.5: twardy limit 12 h
 tljh_cull_every_seconds: 60

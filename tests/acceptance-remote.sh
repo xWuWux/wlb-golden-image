@@ -204,4 +204,23 @@ else
   skip "Log centralny (SIEM) — brak SIEM_HOST w teście lokalnym"
 fi
 
+echo "== 9. Spójna kopia i odtworzenie bazy huba (#8) =="
+DB=/workspace/.wlb-hub/jupyterhub.sqlite
+BK_DIR=/workspace/.wlb-hub/backup
+expect_ok "Timer kopii bazy huba włączony (#8)" systemctl is-enabled --quiet wlb-hub-db-backup.timer
+expect_ok "Kopia bazy huba wykonana na żądanie (#8)" systemctl start wlb-hub-db-backup.service
+latest=$(find "$BK_DIR" -maxdepth 1 -type f -name 'jupyterhub-*.sqlite' | sort | tail -1)
+expect_ok "Świeża kopia istnieje (#8)" test -n "$latest"
+expect_ok "Kopia spójna (integrity_check, #8)" bash -c "[[ \$(sqlite3 '$latest' 'PRAGMA integrity_check;') == ok ]]"
+expect_ok "Kopia tylko dla roota (0600, #8)" test "$(stat -c %a "$latest")" = 600
+expect_ok "Kopia zawiera konta huba (#8)" bash -c "sqlite3 '$latest' 'SELECT count(*) FROM users;' | grep -qE '^[1-9]'"
+# Kryterium akceptacji: odtworzenie huba z kopii — konta i hasła działają.
+systemctl stop jupyterhub
+install -m 0600 -o root -g root "$latest" "$DB"
+systemctl start jupyterhub
+expect_ok "Hub działa po odtworzeniu z kopii (#8)" \
+  bash -c "for _ in \$(seq 1 30); do curl -sf -o /dev/null $HUB/hub/api && exit 0; sleep 1; done; exit 1"
+expect_ok "Logowanie $R1 po odtworzeniu z kopii (konta i hasła działają, #8)" \
+  test "$(hub_login $R1 "${PW[$R1]}")" = 302
+
 summary
