@@ -134,10 +134,10 @@ migration() {
 }
 
 lock_drift() {
-  python3 - "$ARTIFACTS" <<'PY'
+  local rc=0
+  python3 - "$ARTIFACTS" <<'PY' || rc=$?
 import json, sys
 from pathlib import Path
-import yaml
 art = Path(sys.argv[1])
 problems, notes = [], []
 
@@ -145,8 +145,6 @@ problems, notes = [], []
 built_r = json.loads((art / "renv.lock").read_text()).get("Packages", {})
 if not built_r:
     problems.append("renv.lock z obrazu nie zawiera pakietów")
-if not (art / "environment.lock.yml").is_file():
-    problems.append("brak environment.lock.yml z obrazu")
 
 r_repo = json.loads(Path("envs/r/renv.lock").read_text())
 if r_repo.get("Packages"):
@@ -157,24 +155,24 @@ if r_repo.get("Packages"):
 else:
     notes.append("renv.lock bez pakietów — wygenerowany lock w artefaktach (make freeze)")
 
-py_lock = Path("envs/python/environment.lock.yml")
-if py_lock.exists():
-    def deps(p):
-        d = yaml.safe_load(p.read_text())["dependencies"]
-        return sorted(x for x in d if isinstance(x, str)), sorted(next((x["pip"] for x in d if isinstance(x, dict)), []))
-    want, got = deps(py_lock), deps(art / "environment.lock.yml")
-    for label, w, g in (("conda", want[0], got[0]), ("pip", want[1], got[1])):
-        problems += [f"Python/{label}: tylko w locku {x}" for x in sorted(set(w) - set(g))]
-        problems += [f"Python/{label}: tylko w obrazie {x}" for x in sorted(set(g) - set(w))]
-else:
-    notes.append("environment.lock.yml nie istnieje — wygenerowany lock w artefaktach (make freeze)")
-
 for n in notes:
     print("uwaga:", n)
 for p in problems:
     print("DRYF:", p)
 sys.exit(1 if problems else 0)
 PY
+  if [[ ! -s $ARTIFACTS/environment.lock.yml ]]; then
+    echo "DRYF: brak environment.lock.yml z obrazu"
+    return 1
+  fi
+  if [[ ! -s envs/python/environment.lock.yml ]]; then
+    echo "uwaga: environment.lock.yml nie istnieje — wygenerowany lock w artefaktach (make freeze)"
+    return $rc
+  fi
+  # Porównanie Pythona ma własny moduł (testowany jednostkowo): patrzy na wersje ponad działami
+  # menedżerów, bo migracja conda <-> pip przy tej samej wersji nie jest suchym dryfem
+  python3 ci/lock_drift.py envs/python/environment.lock.yml "$ARTIFACTS/environment.lock.yml" || rc=1
+  return $rc
 }
 
 image_sca() {
