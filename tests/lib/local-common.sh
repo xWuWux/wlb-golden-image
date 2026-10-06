@@ -16,6 +16,17 @@ remote_run() {
     "${SSH[@]}" "f=\$(mktemp) && cat >\"\$f\" && sudo bash \"\$f\" $(printf '%q ' "$@") </dev/null; rc=\$?; rm -f \"\$f\"; exit \$rc"
 }
 
+# perf_vm_resources — ustawia VM_CPUS/VM_MEMORY z zasobów hosta (jak ci/integration.sh), jeśli nie
+# podano. Bez tego ci/perf.sh brałby domyślne 4 vCPU / 8 GB z run-local.sh, czyli VM większą niż
+# host runnera (2 vCPU / ~7 GB) — zagnieżdżona wirtualizacja z nadsubskrypcją zaburza pomiary (#10).
+perf_vm_resources() {
+  local cpus mem_mb
+  cpus=$(nproc)
+  mem_mb=$(($(awk '/MemTotal/ {print $2}' /proc/meminfo) / 1024 - 2560))
+  export VM_CPUS=${VM_CPUS:-$((cpus < 4 ? cpus : 4))}
+  export VM_MEMORY=${VM_MEMORY:-$((mem_mb < 8192 ? mem_mb : 8192))}
+}
+
 require_vm() {
   if ! { [[ -f $T/qemu.pid ]] && kill -0 "$(cat "$T/qemu.pid")" 2>/dev/null; }; then
     echo "VM testowa nie działa — make test-up"

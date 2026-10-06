@@ -5,6 +5,15 @@
 HUB=http://127.0.0.1
 PASS=0 FAIL=0 SKIP=0
 
+# median LICZBY... — wypisuje medianę liczb całkowitych (dolna przy parzystej liczbie próbek).
+# Używane w pomiarach wydajności (#10): wartość kanoniczna metryki to mediana powtórzeń.
+median() {
+  (($# > 0)) || return 1
+  local sorted
+  mapfile -t sorted < <(printf '%s\n' "$@" | sort -n)
+  echo "${sorted[$(((${#sorted[@]} - 1) / 2))]}"
+}
+
 ok() {
   echo "  PASS  $*"
   PASS=$((PASS + 1))
