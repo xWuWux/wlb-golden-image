@@ -1,12 +1,16 @@
 """wlb-hub-user na prawdziwej bazie JupyterHub (ta sama główna wersja co w TLJH 2.0)."""
 
 import io
+import sqlite3
+import threading
+import time
 
 import bcrypt
 import pytest
 from jupyterhub import orm
 from nativeauthenticator.orm import UserInfo
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 
@@ -95,3 +99,58 @@ def test_niezainicjalizowana_baza(hub_user, tmp_path, monkeypatch):
 
 def test_domyslna_baza_na_dysku_roboczym(hub_user):
     assert hub_user.DEFAULT_DB_URL == "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
+
+
+# --- Blokada zapisu SQLite przy działającym hubie (#31) ---------------------------------------
+
+
+def _hold_write_lock(path, seconds, ready):
+    """Trzyma blokadę zapisu (BEGIN IMMEDIATE) przez `seconds`, jak hub w trakcie zapisu/kopii."""
+    conn = sqlite3.connect(path, isolation_level=None, timeout=seconds + 5)
+    conn.execute("BEGIN IMMEDIATE")
+    ready.set()
+    time.sleep(seconds)
+    conn.execute("ROLLBACK")
+    conn.close()
+
+
+def test_czeka_na_blokade_zapisu_i_konczy_sukcesem(hub_user, hub_db, tmp_path, monkeypatch):
+    path = str(tmp_path / "jupyterhub.sqlite")
+    ready = threading.Event()
+    holder = threading.Thread(target=_hold_write_lock, args=(path, 1.5, ready))
+    holder.start()
+    ready.wait()
+    monkeypatch.setattr(hub_user, "LOCK_TIMEOUT", 3)
+    hub_user.main(["anna"])  # czeka ~1,5 s na zwolnienie blokady, potem sukces
+    holder.join()
+    assert user_info(hub_db, "anna").is_authorized
+
+
+def test_blokada_dluzsza_niz_timeout_daje_blad(hub_user, hub_db, tmp_path, monkeypatch):
+    path = str(tmp_path / "jupyterhub.sqlite")
+    ready = threading.Event()
+    holder = threading.Thread(target=_hold_write_lock, args=(path, 1.5, ready))
+    holder.start()
+    ready.wait()
+    monkeypatch.setattr(hub_user, "LOCK_TIMEOUT", 0.5)
+    with pytest.raises(OperationalError, match="database is locked"):
+        hub_user.main(["anna"])
+    holder.join()
+
+
+def test_dwa_rownolegle_wywolania_nie_tworza_duplikatu(hub_user, hub_db):
+    # BEGIN IMMEDIATE serializuje odczyt+zapis, więc drugie wywołanie widzi już wstawiony wiersz
+    barrier = threading.Barrier(2)
+
+    def run():
+        barrier.wait()
+        hub_user.main(["anna"])
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    with Session(create_engine(hub_db)) as db:
+        assert db.query(UserInfo).filter_by(username="anna").count() == 1

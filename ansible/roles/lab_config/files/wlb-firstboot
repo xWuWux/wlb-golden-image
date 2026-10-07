@@ -22,6 +22,7 @@ HUB_CONFIG_D=$R/opt/tljh/config/jupyterhub_config.d
 ADMIN_PASSWORD_FILE=$R/root/wlb-hub-admin-initial-password
 TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
 HUB_USER_TOOL=${WLB_HUB_USER_TOOL:-/usr/local/sbin/wlb-hub-user}
+HUB_USER_RETRY_SLEEP=${WLB_HUB_USER_RETRY_SLEEP:-5} # pauza między próbami założenia konta huba (#31)
 HUB_URL=${WLB_HUB_URL:-http://127.0.0.1}
 HUB_WAIT_SECONDS=${WLB_HUB_WAIT_SECONDS:-180}
 MEMINFO=${WLB_MEMINFO:-/proc/meminfo}
@@ -429,7 +430,19 @@ hub_ready || die "JupyterHub nie odpowiada"
 # Baza huba leży na dysku roboczym: po wymianie dysku systemowego konto już istnieje
 # i jego hasło zostaje bez zmian.
 if [[ ! -s $ADMIN_PASSWORD_FILE ]]; then
-  password=$("$HUB_USER_TOOL" --if-missing "$HUB_ADMIN_USER")
+  # Ponawiamy: przy działającym hubie baza bywa chwilowo zablokowana (#31). Bez tego błąd
+  # przerwałby firstboot po cichu (set -e) — nie powstałby firstboot.done, więc reguły audytu
+  # nie zostałyby zablokowane. Narzędzie samo czeka na blokadę (LOCK_TIMEOUT); tu łapiemy resztę.
+  created=0 password=""
+  for attempt in 1 2 3; do
+    if password=$("$HUB_USER_TOOL" --if-missing "$HUB_ADMIN_USER"); then
+      created=1
+      break
+    fi
+    log "konto huba ${HUB_ADMIN_USER}: próba ${attempt}/3 nieudana (baza huba zajęta?) — ponawiam"
+    sleep "$HUB_USER_RETRY_SLEEP"
+  done
+  ((created == 1)) || die "nie udało się założyć konta huba ${HUB_ADMIN_USER} po 3 próbach (baza zajęta?)"
   if [[ -n $password ]]; then
     mkdir -p "$(dirname "$ADMIN_PASSWORD_FILE")"
     (

@@ -18,12 +18,36 @@ import sys
 
 import bcrypt
 from nativeauthenticator.orm import UserInfo
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import Session
 
 DEFAULT_DB_URL = "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 MIN_PASSWORD_LENGTH = 12
+# Czas oczekiwania na blokadę zapisu bazy (s). Hub trzyma bazę przy logowaniu, kopii (#8) czy
+# upgrade_db; domyślne 5 s pysqlite bywa za krótkie na wolnym storage (fsync na Ceph). Stała, by
+# test mógł ją nadpisać.
+LOCK_TIMEOUT = 30
+
+
+def _engine(url):
+    """Silnik z jawnym timeoutem blokady i BEGIN IMMEDIATE (#31).
+
+    BEGIN IMMEDIATE bierze blokadę zapisu już na początku transakcji, więc odczyt istniejącego
+    konta i jego zapis są pod jedną blokadą — dwa równoległe wlb-hub-user nie utworzą duplikatu
+    w users_info (tabela wtyczki nie ma UNIQUE na username).
+    """
+    engine = create_engine(url, connect_args={"timeout": LOCK_TIMEOUT})
+
+    @event.listens_for(engine, "connect")
+    def _manual_begin(dbapi_connection, _record):  # pysqlite: wyłącz auto-BEGIN sterownika
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _begin_immediate(connection):
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+    return engine
 
 
 def main(argv=None):
@@ -44,7 +68,7 @@ def main(argv=None):
     else:
         password = secrets.token_urlsafe(18)
 
-    engine = create_engine(os.environ.get("WLB_HUB_DB_URL", DEFAULT_DB_URL))
+    engine = _engine(os.environ.get("WLB_HUB_DB_URL", DEFAULT_DB_URL))
     if not inspect(engine).has_table("users"):
         sys.exit("Baza JupyterHub nie jest zainicjalizowana — uruchom najpierw hub")
     UserInfo.__table__.create(engine, checkfirst=True)

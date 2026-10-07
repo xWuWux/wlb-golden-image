@@ -341,6 +341,15 @@ EOF
   refute called useradd
 }
 
+@test "konto huba: trwała blokada bazy przerywa firstboot czytelnym błędem (#31)" {
+  stub wlb-hub-user 1 # narzędzie zawsze zawodzi (np. baza huba stale zablokowana)
+  export WLB_HUB_USER_RETRY_SLEEP=0
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"nie udało się założyć konta huba"* ]]
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ] # bez znacznika → reguły audytu nie są cicho pomijane
+}
+
 # --- TLS do SIEM (#6) ------------------------------------------------------------------------
 
 siem_env() { # siem_env KLUCZ=WARTOŚĆ... — nadpisuje lub dopisuje zmienne w lab.env

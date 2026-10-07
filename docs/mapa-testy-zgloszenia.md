@@ -41,6 +41,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-07). Odświ
 - `tests/acceptance-remote.sh` — *7b. Limity zasobów badaczy (#30)*
 - `tests/unit/wlb-firstboot.bats` — *Limity zasobów badaczy (#30)*
 
+### #31 — wlb-hub-user: brak timeoutu blokady SQLite („database is locked” przy działającym hubie)  ·  _otwarte_
+- `tests/unit/test_wlb_hub_user.py` — *Blokada zapisu SQLite przy działającym hubie (#31)*
+- `tests/unit/wlb-firstboot.bats` — `konto huba: trwała blokada bazy przerywa firstboot czytelnym błędem (#31)`
+
 ### #44 — SIEM: badacz może fałszować zdarzenia z kontraktu (logger z tagiem wlb-*) — pola zaufane z journald  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Reguły audytu zablokowane (-e 2)`, `Wpis podrobiony przez badacza ma w journald jego UID (#44)`, `rsyslog bez odmów AppArmor (#44, #6)`
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`
