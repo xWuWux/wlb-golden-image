@@ -223,4 +223,15 @@ expect_ok "Hub działa po odtworzeniu z kopii (#8)" \
 expect_ok "Logowanie $R1 po odtworzeniu z kopii (konta i hasła działają, #8)" \
   test "$(hub_login $R1 "${PW[$R1]}")" = 302
 
+echo "== 10. Utwardzenie SSH (CIS 5.2, #62) =="
+expect_ok "MaxAuthTries 4 (#62)" bash -c "sshd -T | grep -qx 'maxauthtries 4'"
+expect_ok "LoginGraceTime 60 (#62)" bash -c "sshd -T | grep -qx 'logingracetime 60'"
+expect_ok "MaxSessions 4 (#62)" bash -c "sshd -T | grep -qx 'maxsessions 4'"
+expect_ok "MaxStartups 10:30:60 (#62)" bash -c "sshd -T | grep -qx 'maxstartups 10:30:60'"
+expect_ok "LogLevel VERBOSE (#62)" bash -c "sshd -T | grep -qix 'loglevel verbose'"
+expect_ok "PermitUserEnvironment no (#62)" bash -c "sshd -T | grep -qx 'permituserenvironment no'"
+expect_ok "Banner /etc/issue.net (#62)" bash -c "sshd -T | grep -qx 'banner /etc/issue.net'"
+expect_ok "Baner prawny o monitoringu (#62)" grep -q 'osob upowaznionych' /etc/issue.net
+expect_fail "Baner nie ujawnia wersji systemu (#62)" grep -qE '\\[slrmvSU]' /etc/issue.net
+
 summary
