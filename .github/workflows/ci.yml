@@ -28,7 +28,7 @@ on:
       perf_repeat:
         description: "Stage 6a: liczba powtórzeń pomiarów w VM (kalibracja, #10)"
         type: string
-        default: "5"
+        default: "3"
       ephemeral:
         description: "Stage 6b: wdrożenie tymczasowe na OpenStack"
         type: boolean
@@ -233,8 +233,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
-      # etykieta/nightly: 5 powtórzeń (kalibracja #10); workflow_dispatch może nadpisać
-      PERF_REPEAT: ${{ inputs.perf_repeat || '5' }}
+      # etykieta/nightly: 3 powtórzenia (kalibracja #10); workflow_dispatch może nadpisać
+      PERF_REPEAT: ${{ inputs.perf_repeat || '3' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

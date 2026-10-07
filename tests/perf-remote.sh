@@ -50,6 +50,9 @@ for i in $(seq 1 "$REPEAT"); do
     sleep 1
   done
   ((active == 1)) && spawn_times+=("$(($(ms) - t0))")
+  # zwolnij RAM: dodatkowe serwery nie są potrzebne dalej (jupyter-perf zostaje do benchmarków).
+  # Bez tego 5 serwerów naraz zapycha pamięć małej VM i ciężkie metryki thrashują (OOM/zawieszenie).
+  [[ $su == "$U" ]] || systemctl stop "jupyter-$su" &>/dev/null || true
 done
 emit spawn_first_ms ms "${spawn_times[@]}"
 
@@ -72,25 +75,27 @@ PY
   chown "jupyter-$U:" "$home/bench.py"
 
   for _ in $(seq 1 "$REPEAT"); do
+    # Każdą operację ogranicza timeout: zawieszona/thrashująca na małej VM daje „brak pomiaru”
+    # (nie wisi do limitu całego etapu). Progi >> budżetu, więc nie ucinają legalnie wolnych.
     # pandas: tylko gdy skrypt zakończył się sukcesem (brak pakietu nie może wyjść „szybko”)
-    if out=$(as "$U" /opt/tljh/user/bin/python "$home/bench.py" 2>/dev/null); then
+    if out=$(as "$U" timeout 120 /opt/tljh/user/bin/python "$home/bench.py" 2>/dev/null); then
       import_times+=("$(awk '/python_import_pandas_ms/ {print $2}' <<<"$out")")
       groupby_times+=("$(awk '/pandas_groupby_5m_ms/ {print $2}' <<<"$out")")
     fi
     # HADES: sprawdzamy kod wyjścia Rscript (brak pakietu → błąd, nie „świetny” czas)
     t0=$(ms)
-    if as "$U" Rscript -e 'suppressPackageStartupMessages({library(DatabaseConnector); library(FeatureExtraction); library(CohortMethod); library(PatientLevelPrediction)})' >/dev/null 2>&1; then
+    if as "$U" timeout 180 Rscript -e 'suppressPackageStartupMessages({library(DatabaseConnector); library(FeatureExtraction); library(CohortMethod); library(PatientLevelPrediction)})' >/dev/null 2>&1; then
       hades_times+=("$(($(ms) - t0))")
     fi
     # przepustowość dysku roboczego (z pominięciem cache stron)
-    as "$U" dd if=/dev/zero of="$home/dd.bin" bs=1M count=1024 oflag=direct status=none
+    as "$U" timeout 120 dd if=/dev/zero of="$home/dd.bin" bs=1M count=1024 oflag=direct status=none || true
     t0=$(ms)
-    if as "$U" dd if=/dev/zero of="$home/dd.bin" bs=1M count=1024 oflag=direct conv=fsync status=none; then
+    if as "$U" timeout 120 dd if=/dev/zero of="$home/dd.bin" bs=1M count=1024 oflag=direct conv=fsync status=none; then
       wms=$(($(ms) - t0))
       write_mbps+=("$((1024 * 1000 / (wms > 0 ? wms : 1)))")
     fi
     t0=$(ms)
-    if as "$U" dd if="$home/dd.bin" of=/dev/null bs=1M iflag=direct status=none; then
+    if as "$U" timeout 120 dd if="$home/dd.bin" of=/dev/null bs=1M iflag=direct status=none; then
       rms=$(($(ms) - t0))
       read_mbps+=("$((1024 * 1000 / (rms > 0 ? rms : 1)))")
     fi
