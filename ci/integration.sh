@@ -13,6 +13,8 @@
 #   REUSE_IMAGE=1            nie buduj ponownie, jeśli obraz tej wersji już jest w output/
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
+# shellcheck source=ci/image-meta.sh
+. "$(dirname "$0")/image-meta.sh"
 require packer ansible-playbook qemu-system-x86_64 qemu-img cloud-localds osv-scanner python3
 
 IMAGE_VERSION=${IMAGE_VERSION:-0.0.0-ci}
@@ -47,9 +49,12 @@ build_image() {
   [[ -f build/packer_ed25519 ]] || ssh-keygen -q -t ed25519 -N '' -C wlb-packer-build -f build/packer_ed25519
   rm -rf "output/$FULL"
   packer init packer/ >/dev/null
+  image_provenance # GIT_COMMIT/GIT_DESCRIBE/GIT_DIRTY/BUILD_RUN do metadanych obrazu (#12a)
   if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false \
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
-    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" packer/; then
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
+    -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" packer/; then
     # budowanie przerwane przez niedostępne repozytoria pakietów (PyPI, conda-forge, CRAN, apt), a nie
     # przez błąd w kodzie: adnotacja INFRA — ci-retry.yml ponowi przebieg jeden raz. Przy zbiegu
     # z prawdziwym błędem kosztem jest jedno zbędne ponowienie.

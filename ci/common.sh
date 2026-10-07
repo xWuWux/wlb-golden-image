@@ -25,6 +25,12 @@ step() {
 }
 endstep() { [[ -z ${GITHUB_ACTIONS:-} ]] || echo "::endgroup::"; }
 
+# die KOMUNIKAT — wypisuje błąd na stderr i kończy z kodem 1
+die() {
+  echo "BŁĄD: $*" >&2
+  exit 1
+}
+
 # summary <<EOF — dopisuje markdown do podsumowania joba w GitHub Actions (lokalnie: na stdout)
 summary() {
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then cat >>"$GITHUB_STEP_SUMMARY"; else cat; fi
