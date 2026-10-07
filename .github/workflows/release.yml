@@ -1,0 +1,71 @@
+# Wydanie obrazu z tagu vX.Y.Z (#12a): buduje obraz i etap 5 na otagowanym commicie, składa
+# pakiet metadanych (proweniencja, SBOM SPDX, changelog, SHA256SUMS) i publikuje GitHub Release.
+# Sam qcow2 (4,3 GB > limit 2 GiB GitHuba) i jego przechowywanie to #12b (zależne od #15).
+# Tag tnij z zielonego `main` — build+etap 5 i tak zweryfikują obraz, a wydanie powstaje tylko po sukcesie.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TOOLS_DIR: ${{ github.workspace }}/.tools
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  release:
+    name: "Wydanie obrazu (tag)"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 200
+    permissions:
+      contents: write # tworzenie GitHub Release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # tagi i pełna historia do git describe i changelogu
+      - name: Wersja obrazu z tagu
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >>"$GITHUB_OUTPUT"
+      - name: Miejsce na dysku (obraz + VM testowe)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - name: Dostęp do KVM
+        run: ci/enable-kvm.sh
+      - name: QEMU i narzędzia obrazu
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: ci/install-tools.sh lint security
+      - name: Budowanie obrazu i etap 5 na otagowanym commicie
+        run: |
+          ci/guard.sh --name "Wydanie: budowanie i etap 5" --timeout 150m --memory auto -- ci/integration.sh
+        env:
+          IMAGE_VERSION: ${{ steps.ver.outputs.version }}
+      - name: Złóż pakiet wydania (metadane, SBOM, changelog, SHA256SUMS)
+        run: ci/release.sh "${GITHUB_REF_NAME}"
+      - name: Opublikuj GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file build/release/CHANGELOG.md \
+            build/release/*
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: release-${{ github.ref_name }}
+          path: build/release/
+          if-no-files-found: ignore
+          retention-days: 90

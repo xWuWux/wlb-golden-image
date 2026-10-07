@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-06). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-07). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -26,6 +26,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-06). Odświ
 
 ### #10 — Kalibracja budżetów wydajności — pierwszy przebieg etapu 6a  ·  _otwarte_
 - `tests/unit/perf-helpers.bats` — `median: brak próbek zwraca błąd (#10)`, `median: jedna próbka (#10)`, `median: nieparzysta liczba próbek to wartość środkowa (#10)`, `median: parzysta liczba próbek — dolna środkowa (#10)`, `perf_vm_resources: bez wartości — czapka 4 vCPU / 8192 MB wyliczona z hosta (#10)`, `perf_vm_resources: respektuje podane VM_CPUS/VM_MEMORY (#10)`
+
+### #12 — Proces wydania obrazu (12a): metadane, SBOM, changelog na tag (M2)  ·  _otwarte_
+- `tests/unit/release.bats` — `image_provenance: GITHUB_RUN_ID trafia do BUILD_RUN (#12)`, `image_provenance: commit, flaga dirty, build_run (#12)`, `release.sh: brak tagu przerywa (#12)`, `release.sh: zły format tagu przerywa (#12)`
 
 ### #18 — Dostęp: MFA (Keycloak / Entra ID) i HTTPS przez portal WLB lub bramkę VDI  ·  _otwarte_
 - `tests/unit/wlb-firstboot.bats` — *Uwierzytelnianie: native / OIDC (#18)*

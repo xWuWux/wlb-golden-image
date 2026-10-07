@@ -46,3 +46,28 @@ variable "ssh_private_key_file" {
   type    = string
   default = "build/packer_ed25519"
 }
+
+# Proweniencja: powiązanie obrazu z kodem (#12a). Puste = budowanie poza git/CI.
+variable "git_commit" {
+  type        = string
+  default     = ""
+  description = "Pełny SHA commita, z którego zbudowano obraz."
+}
+
+variable "git_describe" {
+  type        = string
+  default     = ""
+  description = "git describe --tags --always --dirty w chwili budowania."
+}
+
+variable "git_dirty" {
+  type        = string
+  default     = ""
+  description = "1, gdy drzewo robocze miało niezacommitowane zmiany; 0 gdy czyste."
+}
+
+variable "build_run" {
+  type        = string
+  default     = ""
+  description = "Identyfikator przebiegu CI (GITHUB_RUN_ID) albo 'local'."
+}

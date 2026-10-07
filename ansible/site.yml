@@ -35,6 +35,10 @@
           WLB_IMAGE_NAME={{ wlb_image_name }}
           WLB_IMAGE_VERSION={{ wlb_image_version }}
           WLB_IMAGE_DATE={{ wlb_image_date }}
+          WLB_GIT_COMMIT={{ wlb_git_commit | default('') }}
+          WLB_GIT_DESCRIBE={{ wlb_git_describe | default('') }}
+          WLB_GIT_DIRTY={{ wlb_git_dirty | default('') }}
+          WLB_BUILD_RUN={{ wlb_build_run | default('') }}
           TLJH_VERSION={{ tljh_version }}
           R_CRAN_SNAPSHOT={{ r_cran_snapshot_date }}
           {{ wlb_versions.stdout }}
