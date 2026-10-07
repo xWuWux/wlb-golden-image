@@ -105,7 +105,26 @@
       AllowAgentForwarding no
       PermitTunnel no
       ClientAliveInterval 300
+      # CIS 5.2: ograniczenie brute force i logowania, pełniejszy log, banner (#62)
+      MaxAuthTries 4
+      LoginGraceTime 60
+      MaxSessions 4
+      MaxStartups 10:30:60
+      LogLevel VERBOSE
+      PermitUserEnvironment no
+      Banner /etc/issue.net
   notify: Restart ssh
+
+# Komunikat prawny o monitoringu (§21 Regulaminu) — przed uwierzytelnieniem (issue.net) i na konsoli
+# (issue). Zastępuje domyślny baner Ubuntu, który ujawniał wersję systemu (CIS banner_etc_issue). #62
+- name: Komunikat prawny logowania (/etc/issue, /etc/issue.net)
+  ansible.builtin.copy:
+    src: wlb-issue
+    dest: "{{ item }}"
+    mode: "0644"
+  loop:
+    - /etc/issue
+    - /etc/issue.net
 
 # --- Ochrona usług systemowych przed OOM killerem (#30) ----------------------------------
 # Przy braku pamięci jądro zabija najpierw procesy badaczy (OOMScoreAdjust=500 w ich jednostkach,
