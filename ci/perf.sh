@@ -13,12 +13,47 @@ IMAGE=${1:-$(find output -name '*.qcow2' -printf '%T@ %p\n' 2>/dev/null | sort -
 }
 mkdir -p build/perf
 RESULTS=build/perf/results.txt
+SAMPLES=build/perf/samples.txt
+: >"$RESULTS"
+: >"$SAMPLES"
 
-tests/stop-local.sh >/dev/null
-t0=$(date +%s)
-tests/run-local.sh "$IMAGE" >/dev/null
-echo "boot_to_ready_s $(($(date +%s) - t0)) s" >"$RESULTS"
-remote_run tests/perf-remote.sh >>"$RESULTS" || true
+# VM dobrana do hosta (bez nadsubskrypcji zagnieżdżonej wirtualizacji) i liczba powtórzeń (#10).
+# PERF_REPEAT dotyczy tanich metryk w VM; boot jest kosztowny, więc ma osobny (domyślnie 1)
+# PERF_BOOT_REPEAT — 5 pełnych bootów łatwo przekroczyłoby limit czasu etapu 6a.
+perf_vm_resources
+REPEAT=${PERF_REPEAT:-1}
+[[ $REPEAT =~ ^[0-9]+$ ]] && ((REPEAT >= 1)) || REPEAT=1
+BOOT_REPEAT=${PERF_BOOT_REPEAT:-1}
+[[ $BOOT_REPEAT =~ ^[0-9]+$ ]] && ((BOOT_REPEAT >= 1)) || BOOT_REPEAT=1
+
+# boot_to_ready: BOOT_REPEAT osobnych startów VM; mediana jako wartość, próbki do kalibracji
+boot_samples=()
+for _ in $(seq 1 "$BOOT_REPEAT"); do
+  tests/stop-local.sh >/dev/null
+  t0=$(date +%s)
+  tests/run-local.sh "$IMAGE" >/dev/null
+  boot_samples+=("$(($(date +%s) - t0))")
+done
+boot_median=$(printf '%s\n' "${boot_samples[@]}" | sort -n | awk '{ a[NR] = $0 } END { print a[int((NR - 1) / 2) + 1] }')
+echo "boot_to_ready_s $boot_median s" >>"$RESULTS"
+echo "SAMPLE boot_to_ready_s ${boot_samples[*]}" >>"$SAMPLES"
+
+# środowisko pomiaru (host vs gość) — kontekst do interpretacji i kalibracji budżetów
+{
+  echo "host_cpus $(nproc)"
+  echo "host_mem_total_kb $(awk '/MemTotal/ {print $2}' /proc/meminfo)"
+  echo "host_cpu_model $(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"
+  echo "vm_cpus $VM_CPUS"
+  echo "vm_memory_mb $VM_MEMORY"
+  # polecenie ma się wykonać w VM — cudzysłów pojedynczy jest zamierzony (nproc gościa, nie hosta)
+  # shellcheck disable=SC2016
+  "${SSH[@]}" 'echo "guest_cpus $(nproc)"; grep MemTotal /proc/meminfo' 2>/dev/null
+} >build/perf/env.txt
+
+# pozostałe metryki w działającej VM (ostatni boot zostawił ją uruchomioną)
+remote_run tests/perf-remote.sh "$REPEAT" >build/perf/remote.out || true
+grep '^SAMPLE ' build/perf/remote.out >>"$SAMPLES" || true
+grep -v '^SAMPLE ' build/perf/remote.out >>"$RESULTS" || true
 tests/stop-local.sh >/dev/null
 
 status=0
