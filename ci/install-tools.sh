@@ -50,7 +50,13 @@ pip_install() { # pip_install VENV ARGUMENTY... — błąd sieci oznaczony jako 
 }
 
 venv() { # venv NAZWA PLIK_WYMAGAŃ
-  [[ -x $TOOLS_DIR/$1/bin/python ]] || python3 -m venv "$TOOLS_DIR/$1"
+  # Sprawdzamy, czy python3 venv REALNIE działa, nie tylko czy istnieje: po aktualizacji Pythona
+  # na runnerze dowiązania w zcache'owanym .tools/<venv> wskazują na nieobecny interpreter, a pip
+  # (shebang -> bin/python3) wtedy pada. Zepsuty/niekompletny venv odtwarzamy.
+  if ! "$TOOLS_DIR/$1/bin/python3" -c '' 2>/dev/null; then
+    rm -rf "${TOOLS_DIR:?}/${1:?}"
+    python3 -m venv "$TOOLS_DIR/$1"
+  fi
   pip_install "$1" --upgrade pip
   pip_install "$1" -r "$2"
 }
