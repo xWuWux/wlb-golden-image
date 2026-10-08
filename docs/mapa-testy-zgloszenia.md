@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-07). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-08). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -57,6 +57,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-07). Odświ
 
 ### #62 — SSH: Limity logowania i komunikat powitalny (CIS 5.2)  ·  _otwarte_
 - `tests/acceptance-remote.sh` — `Baner nie ujawnia wersji systemu (#62)`, `Baner prawny o monitoringu (#62)`, `Banner /etc/issue.net (#62)`, `LogLevel VERBOSE (#62)`, `LoginGraceTime 60 (#62)`, `MaxAuthTries 4 (#62)`, `MaxSessions 4 (#62)`, `MaxStartups 10:30:60 (#62)`, `PermitUserEnvironment no (#62)`, *10. Utwardzenie SSH (CIS 5.2, #62)*
+
+### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
 
 ## Uwagi
 

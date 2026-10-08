@@ -173,12 +173,18 @@ expect_ok "Usługi działają po obciążeniu (audyt, logi, hub)" systemctl is-a
 sleep 10 # procesy z testu fork kończą się same
 
 echo "== 8. Logi i audyt =="
+# Wyzwól nowe klucze audytu §21/CIS (#66) wcześnie — asercje niżej, po innych sprawdzeniach, żeby
+# auditd zdążył zapisać zdarzenia. Oba to obserwacje ścieżek (niezależne od auid).
+chmod 0644 /etc/passwd                                                             # wlb_account_change
+touch /etc/apparmor.d/50-wlb-audit-test && rm -f /etc/apparmor.d/50-wlb-audit-test # wlb_mac_config
 expect_ok "Log huba: logowanie badacza" bash -c "journalctl -u jupyterhub | grep -q 'User logged in: $R1'"
 expect_ok "Log śluzy: wniosek o eksport" bash -c "journalctl -t wlb-sluza-out | grep -q 'user=jupyter-$R1 .*entry=wynik-test.csv'"
 expect_ok "Audyt: zapis do /sluza-out" ausearch --input-logs -k wlb_sluza_out -ui "$(id -u jupyter-$R1)"
 expect_ok "Audyt: odczyt /sluza-in" ausearch --input-logs -k wlb_sluza_in -ui "$(id -u jupyter-$R1)"
 expect_ok "Audyt: odmowa dostępu" ausearch --input-logs -k wlb_access_denied -ui "$(id -u jupyter-$R1)"
 expect_ok "Audyt: polecenia badacza (execve)" ausearch --input-logs -k wlb_exec -ui "$(id -u jupyter-$R1)"
+expect_ok "Audyt: zmiana konta/PAM (#66)" ausearch --input-logs -k wlb_account_change
+expect_ok "Audyt: zmiana MAC/AppArmor (#66)" ausearch --input-logs -k wlb_mac_config
 expect_ok "Reguły audytu zablokowane (-e 2)" bash -c 'auditctl -s | grep -q "^enabled 2"'
 # #44: badacz podszywa się pod śluzę (ten sam tag i treść). Dociera do SIEM, ale z jego UID
 # z jądra — ci/observability_contract.py verify-log --expect-untrusted musi go odrzucić

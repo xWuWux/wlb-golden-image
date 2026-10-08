@@ -160,6 +160,13 @@ audit:
     - { key: wlb_privileges, description: "Zmiany uprawnień (sudoers)", regulamin: "§24.c", acceptance: false }
     - { key: wlb_exec, description: "Każde polecenie uruchomione przez badacza", regulamin: "§21", acceptance: true }
     - { key: wlb_access_denied, description: "Odmowy dostępu do plików", regulamin: "§21", acceptance: true }
+    - { key: wlb_account_change, description: "Zmiany kont, haseł i konfiguracji PAM/NSS", regulamin: "§21", acceptance: true }
+    - { key: wlb_time_change, description: "Zmiany czasu systemowego i strefy", regulamin: "§21", acceptance: false }
+    - { key: wlb_kernel_module, description: "Ładowanie/wyładowanie modułów jądra", regulamin: "§21", acceptance: false }
+    - { key: wlb_session, description: "Zdarzenia sesji i logowania (utmp/wtmp/btmp/lastlog)", regulamin: "§21", acceptance: false }
+    - { key: wlb_file_deletion, description: "Usunięcia/zmiany nazw plików przez użytkowników z sesją", regulamin: "§21", acceptance: false }
+    - { key: wlb_perm_change, description: "Zmiany praw dostępu (DAC) przez użytkowników z sesją", regulamin: "§21", acceptance: false }
+    - { key: wlb_mac_config, description: "Zmiany konfiguracji MAC (AppArmor)", regulamin: "§21", acceptance: true }
 
 # Dostarczanie do SIEM
 siem:
