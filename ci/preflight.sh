@@ -3,7 +3,7 @@
 # Każdy problem: co jest nie tak, dlaczego to przeszkadza i jak to naprawić. Kod 1, gdy coś blokuje.
 #   ci/preflight.sh          # pełne sprawdzenie (budowanie + test lokalny)
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 blocking=0
 ok() { printf '  OK     %s\n' "$1"; }
 warn() { printf '  UWAGA  %s\n         %s\n' "$1" "$2"; }
@@ -60,11 +60,17 @@ done
 
 # 6. Zasoby
 free_gb=$(($(df -Pk . | awk 'NR == 2 {print $4}') / 1024 / 1024))
-((free_gb >= 40)) && ok "Wolne miejsce: ${free_gb} GB" ||
+if ((free_gb >= 40)); then
+  ok "Wolne miejsce: ${free_gb} GB"
+else
   warn "Wolne miejsce: ${free_gb} GB" "Obraz, cache i VM testowa potrzebują ok. 40 GB"
+fi
 mem_gb=$(($(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 / 1024))
-((mem_gb >= 10)) && ok "Pamięć: ${mem_gb} GB" ||
+if ((mem_gb >= 10)); then
+  ok "Pamięć: ${mem_gb} GB"
+else
   warn "Pamięć: ${mem_gb} GB" "Budowanie potrzebuje 6 GB dla VM, test lokalny 8 GB; zwiększ memory= w .wslconfig"
+fi
 
 echo
 if ((blocking)); then
