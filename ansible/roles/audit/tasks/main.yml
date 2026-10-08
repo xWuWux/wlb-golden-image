@@ -1,3 +1,16 @@
+# Watch na nieistniejącą ścieżkę sprawia, że augenrules --load kończy się błędem i -e 2 się nie
+# ustawia. Te pliki bywają nieobecne na świeżym obrazie — tworzymy puste, jeśli brak (#66).
+- name: Pliki objęte audytem, które mogą nie istnieć na świeżym obrazie
+  ansible.builtin.copy:
+    content: ""
+    dest: "{{ item.path }}"
+    force: false # utwórz tylko gdy brak; istniejących nie nadpisuj
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/log/btmp, mode: "0660" }
+    - { path: /etc/security/opasswd, mode: "0600" }
+    - { path: /etc/pam.conf, mode: "0644" }
+
 - name: Reguły audytu WLB
   ansible.builtin.template:
     src: 50-wlb.rules.j2

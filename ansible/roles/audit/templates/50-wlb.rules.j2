@@ -28,3 +28,47 @@
 -a always,exit -F arch=b64 -S open,openat,openat2,creat,truncate,ftruncate,unlink,unlinkat,rename,renameat -F exit=-EACCES -F euid>={{ wlb_researcher_uid_min }} -k wlb_access_denied
 -a always,exit -F arch=b64 -S open,openat,openat2,creat,truncate,ftruncate,unlink,unlinkat,rename,renameat -F exit=-EPERM -F euid>={{ wlb_researcher_uid_min }} -k wlb_access_denied
 -a always,exit -F arch=b64 -S open,openat,openat2,creat,truncate,ftruncate,unlink,unlinkat,rename,renameat -F exit=-EROFS -F euid>={{ wlb_researcher_uid_min }} -k wlb_access_denied
+
+## === Reguły podstawy §21 / OPZ B.21 (CIS, #66) — nie wybiera ich żaden profil OpenSCAP ===
+
+## Zmiany kont, haseł i konfiguracji uwierzytelniania (audit_rules_usergroup_modification_*)
+-w /etc/passwd -p wa -k wlb_account_change
+-w /etc/shadow -p wa -k wlb_account_change
+-w /etc/group -p wa -k wlb_account_change
+-w /etc/gshadow -p wa -k wlb_account_change
+-w /etc/security/opasswd -p wa -k wlb_account_change
+-w /etc/nsswitch.conf -p wa -k wlb_account_change
+-w /etc/pam.conf -p wa -k wlb_account_change
+-w /etc/pam.d -p wa -k wlb_account_change
+
+## Zmiany czasu systemowego (audit_rules_time_*)
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k wlb_time_change
+-a always,exit -F arch=b32 -S adjtimex,settimeofday,clock_settime,stime -k wlb_time_change
+-w /etc/localtime -p wa -k wlb_time_change
+
+## Ładowanie/wyładowanie modułów jądra (audit_rules_kernel_module_loading_*). create_module/query_module
+## to syscalle 32-bitowej ery, nieobecne na jądrze 6.x x86-64 — równoważnik daje poniższy zestaw + kmod.
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k wlb_kernel_module
+-a always,exit -F arch=b32 -S init_module,finit_module,delete_module -k wlb_kernel_module
+-w /usr/bin/kmod -p x -k wlb_kernel_module
+
+## Zdarzenia sesji i logowania (audit_rules_session_events, lastlog)
+-w /var/run/utmp -p wa -k wlb_session
+-w /var/log/wtmp -p wa -k wlb_session
+-w /var/log/btmp -p wa -k wlb_session
+-w /var/log/lastlog -p wa -k wlb_session
+
+## Usunięcia plików przez użytkowników z sesją logowania (audit_rules_file_deletion_events_*). Filtr
+## auid wyłącza daemony (serwery notebooków bez auid) — audyt celuje w działania przypisane użytkownikowi.
+-a always,exit -F arch=b64 -S unlink,unlinkat,rename,renameat,rmdir -F auid>=1000 -F auid!=unset -k wlb_file_deletion
+-a always,exit -F arch=b32 -S unlink,unlinkat,rename,renameat,rmdir -F auid>=1000 -F auid!=unset -k wlb_file_deletion
+
+## Zmiany praw dostępu (DAC) przez użytkowników z sesją (audit_rules_dac_modification_*)
+-a always,exit -F arch=b64 -S chmod,fchmod,fchmodat,chown,fchown,fchownat,lchown -F auid>=1000 -F auid!=unset -k wlb_perm_change
+-a always,exit -F arch=b32 -S chmod,fchmod,fchmodat,chown,fchown,fchownat,lchown -F auid>=1000 -F auid!=unset -k wlb_perm_change
+-a always,exit -F arch=b64 -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k wlb_perm_change
+-a always,exit -F arch=b32 -S setxattr,lsetxattr,fsetxattr,removexattr,lremovexattr,fremovexattr -F auid>=1000 -F auid!=unset -k wlb_perm_change
+
+## Zmiany konfiguracji MAC (AppArmor) (audit_rules_mac_modification_etc_apparmor*)
+-w /etc/apparmor -p wa -k wlb_mac_config
+-w /etc/apparmor.d -p wa -k wlb_mac_config

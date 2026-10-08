@@ -170,7 +170,15 @@ GOOD = [
     *[
         f"<14>1 2026-09-25T12:00:00Z lab-test01 audisp-syslog - - {ROOT}  type=SYSCALL msg=audit(1:2): "
         f'success=no key="{k}"'
-        for k in ("wlb_sluza_in", "wlb_sluza_out", "wlb_export_queue", "wlb_exec", "wlb_access_denied")
+        for k in (
+            "wlb_sluza_in",
+            "wlb_sluza_out",
+            "wlb_export_queue",
+            "wlb_exec",
+            "wlb_access_denied",
+            "wlb_account_change",
+            "wlb_mac_config",
+        )
     ],
     "śmieci, które nie są syslogiem",
 ]
