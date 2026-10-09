@@ -1,0 +1,9 @@
+# Zakończenia linii LF niezależnie od systemu i core.autocrlf. Checkout na Windows z CRLF psuje skrypty
+# (env: 'bash\r': No such file or directory) i pliki dla VM (cloud-init, szablony).
+* text=auto eol=lf
+*.qcow2 binary
+*.png binary
+*.jpg binary
+*.pdf binary
+*.docx binary
+*.xlsx binary

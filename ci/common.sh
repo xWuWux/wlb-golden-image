@@ -40,7 +40,7 @@ require() {
   local tool
   for tool in "$@"; do
     command -v "$tool" >/dev/null || {
-      echo "Brak narzędzia: $tool — uruchom ci/install-tools.sh"
+      echo "Brak narzędzia: $tool — uruchom: make tools (w katalogu głównym repozytorium)"
       exit 1
     }
   done
