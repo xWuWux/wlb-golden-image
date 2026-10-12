@@ -1,6 +1,9 @@
 """Telemetria CI (OTLP/JSON) na danych w formacie API GitHub Actions — bez sieci."""
 
+import base64
 import json
+import os
+import re
 import urllib.error
 
 import pytest
@@ -8,6 +11,89 @@ import pytest
 import ci_telemetry as ct
 
 REPO = {"full_name": "xWuWux/wlb-golden-image"}
+
+# --- Walidacja OTLP/JSON oficjalnym schematem (#35) --------------------------------------------
+# Wersja specyfikacji OTLP, z którą zgodne są dane: opentelemetry-proto 1.37.0 generuje klasy
+# z proto v1.7.0 (sprawdzono 2026-10-12; najnowsze wydanie proto to v1.11.0).
+OTLP_SPEC = "v1.7.0"
+
+
+def _otlp_types():
+    from google.protobuf import json_format
+    from opentelemetry.proto.logs.v1.logs_pb2 import LogsData
+    from opentelemetry.proto.metrics.v1.metrics_pb2 import MetricsData
+    from opentelemetry.proto.trace.v1.trace_pb2 import TracesData
+
+    return json_format, TracesData, MetricsData, LogsData
+
+
+# W CI brak pakietu = błąd (telemetrii nie wolno scalić bez walidacji); lokalnie (make unit) = pominięcie.
+if os.environ.get("CI"):
+    json_format, TracesData, MetricsData, LogsData = _otlp_types()
+else:
+    try:
+        json_format, TracesData, MetricsData, LogsData = _otlp_types()
+    except ImportError:  # pragma: no cover
+        pytest.skip("opentelemetry-proto niezainstalowane (make unit lokalnie); w CI wymagane", allow_module_level=True)
+
+OTLP_ERRORS = (AssertionError, json_format.ParseError)
+
+# OTLP/JSON koduje te pola jako hex (nie base64 jak standardowy proto3 JSON), o różnej długości.
+_ID_LEN = {"traceId": 32, "spanId": 16, "parentSpanId": 16}
+_HEX = re.compile(r"\A[0-9a-fA-F]+\Z")
+
+
+def _map_ids(obj, fn):
+    """Rekurencyjnie przekształca wartości pól traceId/spanId/parentSpanId przez fn(klucz, wartość)."""
+    if isinstance(obj, dict):
+        return {k: (fn(k, v) if k in _ID_LEN and isinstance(v, str) else _map_ids(v, fn)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_map_ids(x, fn) for x in obj]
+    return obj
+
+
+def _hex_to_b64(key, val):
+    # json_format traktuje pola bytes jak base64, więc hex z OTLP trzeba przekodować — po drodze
+    # sprawdzamy, że to naprawdę hex o właściwej długości (czego sam Parse by nie wychwycił).
+    assert _HEX.match(val) and len(val) == _ID_LEN[key], f"{key}={val!r} nie jest {_ID_LEN[key]}-znakowym hex"
+    return base64.b64encode(bytes.fromhex(val)).decode()
+
+
+def _b64_to_hex(_key, val):
+    return base64.b64decode(val).hex()
+
+
+def _contains(orig, got, path=""):
+    """Każdy klucz i wartość z `orig` musi wystąpić w `got` (round-trip może mieć dodatkowe pola domyślne)."""
+    if isinstance(orig, dict):
+        assert isinstance(got, dict), f"{path}: oczekiwano obiektu"
+        for k, v in orig.items():
+            assert k in got, f"{path}/{k}: pole nie przeszło przez schemat OTLP (literówka albo snake_case?)"
+            _contains(v, got[k], f"{path}/{k}")
+    elif isinstance(orig, list):
+        assert isinstance(got, list) and len(got) == len(orig), f"{path}: różna liczba elementów"
+        for i, (a, b) in enumerate(zip(orig, got, strict=True)):
+            _contains(a, b, f"{path}[{i}]")
+    else:
+        # int64 w OTLP/JSON może być napisem albo liczbą (spec) — porównujemy liczbowo, gdy się da
+        if isinstance(orig, (int, float)) or (isinstance(orig, str) and orig.lstrip("-").isdigit()):
+            try:
+                assert float(orig) == float(got), f"{path}: {orig!r} != {got!r}"
+                return
+            except (TypeError, ValueError):
+                pass
+        assert orig == got, f"{path}: {orig!r} != {got!r} (zła wartość albo enum jako nazwa?)"
+
+
+def assert_valid_otlp(body, data_type):
+    """Waliduje ładunek OTLP/JSON oficjalnym schematem proto. Łapie: literówki i nieznane pola,
+    złe typy, snake_case zamiast lowerCamelCase, enum jako nazwę zamiast liczby, oraz identyfikatory
+    traceId/spanId/parentSpanId o złej długości lub nie-hex."""
+    as_b64 = _map_ids(body, _hex_to_b64)
+    msg = data_type()
+    json_format.Parse(json.dumps(as_b64), msg)  # bez ignore_unknown_fields: nieznane pole = błąd
+    roundtrip = json_format.MessageToDict(msg, use_integers_for_enums=True, always_print_fields_with_no_presence=True)
+    _contains(body, _map_ids(roundtrip, _b64_to_hex))
 
 
 def job(jid, name, conclusion, start, end, created="2026-09-25T10:00:00Z", steps=()):
@@ -264,3 +350,63 @@ def test_github_klient_stronicowanie():
 )
 def test_seconds(start, end, expected):
     assert ct.seconds(start, end) == expected
+
+
+# --- #35: walidacja trzech sygnałów oficjalnym schematem OTLP + semantyka ----------------------
+
+
+def _bodies():
+    tbody, tid = ct.build_traces(RUN, JOBS)
+    mbody = ct.build_metrics(RUN, JOBS, ct.job_stats(history()))
+    lbody, _ = ct.build_logs(RUN, JOBS, tid)
+    return tbody, mbody, lbody
+
+
+def _spans(body):
+    return body["resourceSpans"][0]["scopeSpans"][0]["spans"]
+
+
+def test_otlp_poprawne_dane_przechodza_schemat():
+    tbody, mbody, lbody = _bodies()
+    assert_valid_otlp(tbody, TracesData)
+    assert_valid_otlp(mbody, MetricsData)
+    assert_valid_otlp(lbody, LogsData)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda b: _spans(b)[0].__setitem__("startTimeUnixNanos", _spans(b)[0].pop("startTimeUnixNano")),
+        lambda b: _spans(b)[0].__setitem__("start_time_unix_nano", _spans(b)[0].pop("startTimeUnixNano")),
+        lambda b: _spans(b)[0].__setitem__("kind", "SPAN_KIND_SERVER"),
+        lambda b: _spans(b)[1].__setitem__("spanId", "abc"),
+        lambda b: _spans(b)[1].__setitem__("spanId", "!" * 16),
+    ],
+    ids=["literowka-pola", "snake_case", "enum-jako-nazwa", "id-zla-dlugosc", "id-nie-hex"],
+)
+def test_otlp_wykrywa_blad_w_sladzie(mutate):
+    tbody, _m, _l = _bodies()
+    mutate(tbody)
+    with pytest.raises(OTLP_ERRORS):
+        assert_valid_otlp(tbody, TracesData)
+
+
+def test_otlp_wykrywa_zly_typ_w_metryce():
+    _t, mbody, _l = _bodies()
+    mbody["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"][0]["asDouble"] = "abc"
+    with pytest.raises(OTLP_ERRORS):
+        assert_valid_otlp(mbody, MetricsData)
+
+
+def test_otlp_semantyka_czasy_korelacja_severity():
+    tbody, _m, lbody = _bodies()
+    spans = _spans(tbody)
+    span_ids = {s["spanId"] for s in spans}
+    for s in spans:
+        assert int(s["startTimeUnixNano"]) > 0
+        assert int(s["endTimeUnixNano"]) >= int(s["startTimeUnixNano"])
+        if "parentSpanId" in s:
+            assert s["parentSpanId"] in span_ids  # rodzic istnieje w śladzie
+    for r in lbody["resourceLogs"][0]["scopeLogs"][0]["logRecords"]:
+        assert 1 <= r["severityNumber"] <= 24
+        assert r["spanId"] in span_ids  # log skorelowany ze spanem śladu

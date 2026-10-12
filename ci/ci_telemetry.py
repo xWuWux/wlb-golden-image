@@ -87,6 +87,9 @@ def seconds(start: str | None, end: str | None) -> float:
     return max(0.0, (ns(end) - ns(start)) / 1e9) if start and end else 0.0
 
 
+# Zgodność z OTLP/JSON: traceId (32 hex) i spanId/parentSpanId (16 hex) są hex, nie base64 — tak
+# wymaga specyfikacja OTLP (opentelemetry-proto v1.7.0; wariant JSON odbiega tu od proto3 JSON).
+# Walidację schematem robi tests/unit/test_ci_telemetry.py (#35), bez zależności w działającym CI.
 def hex_id(*parts, length: int) -> str:
     """Deterministyczne identyfikatory: ten sam przebieg zawsze daje ten sam trace_id."""
     return hashlib.sha256("/".join(map(str, parts)).encode()).hexdigest()[:length]
