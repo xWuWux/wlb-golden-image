@@ -9,7 +9,9 @@ set -euo pipefail
 EVENT=${EVENT:-push}
 LABELS=${LABELS:-[]}
 SCHEDULE=${SCHEDULE:-}
-NIGHTLY_CRON="0 3 * * *" # nocny pełny build; musi zgadzać się z on.schedule w ci.yml
+# Nocny pełny build jest chwilowo WYŁĄCZONY (zakomentowany w on.schedule w ci.yml). Przy włączaniu
+# ustaw tutaj dokładnie ten sam cron, który odkomentujesz w ci.yml (github.event.schedule zwraca napis crona).
+NIGHTLY_CRON="0 3 * * 2,5" # dopóki w ci.yml nie ma tego crona, ta gałąź nigdy się nie wyzwala
 
 has_label() { python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.loads(sys.argv[1] or "[]") else 1)' "$LABELS" "$1"; }
 

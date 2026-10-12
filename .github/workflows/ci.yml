@@ -18,7 +18,10 @@ on:
     branches: [main]
   schedule:
     - cron: "0 5 * * 1" # poniedziałki: etapy 1–4 (nowe CVE w zamrożonych wersjach, zmiany licencji)
-    - cron: "0 3 * * *" # nocny pełny build: etapy 1–6 niezależnie od zmian (dryf wersji, CVE, e2e)
+    # Nocny pełny build (etapy 1–6) wyłączony na tym etapie projektu (oszczędność minut CI).
+    # Włączanie stopniowe: najpierw raz w tygodniu (np. "0 3 * * 1"), potem częściej wg potrzeb.
+    # Przy włączaniu ustaw TEN SAM cron tutaj i w NIGHTLY_CRON w ci/changes.sh (muszą być identyczne).
+    # - cron: "0 3 * * 2,5"  # wt./pt. nocny pełny build: etapy 1–6 niezależnie od zmian (dryf, CVE, e2e)
   workflow_dispatch:
     inputs:
       perf:
