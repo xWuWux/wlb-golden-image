@@ -4,10 +4,11 @@
 #   3. Security & compliance               ci/security.sh
 #   3.5 Kontrakt obserwowalności           ci/observability.sh  (zdarzenia VM zgodne z kodem)
 #   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
-#   5. Integracja i migracja (KVM)         ci/integration.sh    — gdy zmiana dotyczy obrazu;
+#   5. Integracja i migracja (KVM)         ci/integration.sh    — NIE na każdym PR (koszt, #86):
+#                                          po merge do main, na etykietę "run-integration", nocą lub lokalnie;
 #                                          także: czy zdarzenia z kontraktu docierają do SIEM
 #   6. Benchmarki / wdrożenie tymczasowe   ci/perf.sh, ci/ephemeral-openstack.sh — na żądanie
-#   => "Gotowe do code review" (wymagany status check dla main)
+#   => "Gotowe do code review" (wymagany status check dla main; etap 5 wymagany tylko gdy image=true)
 # Logika jest w skryptach ci/*.sh — działa tak samo lokalnie (make ci) i łatwo ją przenieść do GitLab CI.
 name: CI
 
@@ -74,7 +75,7 @@ jobs:
         id: changes
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           IN_PERF: ${{ inputs.perf }}
           IN_EPHEMERAL: ${{ inputs.ephemeral }}
