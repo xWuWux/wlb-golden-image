@@ -1,5 +1,5 @@
 # Stage 3: SAST, IaC, licencje.
-semgrep==1.178.0
+semgrep==1.179.0
 bandit==1.9.4
-checkov==3.3.19
+checkov==3.3.22
 PyYAML==6.0.3
