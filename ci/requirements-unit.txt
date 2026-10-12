@@ -5,3 +5,5 @@ PyYAML==6.0.3
 # wlb-hub-user testowany na tej samej głównej wersji JupyterHub co w TLJH 2.0 (jupyterhub<6)
 jupyterhub==5.5.2
 jupyterhub-nativeauthenticator==1.3.0
+opentelemetry-proto==1.37.0  # tylko testy: walidacja OTLP/JSON (#35); protobuf to jego zależność
+protobuf==6.33.6
