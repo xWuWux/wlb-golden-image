@@ -12,6 +12,20 @@
     update_cache: true
     upgrade: dist
 
+# Gdy dist-upgrade wciągnął nowe jądro, maszyna budująca działa nadal na starym. Restart przełącza
+# ją na jądro docelowe, dzięki czemu reszta budowania (TLJH, R, GPU) i czyszczenie (cleanup.sh) działają
+# na właściwym jądrze, a stare da się usunąć (purge działającego jądra jest blokowany). Moduł reboot
+# sam odnawia połączenie SSH — nie trzeba dzielić provisionera ani używać expect_disconnect w Packerze.
+- name: Czy aktualizacja wymaga restartu
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: base_reboot_required
+
+- name: Restart maszyny budującej na jądro docelowe (#9)
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+  when: base_reboot_required.stat.exists
+
 - name: Pakiety bazowe
   ansible.builtin.apt:
     name:
