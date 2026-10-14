@@ -1,7 +1,8 @@
 #cloud-config
 # Laboratorium testowe dla lokalnego uruchomienia obrazu (tests/run-local.sh).
-# Bez udziałów sieciowych i bez proxy: EGRESS_ALLOW wskazuje nieistniejący adres,
-# więc każde połączenie wychodzące badacza musi się nie udać.
+# Bez udziałów sieciowych. Egress badacza tylko do testowego proxy z allowlistą (tests/proxy_sink.py
+# na 10.0.2.2:3128, #16): połączenia bezpośrednie (poza zaporą) i do hostów spoza allowlisty muszą się
+# nie udać; proxy przepuszcza tylko mirrory, a odrzuca resztę (w tym API LLM, §31.3).
 hostname: lab-test01
 fqdn: lab-test01.wlb.local
 
@@ -35,8 +36,8 @@ write_files:
     content: |
       LAB_NAME=lab-test01
       HUB_ADMIN_USER=admin-klienta
-      PROXY_URL=http://10.0.2.254:3128
-      EGRESS_ALLOW="10.0.2.254:3128"
+      PROXY_URL=http://10.0.2.2:3128
+      EGRESS_ALLOW="10.0.2.2:3128"
       ADMIN_SSH_CIDR=10.0.2.0/24
       HUB_ALLOWED_CIDR=10.0.2.0/24
       # host QEMU (sieć user) — w teście sprawdzamy konfigurację źródła, nie samą synchronizację
