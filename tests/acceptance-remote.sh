@@ -28,6 +28,16 @@ expect_fail "Badacz nie ma sudo" as $R1 sudo -n true
 expect_fail "Badacz nie jest adminem huba" bash -c "id -nG jupyter-$R1 | grep -qw jupyterhub-admins"
 expect_fail "Admini huba nie mają sudo (§24.c)" test -e /etc/sudoers.d/jupyterhub-admins
 
+echo "== 1a. Wspólny katalog projektu (§10, #50) =="
+expect_ok "/projekt: setgid 2770, grupa zespołu" test "$(stat -c '%a %G' /projekt)" = "2770 jupyterhub-users"
+expect_ok "Inni (spoza grupy) bez dostępu do /projekt" test "$(stat -c %A /projekt | cut -c8-10)" = "---"
+expect_ok "Badacz 1 tworzy plik w /projekt" as $R1 bash -c 'echo "od tester1" >/projekt/wspolny.txt'
+expect_ok "Badacz 2 czyta plik kolegi z zespołu" as $R2 grep -q "od tester1" /projekt/wspolny.txt
+expect_ok "Badacz 2 edytuje plik kolegi (domyślny ACL grupy)" as $R2 bash -c 'echo "dopisek tester2" >>/projekt/wspolny.txt'
+expect_ok "Zmiana badacza 2 widoczna dla badacza 1" as $R1 grep -q "dopisek tester2" /projekt/wspolny.txt
+expect_ok "Nowy plik dziedziczy grupę zespołu (setgid)" test "$(stat -c %G /projekt/wspolny.txt)" = jupyterhub-users
+expect_ok "Nowy plik ma prawa grupy rw (domyślny ACL)" grep -qE '^group::rw' <(getfacl -c /projekt/wspolny.txt)
+
 echo "== 2. Notebook Python i notebook R =="
 python3 - "/workspace/jupyter-$R1" <<'PY'
 import json, sys
