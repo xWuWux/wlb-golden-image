@@ -11,12 +11,18 @@ export DEBIAN_FRONTEND=noninteractive
 # wersjonowanego i zostają. linux-tools-* można czyścić nawet bez restartu (narzędzia przestrzeni usera).
 latest=$(find /boot -maxdepth 1 -name 'vmlinuz-*' -printf '%f\n' | sed 's/^vmlinuz-//' | sort -V | tail -1)
 latest_ver=${latest%-*} # 6.8.0-142-generic -> 6.8.0-142
+running_ver=$(uname -r)
+running_ver=${running_ver%-*} # bieżące jądro (bez -generic)
+# Zostawiamy jądro docelowe (najnowsze /boot) ORAZ — na wypadek wyścigu restartu, gdy maszyna nie wstała
+# na jądrze docelowym — uruchomione (uname): nigdy nie usuwamy działającego jądra w połowie. Zwykle to ta
+# sama wersja. Kropki w numerze trzeba zescapować do grep -E.
+keep_re=$(printf '%s\n%s\n' "$latest_ver" "$running_ver" | sort -u | sed 's/\./\\./g' | paste -sd'|')
 old_kernel=()
 for pat in 'linux-image-[0-9]*' 'linux-modules-[0-9]*' 'linux-modules-extra-[0-9]*' \
   'linux-headers-[0-9]*' 'linux-tools-[0-9]*'; do
   mapfile -t found < <(
     dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' "$pat" 2>/dev/null |
-      awk '$1 == "ii" {print $2}' | grep -vE -- "-${latest_ver//./\\.}(-|$)" || true
+      awk '$1 == "ii" {print $2}' | grep -vE -- "-(${keep_re})(-|$)" || true
   )
   old_kernel+=("${found[@]}")
 done
@@ -24,6 +30,16 @@ if [[ -n $latest_ver && ${#old_kernel[@]} -gt 0 ]]; then
   echo "Usuwam starsze jądra/moduły/narzędzia (zostaje ${latest_ver}): ${old_kernel[*]}"
   apt-get -y purge "${old_kernel[@]}"
   update-grub # usuń wpisy starego jądra z menu GRUB
+fi
+
+# Fail-safe (#9): po purge musi zostać dokładnie jedno jądro. Jeśli wyścig restartu zostawił dwa
+# (uruchomione != docelowe), twardo przerywamy build — lepsza głośna porażka niż cichy obraz z dwoma
+# jądrami (podwójne moduły, wpis w GRUB, zawyżony skan CVE). Ta sama asercja jest w etapie 5 (kernel_check).
+n_img=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' 2>/dev/null | awk '$1 == "ii"' | wc -l)
+if ((n_img != 1)); then
+  echo "BŁĄD (#9): w obrazie jest ${n_img} jąder linux-image-[0-9]*, oczekiwano 1 (uname=$(uname -r), docelowe=${latest_ver})" >&2
+  dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' 'linux-image-[0-9]*' | awk '$1 == "ii" {print "  "$2}' >&2
+  exit 1
 fi
 
 apt-get -y autoremove --purge
