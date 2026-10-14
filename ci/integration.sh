@@ -75,7 +75,7 @@ collect_vm_logs() {
 }
 
 acceptance() {
-  local rc=0 sink
+  local rc=0 sink ntp="" ntp_flag=""
   # testowy SIEM: VM (sieć QEMU user) wysyła logi po TLS do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
   rm -f "$LOGS/siem.log"
   tests/lib/test-pki.sh build/test
@@ -88,9 +88,25 @@ acceptance() {
     echo "Testowy odbiornik SIEM nie wystartował — port 5514 zajęty? (ss -ltnp 'sport = :5514')"
     return 1
   fi
+  # testowy serwer czasu: VM (chrony) synchronizuje się z 10.0.2.2:123 — tests/ntp_sink.py (#36).
+  # Port 123 jest uprzywilejowany → przez sudo (na runnerze CI bez hasła). Bez sudo pomijamy serwer:
+  # test synchronizacji w VM dostanie wtedy SKIP (flaga --ntp-sync nieprzekazana), a nie fałszywy wynik.
+  if sudo -n true 2>/dev/null; then
+    sudo python3 tests/ntp_sink.py --port 123 &
+    ntp=$!
+    sleep 1
+    if kill -0 "$ntp" 2>/dev/null; then
+      ntp_flag=1
+    else
+      echo "Testowy serwer NTP nie wystartował — port 123 zajęty? (ss -lunp 'sport = :123')"
+      ntp=""
+    fi
+  else
+    echo "Bez sudo — testowy serwer NTP pominięty (test synchronizacji w VM zrobi SKIP)"
+  fi
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
-    tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
+    WLB_TEST_NTP=$ntp_flag tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
     # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
     grep -q '^Wynik:' "$LOGS/acceptance.log" || {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
@@ -104,6 +120,10 @@ acceptance() {
   tests/stop-local.sh
   kill "$sink" 2>/dev/null
   wait "$sink" 2>/dev/null
+  if [[ -n $ntp ]]; then
+    sudo kill "$ntp" 2>/dev/null # $ntp to PID sudo; SIGTERM przekazywany do serwera (działa jako root)
+    wait "$ntp" 2>/dev/null
+  fi
   {
     echo "### Kryteria akceptacji MVP"
     echo
