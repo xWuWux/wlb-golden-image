@@ -119,7 +119,21 @@ echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
 expect_fail "Bezpośrednie połączenie po adresie IP" as $R1 curl -s --noproxy '*' --max-time 5 http://1.1.1.1
 expect_ok "Reguły egress nftables załadowane" nft list chain inet wlb researcher_egress
-skip "Allowlista proxy (mirror PyPI/CRAN) — wymaga proxy Laboratorium"
+# Allowlista na prawdziwym proxy (#16). Z flagą --proxy-allowlist (CI: testowy proxy tests/proxy_sink.py
+# na 10.0.2.2:3128) sprawdzamy, że mirror z allowlisty przechodzi (200), a reszta — w tym API LLM
+# (§31.3) — jest blokowana (403). Badacz wychodzi przez proxy; zaporę egress pokrywają testy wyżej.
+# Bez flagi (lokalnie bez testowego proxy) → SKIP zamiast fałszywego PASS/FAIL.
+if [[ " $* " == *" --proxy-allowlist "* ]]; then
+  P=http://10.0.2.2:3128
+  expect_ok "Proxy przepuszcza mirror z allowlisty (200)" \
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://pypi.mirror.local/)" = 200
+  expect_ok "Proxy blokuje API LLM (403, §31.3)" \
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://api.openai.com/)" = 403
+  expect_ok "Proxy blokuje domenę spoza allowlisty (403)" \
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://example.com/)" = 403
+else
+  skip "Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)"
+fi
 
 echo "== 7. Limity sesji (§9.5) =="
 expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--timeout=1800"'
