@@ -16,6 +16,16 @@ DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletn
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
 
+# Nazwy tymczasowe/atomowe pomijamy aż do zmiany nazwy (#33). Zapis przez plik tymczasowy i dopiero
+# przemianowanie na nazwę docelową (rsync, zapis atomowy) inaczej trafiłoby do kolejki jako niekompletny
+# plik tymczasowy. Po zmianie nazwy wpis pojawia się pod nazwą docelową i jest normalnie eksportowany.
+is_temp() {
+  case ${1##*/} in
+    .* | *.tmp | *.part | *~) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Wpis sprawdzamy dopiero PO przeniesieniu do kolejki (0700 root), gdzie badacz nie ma już do niego
 # dostępu. Sprawdzenie w /sluza-out i przeniesienie to dwa kroki: w międzyczasie badacz może podmienić
 # własny plik na dowiązanie symboliczne (np. do /etc/passwd) — root zmieniłby wtedy prawa celu, a do
@@ -78,6 +88,8 @@ sweep() {
   local entry newest
   shopt -s nullglob dotglob
   for entry in "$SRC"/*; do
+    # plik tymczasowy/atomowy — pomijamy do zmiany nazwy na docelową (#33)
+    is_temp "$entry" && continue
     # wstępna selekcja; o dopuszczeniu wpisu decyduje queue_entry na kopii w kolejce
     if [[ -f $entry && ! -L $entry ]]; then
       # plik wciąż otwarty przez proces badacza — poczekaj na zamknięcie
