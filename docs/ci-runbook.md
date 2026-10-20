@@ -105,3 +105,61 @@ który sam ponawia pobieranie (`curl --retry-all-errors`) i sprawdza sumy SHA-25
 **Anulowane.** Nowszy commit w PR przerwał poprzedni przebieg (`cancel-in-progress`) albo ktoś
 anulował go ręcznie. Nic nie trzeba robić, liczy się najnowszy przebieg.
 Jeśli nie chcesz przerywać długiego etapu 5, wypychaj zmiany dopiero po jego zakończeniu.
+
+## dependabot-sca
+
+**Stage 3 SCA rzuca CVE, którego łata jest już na `main`.** PR Dependabota (lub dowolny inny bot)
+utworzony przed scaleniem fixu widzi starszy lockfile i failuje osv-scanner. Objaw: w „Diagnozie
+przebiegu" kategoria `test`, błąd `BŁĄD: SCA: podatności zależności (osv-scanner)`, a w tabeli CVE
+kolumna „Fixed Version" jest niższa lub równa wersji na `main`.
+
+1. Potwierdź, że fix jest na `main`:
+   ```bash
+   git fetch origin --prune
+   git checkout main && git pull --ff-only
+   rg -n "<pakiet>" envs/python/environment.lock.yml envs/python/environment.yml
+   ```
+   Jeśli wersja na `main` jest starsza niż „Fixed Version" z tabeli CVE — fix nie istnieje. Najpierw
+   utwórz `fix/<pakiet>-cve-<wersja>`, scal, a potem wróć do tej procedury.
+
+2. Znajdź gałąź PR i pobierz ją lokalnie:
+   ```bash
+   gh pr list --state open --author "app/dependabot" \
+     --json number,title,headRefName
+   git fetch origin <headRefName>:pr-<num>
+   git checkout pr-<num>
+   ```
+
+3. Zrebase'uj na `main` i zweryfikuj lokalnie:
+   ```bash
+   git rebase origin/main
+   python3 ci/sca_requirements.py envs/python/environment.lock.yml build/sca/requirements.txt
+   grep -n "^<pakiet>==" build/sca/requirements.txt
+   osv-scanner scan source --no-resolve --format markdown \
+     -L envs/r/renv.lock -L build/sca/requirements.txt
+   ```
+   Oczekiwane: wersja pakietu zgodna z `main`, „No issues found". Alternatywnie pełny Stage 3:
+   `./ci/guard.sh --name "3. Security" --timeout 25m --memory auto -- ci/security.sh`.
+
+4. Wypchnij z `--force-with-lease` (bezpieczne dla gałęzi Dependabota) i obserwuj CI:
+   ```bash
+   git push --force-with-lease origin pr-<num>:<headRefName>
+   gh pr checks <num> --watch
+   ```
+
+5. Po zielonym CI wyczyść lokalną gałąź: `git checkout main && git branch -D pr-<num>`.
+
+**Pułapki.** `git push --force` bez `--with-lease` nadpisuje bez sprawdzenia — zawsze z `--with-lease`.
+Cherry-pick zamiast rebase tworzy duplikat commitu fixującego i po scaleniu PR wywoła konflikt na
+`main`. `build/sca/requirements.txt` to artefakt — ręczna edycja nie przetrwa, fix musi trafić do
+`envs/python/environment.lock.yml`. PR już merge'owany z `main` nie wymaga rebase — sprawdź
+`git log origin/main..HEAD` (jeśli puste, gałąź ma już wszystko).
+
+**Case study: PR #103 (2026-10-20).** Dependabot `actions/upload-artifact 7.0.1 → 7.0.2` zablokowany
+przez 3 CVE w `aiohttp 3.14.3` (GHSA-2g87 8.7, GHSA-494j, GHSA-5wr8 8.2). Fix już na `main` w commicie
+`503a0d0` (PR #119, `fix/aiohttp-cve-3144`). Naprawa: `git rebase origin/main` + `push --force-with-lease`.
+Czas z runbookiem: ~8 min (wcześniej ~30 min diagnozy).
+
+**Kiedy nie stosować.** CVE jest świeże, a fixu nie ma na `main` — utwórz PR z bumpem zależności.
+Zależność zablokowana constraint w `pyproject.toml` — wymaga zmiany constraint-u. Podatności w
+`renv.lock` — `renv::update()`, inne pliki. Podatności w pakietach conda — `conda update` + `conda-lock`.
