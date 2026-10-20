@@ -69,6 +69,39 @@
     mode: "0644"
   notify: Reload hub
 
+# Raport użycia/pojemności sesji (#98): sampler szczytu zasobów (timer) + rekord JSONL przy stopie.
+# Osobno od SIEM (§21) — dane operacyjne. Szczyt z księgowania systemd (post_stop za późno na cgroup).
+- name: Skrypty raportu użycia sesji (#98)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/wlb/bin/{{ item }}
+    mode: "0755"
+  loop:
+    - wlb-usage-sampler
+    - wlb-usage-record
+
+- name: Katalog raportów użycia (tylko root; nie dla badaczy)
+  ansible.builtin.file:
+    path: /var/log/wlb/sessions
+    state: directory
+    mode: "0750"
+
+- name: Jednostki samplera użycia (#98)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/{{ item }}
+    mode: "0644"
+  loop:
+    - wlb-usage-sampler.service
+    - wlb-usage-sampler.timer
+  notify: Reload systemd
+
+- name: Timer samplera użycia włączony (#98)
+  ansible.builtin.systemd_service:
+    name: wlb-usage-sampler.timer
+    enabled: true
+    daemon_reload: true
+
 - name: Katalog identyfikacji wizualnej huba (#53)
   ansible.builtin.file:
     path: /opt/tljh/config/branding

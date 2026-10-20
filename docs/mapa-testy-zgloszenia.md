@@ -68,6 +68,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-12). Odświ
 - `observability/contract.yml` — zdarzenia `session.start`, `session.stop` (tag `wlb-session`); pilnuje `tests/unit/test_observability_contract.py`.
 - `tests/acceptance-remote.sh` — sekcja *11*: config hooka `80-wlb-session.py`, emiter `wlb-session-log` → journal.
 
+### #98 — Raport użycia/pojemności sesji (sampler systemd + JSONL, osobno od SIEM)  ·  _otwarte_
+- `tests/unit/wlb-usage-record.bats` — składanie rekordu JSONL (szczyt z próbki, zera przy braku, sanityzacja liczb).
+- `tests/acceptance-remote.sh` — sekcja *12*: sampler/rekord wykonywalne, timer włączony, katalog 0750 niedostępny dla badacza, zapis JSONL.
+
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.
