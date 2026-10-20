@@ -16,6 +16,7 @@
   ansible.builtin.apt:
     name:
       - acl
+      - apparmor-utils # aa-status / aa-enforce w diagnostyce i utwardzeniu (CIS 1.6, #65)
       - auditd
       - audispd-plugins
       - build-essential
@@ -179,6 +180,18 @@
       fs.protected_fifos = 2
       fs.protected_regular = 2
   notify: Apply sysctl
+
+# AppArmor jest w Ubuntu 24.04 domyślnie włączony, ale profil CIS L1 sprawdza jawny wpis w cmdline jądra
+# (grub2_enable_apparmor, #65). Drop-in /etc/default/grub.d/ jest sourcowany po /etc/default/grub, więc
+# dokłada parametry bez nadpisywania istniejących (idempotentnie).
+- name: AppArmor wymuszony w parametrach jądra GRUB (CIS 1.6)
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/50-wlb-apparmor.cfg
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola base) — CIS 1.6, #65
+      GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT apparmor=1 security=apparmor"
+  notify: Update GRUB
 
 - name: Katalogi konfiguracyjne WLB
   ansible.builtin.file:
