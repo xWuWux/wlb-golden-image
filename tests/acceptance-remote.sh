@@ -130,6 +130,21 @@ skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
 echo "== 7a. Czas (znaczniki audytu, §21) =="
 expect_ok "chrony używa serwerów z NTP_SERVERS" bash -c 'chronyc -n sources | grep -q "10\.0\.2\.2"'
 expect_fail "Brak publicznych serwerów NTP" bash -c 'grep -hE "^(pool|server)" /etc/chrony/chrony.conf /etc/chrony/sources.d/* | grep -q ubuntu'
+# Faktyczna synchronizacja z NTP_SERVERS (#36). Z flagą --ntp-sync (CI: działa testowy serwer czasu
+# na 10.0.2.2:123, tests/ntp_sink.py) WYMAGAMY synchronizacji; bez flagi (lokalnie bez sudo / bez serwera)
+# robimy SKIP zamiast fałszywego PASS/FAIL. waitsync: do ~300 s, poprawka < 0,5 s. Stratum 9 (serwer 8+1)
+# dowodzi, że źródłem jest nasz serwer testowy, a nie przypadek.
+if [[ " $* " == *" --ntp-sync "* ]]; then
+  if chronyc waitsync 30 0.5 >/dev/null 2>&1 && chronyc -n sources | grep -qE '^\^[*+] 10\.0\.2\.2'; then
+    stratum=$(chronyc tracking | sed -n 's/^Stratum *: *//p')
+    expect_ok "chrony zsynchronizowany z NTP_SERVERS (#36)" true
+    expect_ok "Źródłem czasu jest testowy serwer (stratum ${stratum}, oczek. 9)" test "$stratum" = 9
+  else
+    expect_ok "chrony zsynchronizowany z NTP_SERVERS (#36)" false
+  fi
+else
+  skip "Synchronizacja NTP — brak testowego serwera NTP na hoście (wymaga sudo, #36)"
+fi
 
 echo "== 7b. Limity zasobów badaczy (#30) =="
 unit=jupyter-$R1
