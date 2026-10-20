@@ -51,8 +51,9 @@ cloud_init_schema() {
   tmp=$(mktemp -d)
   sed "s|__SSH_PUBKEY__|$(cat build/packer_ed25519.pub)|" tests/cloud-init/user-data.yaml >"$tmp/test-user-data.yaml"
   sed "s|\${ssh_public_key}|$(cat build/packer_ed25519.pub)|" packer/cloud-init/user-data.pkrtpl.yaml >"$tmp/packer-user-data.yaml"
+  sed "s|\${ssh_public_key}|$(cat build/packer_ed25519.pub)|" packer/cloud-init/user-data-memory.pkrtpl.yaml >"$tmp/packer-user-data-memory.yaml"
   local f rc=0
-  for f in cloud-init/lab-user-data.example.yaml "$tmp/test-user-data.yaml" "$tmp/packer-user-data.yaml"; do
+  for f in cloud-init/lab-user-data.example.yaml "$tmp/test-user-data.yaml" "$tmp/packer-user-data.yaml" "$tmp/packer-user-data-memory.yaml"; do
     cloud-init schema --config-file "$f" || rc=1
   done
   rm -rf "$tmp"

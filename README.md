@@ -20,6 +20,7 @@ ansible/                playbook i role instalujące zawartość obrazu
   roles/python_env      kernel Python (envs/python)
   roles/r_env           R, IRkernel, HADES, sterownik JDBC PostgreSQL (envs/r)
   roles/rstudio         RStudio przez JupyterLab (opcjonalnie, domyślnie wyłączone)
+  roles/desktop         pulpit XFCE w przeglądarce przez remote-desktop-proxy (flavor wlb-memory, #106)
   roles/audit           reguły auditd (śluzy, polecenia badaczy, odmowy; konta, czas, moduły,
                         sesje, usunięcia/DAC, AppArmor — §21/CIS), blokada -e 2
   roles/logging         journald -> rsyslog, historia poleceń powłoki
