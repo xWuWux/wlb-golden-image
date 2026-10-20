@@ -1,0 +1,83 @@
+# Kernel Julia dla JupyterHub (#111). Strona usług IP_CMC (JupyterHub) reklamuje kernele
+# Python, R i Julia — obraz miał Python i R, brakowało Julii. Kernel jest lekki i niezależny
+# od pulpitu (#106), więc wchodzi do obrazu bazowego, obok python_env i r_env.
+#
+# Julia nie jest w repozytoriach Ubuntu w przypinalnej wersji — bierzemy oficjalny tarball
+# z weryfikacją SHA-256 (wersja i suma w group_vars, jak obraz Ubuntu w Packerze).
+
+- name: Pobierz Julię (oficjalny tarball, weryfikacja SHA-256)
+  ansible.builtin.get_url:
+    url: "{{ julia_tarball_url }}"
+    dest: /tmp/julia-{{ julia_version }}.tar.gz
+    checksum: "sha256:{{ julia_sha256 }}"
+    mode: "0644"
+  register: julia_env_download
+  until: julia_env_download is succeeded
+  retries: 3
+  delay: 30
+
+- name: Rozpakuj Julię do /opt
+  ansible.builtin.unarchive:
+    src: /tmp/julia-{{ julia_version }}.tar.gz
+    remote_src: true
+    dest: /opt
+    creates: "{{ julia_prefix }}/bin/julia"
+
+- name: Julia na PATH (symlink)
+  ansible.builtin.file:
+    src: "{{ julia_prefix }}/bin/julia"
+    dest: /usr/local/bin/julia
+    state: link
+
+- name: Usuń tarball Julii
+  ansible.builtin.file:
+    path: /tmp/julia-{{ julia_version }}.tar.gz
+    state: absent
+
+- name: Wspólny depot Julii (IJulia + zależności, do odczytu dla badaczy)
+  ansible.builtin.file:
+    path: "{{ julia_depot_path }}"
+    state: directory
+    mode: "0755"
+
+- name: Katalog wspólnego projektu Julii
+  ansible.builtin.file:
+    path: "{{ julia_project_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Skopiuj definicję środowiska Julii
+  ansible.builtin.copy:
+    src: "{{ julia_env_dir }}/{{ item }}"
+    dest: "{{ julia_project_dir }}/{{ item }}"
+    mode: "0644"
+  loop:
+    - Project.toml
+    - install-julia-env.jl
+
+# Manifest.toml kopiujemy tylko, gdy jest zacommitowany (lock ma pierwszeństwo — jak w python_env/r_env).
+- name: Skopiuj Manifest.toml, jeśli zacommitowany (powtarzalność)
+  ansible.builtin.copy:
+    src: "{{ julia_env_dir }}/Manifest.toml"
+    dest: "{{ julia_project_dir }}/Manifest.toml"
+    mode: "0644"
+  when: (julia_env_dir ~ '/Manifest.toml') is file
+
+- name: Instalacja środowiska Julii i kernela IJulia (pierwsze budowanie trwa długo)
+  ansible.builtin.command: >-
+    julia {{ julia_project_dir }}/install-julia-env.jl
+    {{ julia_project_dir }} {{ julia_project_dir }}/Manifest.toml.generated
+  environment:
+    JULIA_DEPOT_PATH: "{{ julia_depot_path }}"
+    JUPYTER: /opt/tljh/user/bin/jupyter
+  register: julia_env_install
+  until: julia_env_install is succeeded
+  retries: 3
+  delay: 30
+  changed_when: true
+
+- name: Pobierz Manifest Julii do artefaktów budowania
+  ansible.builtin.fetch:
+    src: "{{ julia_project_dir }}/Manifest.toml.generated"
+    dest: "{{ wlb_artifacts_dir }}/julia-Manifest.toml"
+    flat: true

@@ -65,6 +65,18 @@ r_cran_repo: "https://packagemanager.posit.co/cran/__linux__/noble/{{ r_cran_sna
 r_env_dir: "{{ playbook_dir }}/../envs/r"
 r_jdbc_dir: /opt/wlb/jdbc
 
+# --- Julia (kernel IJulia; strona JupyterHub IP_CMC reklamuje Python/R/Julia) #111 -----
+julia_version: "1.11.9"
+julia_series: "1.11"
+# SHA-256 z oficjalnego https://julialang-s3.julialang.org/bin/versions.json (zweryfikowane 2026-10-20)
+julia_sha256: "b36363356d7a05eaf8b7b9e7a91c710f6bd3d2940be4d4e6d14b9a9f2927de35"
+julia_tarball_url: "https://julialang-s3.julialang.org/bin/linux/x64/{{ julia_series }}/julia-{{ julia_version }}-linux-x86_64.tar.gz"
+julia_prefix: /opt/julia-{{ julia_version }}
+# Wspólny depot (tylko do odczytu dla badaczy) i wspólny projekt z przypiętym IJulia.
+julia_depot_path: /opt/wlb/envs/julia
+julia_project_dir: /opt/wlb/envs/julia-project
+julia_env_dir: "{{ playbook_dir }}/../envs/julia"
+
 # --- RStudio Server (opcjonalny) --------------------------------------------------
 wlb_rstudio_enabled: false
 rstudio_server_deb_url: https://s3.amazonaws.com/rstudio-server/server/jammy/amd64/rstudio-server-2026.09.0-174-amd64.deb
