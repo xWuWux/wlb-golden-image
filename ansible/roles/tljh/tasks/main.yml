@@ -49,6 +49,26 @@
     mode: "0644"
   notify: Reload hub
 
+# Hooki cyklu życia sesji badacza (#97): korelacja sesji Huba dla SIEM (§21), fundament raportu #98.
+- name: Katalog narzędzi WLB
+  ansible.builtin.file:
+    path: /opt/wlb/bin
+    state: directory
+    mode: "0755"
+
+- name: Emiter zdarzeń sesji badacza do SIEM (#97)
+  ansible.builtin.copy:
+    src: wlb-session-log
+    dest: /opt/wlb/bin/wlb-session-log
+    mode: "0755"
+
+- name: Hooki pre/post-spawn JupyterHub (#97)
+  ansible.builtin.template:
+    src: 80-wlb-session.py.j2
+    dest: /opt/tljh/config/jupyterhub_config.d/80-wlb-session.py
+    mode: "0644"
+  notify: Reload hub
+
 - name: Katalog identyfikacji wizualnej huba (#53)
   ansible.builtin.file:
     path: /opt/tljh/config/branding

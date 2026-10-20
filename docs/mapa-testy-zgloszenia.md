@@ -64,6 +64,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-12). Odświ
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
 
+### #97 — Hooki cyklu życia sesji badacza (pre/post-spawn) + korelacja sesji w SIEM  ·  _otwarte_
+- `observability/contract.yml` — zdarzenia `session.start`, `session.stop` (tag `wlb-session`); pilnuje `tests/unit/test_observability_contract.py`.
+- `tests/acceptance-remote.sh` — sekcja *11*: config hooka `80-wlb-session.py`, emiter `wlb-session-log` → journal.
+
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.

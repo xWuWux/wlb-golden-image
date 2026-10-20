@@ -1,0 +1,47 @@
+# Zarządzane przez Ansible (rola tljh) — hooki cyklu życia sesji badacza (#97).
+# Korelacja "jedna sesja badacza" dla SIEM (§21): pre_spawn emituje session_start, post_stop —
+# session_stop z czasem trwania. Emisja idzie przez /opt/wlb/bin/wlb-session-log (root → pola
+# zaufane imuxsock/uid=0, #44). Fundament pod raport użycia/pojemności (#98), który dołoży
+# szczyt pamięci/CPU z księgowania systemd (hub_session jako klucz).
+import os
+import pwd
+import subprocess
+import time
+import uuid
+
+c = get_config()  # noqa: F821
+
+_WLB_SESSION_LOG = "/opt/wlb/bin/wlb-session-log"
+
+
+def _wlb_emit(action, spawner, duration=""):
+    user = "jupyter-" + spawner.user.name
+    try:
+        uid = str(pwd.getpwnam(user).pw_uid)
+    except KeyError:
+        uid = ""
+    sid = getattr(spawner, "_wlb_session", "")
+    lab = os.environ.get("LAB_NAME", "")
+    args = [_WLB_SESSION_LOG, action, user, uid, sid, lab]
+    if action == "stop":
+        args.append(str(duration))
+    try:
+        subprocess.run(args, check=False, timeout=5)  # noqa: S603
+    except Exception as exc:  # noqa: BLE001 — hook nie może wywrócić spawnu/stopu
+        spawner.log.warning("wlb-session: nie zalogowano zdarzenia %s: %s", action, exc)
+
+
+def wlb_pre_spawn_hook(spawner):
+    spawner._wlb_session = uuid.uuid4().hex
+    spawner._wlb_start = time.monotonic()
+    _wlb_emit("start", spawner)
+
+
+def wlb_post_stop_hook(spawner):
+    start = getattr(spawner, "_wlb_start", None)
+    duration = int(time.monotonic() - start) if start is not None else ""
+    _wlb_emit("stop", spawner, duration)
+
+
+c.Spawner.pre_spawn_hook = wlb_pre_spawn_hook
+c.Spawner.post_stop_hook = wlb_post_stop_hook
