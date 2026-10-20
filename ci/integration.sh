@@ -6,7 +6,8 @@
 #   4. obserwowalność: zdarzenia z observability/contract.yml docierają do logu centralnego
 #      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem)
 #   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   6. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
+#   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
+#   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
@@ -98,6 +99,9 @@ acceptance() {
     }
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
+    # skan utwardzenia (Lynis) na działającej VM — raport, nie bramka (#11); nigdy nie psuje akceptacji
+    "${SSH[@]}" 'sudo lynis audit system --quick --no-colors' >"$LOGS/lynis.log" 2>&1 || true
+    "${SSH[@]}" 'sudo cat /var/log/lynis-report.dat' >"$ARTIFACTS/lynis-report.dat" 2>/dev/null || true
   fi
   sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
@@ -209,6 +213,18 @@ image_sca() {
   } | summary >/dev/null
 }
 
+hardening_report() {
+  # Raport utwardzenia z VM testowej (zebrany w acceptance). Krok opcjonalny: zawsze zwraca 0,
+  # bo audyt walidują osobne testy akceptacyjne, a odstępstwa są świadome i opisane (#11).
+  if [[ ! -s $ARTIFACTS/lynis-report.dat ]]; then
+    echo "Brak raportu Lynis (VM nie wystartowała lub skan się nie wykonał) — pomijam"
+    return 0
+  fi
+  python3 ci/lynis_report.py "$ARTIFACTS/lynis-report.dat" | summary >/dev/null
+  grep -oP '^hardening_index=\K\d+' "$ARTIFACTS/lynis-report.dat" |
+    tail -1 | sed 's/^/Lynis hardening index: /' || true
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -229,4 +245,5 @@ run_check "Kryteria akceptacji MVP" acceptance
 run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 finish

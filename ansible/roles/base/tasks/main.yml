@@ -27,6 +27,7 @@
       - inotify-tools
       - jq
       - locales
+      - lynis # skan utwardzenia (CIS/hardening) jako raport w etapie 5 (#11)
       - nfs-common
       - nftables
       - psmisc
