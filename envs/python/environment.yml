@@ -34,3 +34,5 @@ dependencies:
   - pip:
       - inspectomop
       - jupyter-app-launcher  # kafelek "Pomoc i zgłoszenia" w Launcherze JupyterLab (#54)
+      # Tranzytywny (ciągnięty przez pakiety pip); podbity pod CVE, nie obniżaj.
+      - aiohttp>=3.14.4  # GHSA-2g87-pp6c-29x5 (8.7), GHSA-5wr8-gcqf-gqf3 (8.2), GHSA-494j-54xm-rwp3
