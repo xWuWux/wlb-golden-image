@@ -3,8 +3,7 @@
 # nakładamy tylko rolę desktop (ansible/desktop.yml), nie przebudowując OS/Python/R. Kompromis
 # między audytowalnością/podpisywaniem jednego artefaktu (#12/#71) a czasem budowania.
 
-# Blok packer{}/required_plugins jest współdzielony z packer/wlb-general.pkr.hcl (globalny dla
-# katalogu) — tu go nie powtarzamy.
+# Blok packer{}/required_plugins jest w packer/plugins.pkr.hcl (wspólny dla katalogu).
 
 # Ścieżka do gotowego obrazu bazowego wlb-general (.qcow2). Podawana przy budowaniu:
 #   packer build -var image_version=0.1.0 -var base_image=output/wlb-general-0.1.0-YYYYMMDD/wlb-general-...qcow2 packer/
