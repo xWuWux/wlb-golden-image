@@ -29,6 +29,9 @@ wlb_directories:
   - { path: /sluza-out, owner: root, group: jupyterhub-users, mode: "1730" }         # tylko zapis, bez listowania
   - { path: /data-mart, owner: root, group: jupyterhub-users, mode: "0750" }         # tylko odczyt
   - { path: /docs, owner: root, group: root, mode: "0755" }                          # tylko odczyt
+  # wspólny katalog projektu (§10, #50): setgid + grupa zespołu; domyślny ACL g::rwX ustawia wlb-firstboot.
+  # Zapisywalny dla badaczy, więc NIE w wlb_readonly_paths (poniżej).
+  - { path: /projekt, owner: root, group: jupyterhub-users, mode: "2770" }
 wlb_readonly_paths: [/sluza-in, /data-mart, /docs]
 # Kolejka wniosków o eksport na dysku roboczym: przeżywa wymianę dysku systemowego (nowa wersja
 # obrazu) i jest objęta backupem. Badacze jej nie widzą (/workspace 0711, kolejka 0700 root). #4

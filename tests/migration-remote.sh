@@ -39,8 +39,23 @@ case $1 in
     expect_ok "Wniosek o eksport z poprzedniej VM jest w kolejce (#4)" compgen -G "$queue/*_przed-migracja.csv"
     summary
     ;;
+  rollback-prepare)
+    # Symuluje operatora (RB-05 sekcja 4): zatrzymuje hub i przywraca bazę sprzed migracji
+    # (pre-<wersja>, zrobioną przez ExecStartPre) na /workspace, żeby po powrocie na stary obraz
+    # hub wstał ze STARYM schematem. Przywracamy na /workspace, nie do /opt/tljh/state.
+    systemctl stop jupyterhub traefik 2>/dev/null || true
+    bdir=/workspace/.wlb-hub/backup
+    pre=$(find "$bdir" -maxdepth 1 -name 'jupyterhub.sqlite.pre-*' -printf '%T@ %p\n' 2>/dev/null |
+      sort -rn | head -1 | cut -d' ' -f2-)
+    [[ -n $pre ]] || {
+      echo "rollback-prepare: brak kopii pre-* w $bdir" >&2
+      exit 1
+    }
+    install -o root -g root -m 0600 "$pre" /workspace/.wlb-hub/jupyterhub.sqlite
+    echo "rollback-prepare: przywrócono $pre"
+    ;;
   *)
-    echo "użycie: prepare | verify UID HASŁO HASŁO_ADMINA" >&2
+    echo "użycie: prepare | verify UID HASŁO HASŁO_ADMINA | rollback-prepare" >&2
     exit 2
     ;;
 esac

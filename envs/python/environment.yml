@@ -31,6 +31,8 @@ dependencies:
   - wheel>=0.46.2       # GHSA-8rrh-rw8j-w5fx
   - h2>=4.4.1           # GHSA-847f-9342-265h, GHSA-6hr6-w5qg-qmwg
   - hpack>=4.2.0        # GHSA-8v8h-hg4w-mvq2
+  - certifi>=2026.10.19 # PYSEC-2026-4320 / GHSA-6q48-6c7w-9gw2 (CVSS 9.1)
+  - pillow>=13.0.0      # 9 podatności naprawionych w 13.0.0 (m.in. GHSA-8g5g-8vmr-9782 CVSS 9.2)
   - pip:
       - inspectomop
       - jupyter-app-launcher  # kafelek "Pomoc i zgłoszenia" w Launcherze JupyterLab (#54)
