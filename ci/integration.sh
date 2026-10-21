@@ -276,6 +276,5 @@ run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" sie
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 run_check "Jedno jądro w obrazie (#9)" kernel_single
-||||||| 503a0d0
 run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 finish

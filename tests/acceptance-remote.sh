@@ -270,7 +270,6 @@ expect_ok "Dokładnie jedno /boot/vmlinuz-*" test "$(find /boot -maxdepth 1 -nam
 expect_ok "Jeden katalog modułów w /lib/modules" test "$(find /lib/modules -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1
 expect_ok "Katalog modułów = uruchomione jądro" test -d "/lib/modules/$(uname -r)"
 
-||||||| 503a0d0
 echo "== 13. AppArmor (CIS 1.6, #65) =="
 expect_ok "AppArmor włączony (aa-enabled)" aa-enabled
 expect_ok "apparmor=1 w parametrach jądra (GRUB)" grep -qw apparmor=1 /proc/cmdline
