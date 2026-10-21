@@ -89,6 +89,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 ### #123 — Bramka etapu 1: nierozwiązane znaczniki konfliktu gita w plikach nielintowanych  ·  _otwarte_
 - `tests/unit/test_conflict_markers.py` — *Bramka znacznikow konfliktu (#123)*
 
+### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, `Notebook Julia (IJulia, stdlib)`, *2. Notebook Python, R i Julia*
+
 ### #106 — Pulpit w przeglądarce (flavor wlb-memory) + regresja lekkości bazy (#105)  ·  _otwarte_
 - `tests/acceptance-remote.sh` — sekcja *11*: na `wlb-memory` sprawdza XFCE/TigerVNC/websockify/schowek i `WLB_IMAGE_NAME`; na `wlb-general` pilnuje, że pulpit NIE wyciekł do bazy. Testy interaktywne (idle culler na noVNC, dziedziczenie OOMScoreAdjust) — runbook w #106.
 ## Uwagi
