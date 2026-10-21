@@ -152,6 +152,7 @@ audit:
     - { key: wlb_export_queue, description: "Operacje na kolejce eksportu", regulamin: "§10", acceptance: true }
     - { key: wlb_datamart_write, description: "Próby zapisu do /data-mart", regulamin: "§10", acceptance: false }
     - { key: wlb_docs_write, description: "Próby zapisu do /docs", acceptance: false }
+    - { key: wlb_project, description: "Operacje w katalogu projektu (/projekt)", regulamin: "§10, §21", acceptance: false }
     - { key: wlb_config, description: "Zmiany konfiguracji WLB (/etc/wlb)", regulamin: "§21", acceptance: false }
     - { key: wlb_hub_config, description: "Zmiany konfiguracji JupyterHub", regulamin: "§21", acceptance: false }
     - { key: wlb_audit_config, description: "Zmiany konfiguracji audytu", regulamin: "§21", acceptance: false }

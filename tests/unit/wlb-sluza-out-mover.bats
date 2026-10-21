@@ -42,11 +42,29 @@ setup() {
   [ -z "$(ls -A "$WLB_EXPORT_QUEUE")" ]
 }
 
-@test "pliki ukryte też są eksportowane" {
+@test "pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)" {
   echo x >"$WLB_SLUZA_OUT/.ukryty"
+  echo x >"$WLB_SLUZA_OUT/wynik.tmp"
+  echo x >"$WLB_SLUZA_OUT/wynik.part"
+  echo x >"$WLB_SLUZA_OUT/wynik~"
   "$MOVER" --once
-  [ ! -e "$WLB_SLUZA_OUT/.ukryty" ]
-  compgen -G "$WLB_EXPORT_QUEUE/*_.ukryty" >/dev/null
+  # zostają w śluzie, nie trafiają do kolejki
+  [ -e "$WLB_SLUZA_OUT/.ukryty" ]
+  [ -e "$WLB_SLUZA_OUT/wynik.tmp" ]
+  [ -e "$WLB_SLUZA_OUT/wynik.part" ]
+  [ -e "$WLB_SLUZA_OUT/wynik~" ]
+  [ -z "$(ls -A "$WLB_EXPORT_QUEUE")" ]
+  refute called "export_request"
+}
+
+@test "plik tymczasowy po zmianie nazwy na docelową trafia do kolejki (#33)" {
+  echo "dane" >"$WLB_SLUZA_OUT/.wynik.csv.ABC123" # zapis atomowy: najpierw nazwa tymczasowa
+  "$MOVER" --once
+  [ -e "$WLB_SLUZA_OUT/.wynik.csv.ABC123" ] # pominięty, czeka
+  mv "$WLB_SLUZA_OUT/.wynik.csv.ABC123" "$WLB_SLUZA_OUT/wynik.csv" # zmiana nazwy na docelową
+  "$MOVER" --once
+  [ ! -e "$WLB_SLUZA_OUT/wynik.csv" ] # teraz wyeksportowany
+  compgen -G "$WLB_EXPORT_QUEUE/*_wynik.csv" >/dev/null
 }
 
 @test "dowiązanie symboliczne jest odrzucane i usuwane" {

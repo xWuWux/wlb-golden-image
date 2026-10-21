@@ -99,6 +99,14 @@ while read -r path owner group mode; do
   fi
 done <"$DIRS_CONF"
 
+# Wspólny katalog projektu (§10, #50): domyślny ACL grupy rwX, żeby pliki utworzone przez jednego
+# badacza (umask 0077) mogli edytować pozostali członkowie zespołu mimo setgid. Udział sieciowy mógł
+# przykryć prawa — jak przy katalogach wyżej, log zamiast przerwania.
+if [[ -d $R/projekt ]]; then
+  setfacl -d -m g::rwX "$R/projekt" 2>/dev/null ||
+    log "uwaga: nie można ustawić domyślnego ACL /projekt (udział tylko do odczytu? ACL ustawia serwer)"
+fi
+
 # Przy pierwszym starcie cloud-init montuje dysk roboczy i udziały dopiero w trakcie rozruchu —
 # śluza wyjściowa mogła wystartować wcześniej i widzieć katalogi sprzed montowania
 systemctl restart wlb-sluza-out.service
