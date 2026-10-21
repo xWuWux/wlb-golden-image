@@ -89,6 +89,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 ### #123 — Bramka etapu 1: nierozwiązane znaczniki konfliktu gita w plikach nielintowanych  ·  _otwarte_
 - `tests/unit/test_conflict_markers.py` — *Bramka znacznikow konfliktu (#123)*
 
+### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, `Notebook Julia (IJulia, stdlib)`, *2. Notebook Python, R i Julia*
+
 ### #97 — Hooki cyklu życia sesji badacza (pre/post-spawn) + korelacja sesji w SIEM  ·  _otwarte_
 - `observability/contract.yml` — zdarzenia `session.start`, `session.stop` (tag `wlb-session`); pilnuje `tests/unit/test_observability_contract.py`.
 - `tests/acceptance-remote.sh` — sekcja *11*: config hooka `80-wlb-session.py`, emiter `wlb-session-log` → journal.

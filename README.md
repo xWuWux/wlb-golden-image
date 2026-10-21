@@ -19,6 +19,7 @@ ansible/                playbook i role instalujące zawartość obrazu
   roles/tljh            TLJH, Native Authenticator, idle culling 30 min, limit 12 h, izolacja sesji
   roles/python_env      kernel Python (envs/python)
   roles/r_env           R, IRkernel, HADES, sterownik JDBC PostgreSQL (envs/r)
+  roles/julia_env       Julia + kernel IJulia (envs/julia)
   roles/rstudio         RStudio przez JupyterLab (opcjonalnie, domyślnie wyłączone)
   roles/audit           reguły auditd (śluzy, polecenia badaczy, odmowy; konta, czas, moduły,
                         sesje, usunięcia/DAC, AppArmor — §21/CIS), blokada -e 2
@@ -209,7 +210,7 @@ VM przyjmuje z sieci wyłącznie SSH.
 | Kryterium | Realizacja | Test lokalny |
 |---|---|---|
 | Badacz loguje się swoim kontem i widzi tylko własny katalog | Native Authenticator; `HOME=/workspace`, `HOME_MODE 0700`, `/workspace` 0711 | tak |
-| Notebook Python i R w tej samej sesji | kernel `python3` + `ir` (IRkernel, HADES) w jednym JupyterLab | tak (nbconvert) |
+| Notebook Python, R i Julia w tej samej sesji | kernele `python3` + `ir` (IRkernel, HADES) + `julia-*` (IJulia) w jednym JupyterLab | tak (nbconvert) |
 | Odczyt `/data-mart` bez modyfikacji | udział `ro` + prawa 0750 + `ReadOnlyPaths` w jednostce systemd | tak |
 | Zapis do `/sluza-in` kończy się odmową | jw. | tak |
 | Plik w `/sluza-out` znika i trafia do kolejki | katalog 1730 (bez listowania) + `wlb-sluza-out` przenosi do kolejki | tak |

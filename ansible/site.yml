@@ -7,6 +7,7 @@
     - tljh
     - python_env
     - r_env
+    - julia_env
     - role: rstudio
       when: wlb_rstudio_enabled | bool
     - audit
@@ -18,6 +19,7 @@
       ansible.builtin.shell: |
         set -o pipefail
         echo "R_VERSION=$(R --version | head -1 | awk '{print $3}')"
+        echo "JULIA_VERSION=$(julia --version | awk '{print $3}')"
         echo "PYTHON_VERSION=$(/opt/tljh/user/bin/python -c 'import platform; print(platform.python_version())')"
         echo "JUPYTERHUB_VERSION=$(/opt/tljh/hub/bin/jupyterhub --version)"
         # pakiety systemowe powinny być aktualne (dist-upgrade w roli base) — raport w stage 5

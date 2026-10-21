@@ -57,9 +57,11 @@
     state: present
 
 # Aktualizacje wchodzą wyłącznie przez nową wersję obrazu; VM i tak nie ma wyjścia do archiwów Ubuntu.
-- name: Usunięcie unattended-upgrades i snapd
+# apport (automatyczny crash-reporter) przy starcie ustawia fs.suid_dumpable=2, niwecząc nasz sysctl=0
+# (#63), a do tego przechwytuje zrzuty pamięci, które świadomie wyłączamy — w obrazie zbędny i ryzykowny.
+- name: Usunięcie unattended-upgrades, snapd i apport
   ansible.builtin.apt:
-    name: [unattended-upgrades, snapd]
+    name: [unattended-upgrades, snapd, apport]
     state: absent
     purge: true
 
@@ -186,13 +188,37 @@
       kernel.yama.ptrace_scope = 1
       net.ipv4.ip_forward = 0
       net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.default.accept_redirects = 0
       net.ipv6.conf.all.accept_redirects = 0
       net.ipv4.conf.all.send_redirects = 0
+      net.ipv4.conf.default.send_redirects = 0
+      # Reverse path filter, brak source routing, brak secure redirects, log marsjańskich adresów (CIS 3.x, #63).
+      # VM nie jest routerem ani nie przekazuje ruchu — to standardowe wzmocnienia bez wpływu na pracę badaczy.
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.conf.all.accept_source_route = 0
+      net.ipv4.conf.default.accept_source_route = 0
+      net.ipv4.conf.all.secure_redirects = 0
+      net.ipv4.conf.default.secure_redirects = 0
+      # log_martians zwiększa liczbę wpisów w dzienniku — do obserwacji przy przepełnieniu kolejki SIEM (#32)
+      net.ipv4.conf.all.log_martians = 1
+      net.ipv4.conf.default.log_martians = 1
+      net.ipv4.tcp_syncookies = 1
+      net.ipv4.icmp_echo_ignore_broadcasts = 1
+      net.ipv4.icmp_ignore_bogus_error_responses = 1
+      # IPv6: brak autoconfiguracji (RA), forwardingu i source routing (CIS 3.x, #63)
+      net.ipv6.conf.all.accept_ra = 0
+      net.ipv6.conf.default.accept_ra = 0
+      net.ipv6.conf.all.forwarding = 0
+      net.ipv6.conf.all.accept_source_route = 0
+      net.ipv6.conf.default.accept_source_route = 0
       # dowiązania w katalogach współdzielonych (śluza wyjściowa, #29) — wartości domyślne Ubuntu, przypięte jawnie
       fs.protected_hardlinks = 1
       fs.protected_symlinks = 1
       fs.protected_fifos = 2
       fs.protected_regular = 2
+      # zrzuty pamięci programów z bitem suid wyłączone (CIS 1.5.1, #63)
+      fs.suid_dumpable = 0
   notify: Apply sysctl
 
 # AppArmor jest w Ubuntu 24.04 domyślnie włączony, ale profil CIS L1 sprawdza jawny wpis w cmdline jądra
@@ -207,6 +233,32 @@
       GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT apparmor=1 security=apparmor"
   notify: Update GRUB
 
+# Zrzuty pamięci użytkowników wyłączone (CIS 1.5.1, #63): twardy limit core=0 (limits) i brak zapisu
+# przez systemd-coredump. Zapobiega wyciekowi wrażliwych danych z pamięci do plików core w Laboratorium.
+- name: Wyłączenie zrzutów pamięci użytkowników (limits)
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/60-wlb-coredump.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola base) — CIS 1.5.1, #63
+      * hard core 0
+
+- name: Katalog drop-in systemd-coredump
+  ansible.builtin.file:
+    path: /etc/systemd/coredump.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Wyłączenie zapisu zrzutów pamięci przez systemd-coredump
+  ansible.builtin.copy:
+    dest: /etc/systemd/coredump.conf.d/60-wlb.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola base) — CIS 1.5.1, #63
+      [Coredump]
+      Storage=none
+      ProcessSizeMax=0
+  notify: Reload systemd
 - name: Katalogi konfiguracyjne WLB
   ansible.builtin.file:
     path: "{{ item }}"
