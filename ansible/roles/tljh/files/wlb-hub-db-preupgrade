@@ -1,0 +1,37 @@
+#!/bin/sh
+# Kopia bazy huba SPRZED migracji schematu — siatka bezpieczeństwa dla rollbacku aktualizacji
+# obrazu (#13, RB-05). Uruchamiana jako ExecStartPre jednostki jupyterhub, więc biegnie ZANIM
+# hub wystartuje i zmigruje bazę (c.JupyterHub.upgrade_db = True). (wlb-firstboot NIE nadaje się:
+# biegnie z cloud-init runcmd PO starcie huba, już po migracji.)
+#
+# Robi JEDNĄ niezmienną kopię per wersja obrazu: pierwszy start danej wersji łapie bazę w starym
+# schemacie; kolejne restarty tej samej wersji pomijają (kopia już istnieje). Rollback przywraca
+# jupyterhub.sqlite.pre-<poprzednia_wersja>. Best-effort (ExecStartPre=-): awaria nie blokuje startu
+# huba — podstawową kopię i tak robi godzinny wlb-hub-db-backup (#8).
+set -eu
+
+db=${WLB_HUB_DB:-/workspace/.wlb-hub/jupyterhub.sqlite}
+backup_dir=${WLB_HUB_BACKUP_DIR:-$(dirname "$db")/backup}
+image_release=${WLB_IMAGE_RELEASE:-/etc/wlb/image-release}
+
+# Świeży dysk roboczy (pierwsze założenie Laboratorium) — nie ma czego kopiować.
+[ -f "$db" ] || exit 0
+
+ver=unknown
+if [ -r "$image_release" ]; then
+  v=$(sed -n 's/^WLB_IMAGE_VERSION=//p' "$image_release" | head -1)
+  [ -n "$v" ] && ver=$v
+fi
+
+dest="$backup_dir/jupyterhub.sqlite.pre-$ver"
+# Kopia sprzed migracji tej wersji już jest — nie nadpisuj (nie zastąp starego schematu nowym).
+[ -e "$dest" ] && exit 0
+
+mkdir -p "$backup_dir"
+if command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "$db" ".backup '$dest.tmp'"
+else
+  cp "$db" "$dest.tmp"
+fi
+mv "$dest.tmp" "$dest"
+echo "wlb-hub-db-preupgrade: kopia sprzed migracji -> $dest"

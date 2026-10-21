@@ -1,11 +1,9 @@
 # IMG-001: Model przydziału VM i domyślne limity zasobów badacza
 
-| | |
-|---|---|
-| Status | **Proponowana** (szkic, 2026-10-01; wariant C potwierdzony przez zespół projektu) |
-| Decyduje | Właściciel Platformy (z Liderem Projektu Klienta w zakresie liczby użytkowników) |
-| Dotyczy | #30 (PR #49), #19 (storage), #20 (eksport), #18 (dostęp), `WLB_Specs.txt` |
-| Identyfikator | `IMG-` = decyzja obrazu VM. W IP_CMC skrót „ADR” oznacza *Artefacts Deliverable Record* (zob. #14), stąd osobny prefiks. |
+* **Status:** Proponowana (szkic 2026-10-01; wariant C potwierdzony przez zespół projektu, czeka na zatwierdzenie Właściciela Platformy)
+* **Data:** 2026-10-01
+* **Autorzy / decyduje:** Właściciel Platformy (liczbę użytkowników ustala z Liderem Projektu Klienta)
+* **Powiązania:** Regulamin: §8, §9, §10 · IP_CMC: ADR 5.1 (VirtualLab) · Zgłoszenia/PR: #30 (PR #49), #19, #20, #18 · Pliki: `WLB_Specs.txt`, `ansible/roles/lab_config/files/wlb-firstboot`
 
 ## Kontekst
 
@@ -52,6 +50,11 @@ Pozostałe ustawienia z #30 są wspólne dla obu modeli i nadal potrzebne także
 - ujemne `OOMScoreAdjust` usług.
 
 **Rekomendacja (przy C), wdrożona w PR #49:** parametr **`RESEARCHERS_PER_VM`** w `lab.env` (domyślnie 1). Limit badacza = pula / N, a CPU = vCPU / N (co najmniej 1). Przy N = 1 badacz dostaje całą pulę i wszystkie vCPU (kolumna A w tabeli), przy N > 1 odpowiednią część (kolumny B). Wspólny limit slice zawsze chroni usługi, niezależnie od N. `RESEARCHER_MEM_LIMIT` i `RESEARCHER_CPU_LIMIT` pozwalają ustawić wartości wprost.
+
+## Odstępstwo od specyfikacji
+
+* **Czy stanowi odstępstwo:** Tak.
+* **Uzasadnienie / cytat:** `WLB_Specs.txt` zakłada VM współdzieloną: „jedna VM obsługuje wszystkich badaczy przypisanych do danego Laboratorium jako osobni użytkownicy Hub". Wariant A/C (domyślnie jedna VM per badacz, kilka kont na jednej VM jako dopuszczalny wyjątek) odchodzi od tego dla pełnej izolacji badaczy (pamięć, CPU, procesy, sieć) i zgodności z modelem „pulpitów roboczych użytkowników" (Regulamin §9). Specyfikację trzeba zaktualizować (dwa cytowane zdania).
 
 ## Konsekwencje wariantu A (VM na badacza; dotyczą też C)
 

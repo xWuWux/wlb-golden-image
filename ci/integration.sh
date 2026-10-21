@@ -6,7 +6,8 @@
 #   4. obserwowalność: zdarzenia z observability/contract.yml docierają do logu centralnego
 #      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem)
 #   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   6. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
+#   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
+#   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
@@ -75,7 +76,7 @@ collect_vm_logs() {
 }
 
 acceptance() {
-  local rc=0 sink
+  local rc=0 sink ntp="" ntp_flag=""
   # testowy SIEM: VM (sieć QEMU user) wysyła logi po TLS do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
   rm -f "$LOGS/siem.log"
   tests/lib/test-pki.sh build/test
@@ -88,9 +89,25 @@ acceptance() {
     echo "Testowy odbiornik SIEM nie wystartował — port 5514 zajęty? (ss -ltnp 'sport = :5514')"
     return 1
   fi
+  # testowy serwer czasu: VM (chrony) synchronizuje się z 10.0.2.2:123 — tests/ntp_sink.py (#36).
+  # Port 123 jest uprzywilejowany → przez sudo (na runnerze CI bez hasła). Bez sudo pomijamy serwer:
+  # test synchronizacji w VM dostanie wtedy SKIP (flaga --ntp-sync nieprzekazana), a nie fałszywy wynik.
+  if sudo -n true 2>/dev/null; then
+    sudo python3 tests/ntp_sink.py --port 123 &
+    ntp=$!
+    sleep 1
+    if kill -0 "$ntp" 2>/dev/null; then
+      ntp_flag=1
+    else
+      echo "Testowy serwer NTP nie wystartował — port 123 zajęty? (ss -lunp 'sport = :123')"
+      ntp=""
+    fi
+  else
+    echo "Bez sudo — testowy serwer NTP pominięty (test synchronizacji w VM zrobi SKIP)"
+  fi
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
-    tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
+    WLB_TEST_NTP=$ntp_flag tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
     # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
     grep -q '^Wynik:' "$LOGS/acceptance.log" || {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
@@ -98,12 +115,19 @@ acceptance() {
     }
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
+    # skan utwardzenia (Lynis) na działającej VM — raport, nie bramka (#11); nigdy nie psuje akceptacji
+    "${SSH[@]}" 'sudo lynis audit system --quick --no-colors' >"$LOGS/lynis.log" 2>&1 || true
+    "${SSH[@]}" 'sudo cat /var/log/lynis-report.dat' >"$ARTIFACTS/lynis-report.dat" 2>/dev/null || true
   fi
   sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
   tests/stop-local.sh
   kill "$sink" 2>/dev/null
   wait "$sink" 2>/dev/null
+  if [[ -n $ntp ]]; then
+    sudo kill "$ntp" 2>/dev/null # $ntp to PID sudo; SIGTERM przekazywany do serwera (działa jako root)
+    wait "$ntp" 2>/dev/null
+  fi
   {
     echo "### Kryteria akceptacji MVP"
     echo
@@ -180,6 +204,16 @@ PY
   return $rc
 }
 
+kernel_single() {
+  # Twarde kryterium #9: dokładnie jedna wersja linux-image/modules/headers/tools w obrazie.
+  # dpkg-status z VM testowej zebrany w acceptance(); logika w ci/kernel_check.py (testowana jednostkowo).
+  [[ -s $ARTIFACTS/dpkg-status ]] || {
+    echo "Brak dpkg-status z VM — pomijam"
+    return 0
+  }
+  python3 ci/kernel_check.py "$ARTIFACTS/dpkg-status"
+}
+
 image_sca() {
   [[ -s $ARTIFACTS/renv.lock && -s $ARTIFACTS/environment.lock.yml ]] || {
     echo "Brak locków z obrazu — pomijam"
@@ -209,6 +243,18 @@ image_sca() {
   } | summary >/dev/null
 }
 
+hardening_report() {
+  # Raport utwardzenia z VM testowej (zebrany w acceptance). Krok opcjonalny: zawsze zwraca 0,
+  # bo audyt walidują osobne testy akceptacyjne, a odstępstwa są świadome i opisane (#11).
+  if [[ ! -s $ARTIFACTS/lynis-report.dat ]]; then
+    echo "Brak raportu Lynis (VM nie wystartowała lub skan się nie wykonał) — pomijam"
+    return 0
+  fi
+  python3 ci/lynis_report.py "$ARTIFACTS/lynis-report.dat" | summary >/dev/null
+  grep -oP '^hardening_index=\K\d+' "$ARTIFACTS/lynis-report.dat" |
+    tail -1 | sed 's/^/Lynis hardening index: /' || true
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -229,4 +275,6 @@ run_check "Kryteria akceptacji MVP" acceptance
 run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+run_check "Jedno jądro w obrazie (#9)" kernel_single
+run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 finish

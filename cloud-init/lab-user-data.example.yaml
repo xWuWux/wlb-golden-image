@@ -45,6 +45,12 @@ mounts:
     - /data-mart
     - ceph
     - "name=lab-example01,secretfile=/etc/ceph/lab.secret,ro,nodev,nosuid,noexec,_netdev"
+  # Wspólny katalog projektu (§10, #50): rw, współdzielony przez wszystkie VM zespołu (#19). Bez tego
+  # udziału /projekt działa jako katalog lokalny na dysku roboczym (współdzielenie tylko w obrębie jednej VM).
+  - - "10.50.0.1,10.50.0.2:/labs/lab-example01/projekt"
+    - /projekt
+    - ceph
+    - "name=lab-example01,secretfile=/etc/ceph/lab.secret,rw,acl,nodev,nosuid,noexec,_netdev"
   - - "10.50.0.1,10.50.0.2:/platform/docs"
     - /docs
     - ceph

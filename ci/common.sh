@@ -12,6 +12,7 @@ cd "$REPO_ROOT"
 SHELL_SCRIPTS=(
   przewodnik-vm.sh
   ci/*.sh
+  .githooks/pre-commit
   packer/scripts/*.sh
   tests/*.sh tests/lib/*.sh
   ansible/roles/lab_config/files/wlb-firstboot
