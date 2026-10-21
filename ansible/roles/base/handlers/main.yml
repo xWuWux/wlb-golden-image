@@ -1,5 +1,7 @@
 - name: Restart ssh
-  ansible.builtin.shell: sshd -t && systemctl restart ssh
+  # /run/sshd (tmpfs, tworzony przez ssh.service/tmpfiles przy starcie) bywa nieobecny w trakcie
+  # provisioningu — sshd -t bez niego zwraca „Missing privilege separation directory" i wywala build.
+  ansible.builtin.shell: install -d -m 0755 /run/sshd && sshd -t && systemctl restart ssh
   changed_when: true
 
 - name: Generate locales
@@ -13,3 +15,7 @@
 - name: Reload systemd
   ansible.builtin.systemd_service:
     daemon_reload: true
+
+- name: Update GRUB
+  ansible.builtin.command: update-grub
+  changed_when: true

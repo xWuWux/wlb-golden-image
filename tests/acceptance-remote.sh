@@ -28,6 +28,16 @@ expect_fail "Badacz nie ma sudo" as $R1 sudo -n true
 expect_fail "Badacz nie jest adminem huba" bash -c "id -nG jupyter-$R1 | grep -qw jupyterhub-admins"
 expect_fail "Admini huba nie mają sudo (§24.c)" test -e /etc/sudoers.d/jupyterhub-admins
 
+echo "== 1a. Wspólny katalog projektu (§10, #50) =="
+expect_ok "/projekt: setgid 2770, grupa zespołu" test "$(stat -c '%a %G' /projekt)" = "2770 jupyterhub-users"
+expect_ok "Inni (spoza grupy) bez dostępu do /projekt" test "$(stat -c %A /projekt | cut -c8-10)" = "---"
+expect_ok "Badacz 1 tworzy plik w /projekt" as $R1 bash -c 'echo "od tester1" >/projekt/wspolny.txt'
+expect_ok "Badacz 2 czyta plik kolegi z zespołu" as $R2 grep -q "od tester1" /projekt/wspolny.txt
+expect_ok "Badacz 2 edytuje plik kolegi (domyślny ACL grupy)" as $R2 bash -c 'echo "dopisek tester2" >>/projekt/wspolny.txt'
+expect_ok "Zmiana badacza 2 widoczna dla badacza 1" as $R1 grep -q "dopisek tester2" /projekt/wspolny.txt
+expect_ok "Nowy plik dziedziczy grupę zespołu (setgid)" test "$(stat -c %G /projekt/wspolny.txt)" = jupyterhub-users
+expect_ok "Nowy plik ma prawa grupy rw (domyślny ACL)" grep -qE '^group::rw' <(getfacl -c /projekt/wspolny.txt)
+
 echo "== 2. Notebook Python i notebook R =="
 python3 - "/workspace/jupyter-$R1" <<'PY'
 import json, sys
@@ -130,6 +140,21 @@ skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
 echo "== 7a. Czas (znaczniki audytu, §21) =="
 expect_ok "chrony używa serwerów z NTP_SERVERS" bash -c 'chronyc -n sources | grep -q "10\.0\.2\.2"'
 expect_fail "Brak publicznych serwerów NTP" bash -c 'grep -hE "^(pool|server)" /etc/chrony/chrony.conf /etc/chrony/sources.d/* | grep -q ubuntu'
+# Faktyczna synchronizacja z NTP_SERVERS (#36). Z flagą --ntp-sync (CI: działa testowy serwer czasu
+# na 10.0.2.2:123, tests/ntp_sink.py) WYMAGAMY synchronizacji; bez flagi (lokalnie bez sudo / bez serwera)
+# robimy SKIP zamiast fałszywego PASS/FAIL. waitsync: do ~300 s, poprawka < 0,5 s. Stratum 9 (serwer 8+1)
+# dowodzi, że źródłem jest nasz serwer testowy, a nie przypadek.
+if [[ " $* " == *" --ntp-sync "* ]]; then
+  if chronyc waitsync 30 0.5 >/dev/null 2>&1 && chronyc -n sources | grep -qE '^\^[*+] 10\.0\.2\.2'; then
+    stratum=$(chronyc tracking | sed -n 's/^Stratum *: *//p')
+    expect_ok "chrony zsynchronizowany z NTP_SERVERS (#36)" true
+    expect_ok "Źródłem czasu jest testowy serwer (stratum ${stratum}, oczek. 9)" test "$stratum" = 9
+  else
+    expect_ok "chrony zsynchronizowany z NTP_SERVERS (#36)" false
+  fi
+else
+  skip "Synchronizacja NTP — brak testowego serwera NTP na hoście (wymaga sudo, #36)"
+fi
 
 echo "== 7b. Limity zasobów badaczy (#30) =="
 unit=jupyter-$R1
@@ -244,5 +269,13 @@ echo "== 11. Jedno jądro w obrazie (#9) =="
 expect_ok "Dokładnie jedno /boot/vmlinuz-*" test "$(find /boot -maxdepth 1 -name 'vmlinuz-*' | wc -l)" -eq 1
 expect_ok "Jeden katalog modułów w /lib/modules" test "$(find /lib/modules -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1
 expect_ok "Katalog modułów = uruchomione jądro" test -d "/lib/modules/$(uname -r)"
+
+||||||| 503a0d0
+echo "== 13. AppArmor (CIS 1.6, #65) =="
+expect_ok "AppArmor włączony (aa-enabled)" aa-enabled
+expect_ok "apparmor=1 w parametrach jądra (GRUB)" grep -qw apparmor=1 /proc/cmdline
+expect_ok "apparmor-utils zainstalowany (aa-enforce)" command -v aa-enforce
+expect_ok "Żaden profil nie jest w trybie complain" test "$(aa-status --complaining)" = 0
+expect_ok "Profil rsyslogd w trybie enforce (#6)" bash -c 'aa-status --json | grep -i rsyslogd | grep -qi enforce'
 
 summary

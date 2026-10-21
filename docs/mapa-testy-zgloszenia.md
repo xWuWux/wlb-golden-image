@@ -64,6 +64,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-12). Odświ
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
 
+### #13 — Runbooki operacyjne: aktualizacja i rollback (RB-05) + kopia bazy sprzed migracji  ·  _otwarte_
+- `tests/unit/wlb-hub-db-preupgrade.bats` — kopia `pre-<wersja>` przed migracją schematu (powstaje, nie nadpisuje, brak bazy = brak kopii).
+- `tests/migration.sh … --rollback` + `tests/migration-remote.sh rollback-prepare` — przećwiczenie wycofania (DoD #106/#62): przywrócenie bazy i powrót na stary obraz.
+- Procedura: `docs/runbooks/RB-05-aktualizacja-i-rollback.md`.
+
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.
