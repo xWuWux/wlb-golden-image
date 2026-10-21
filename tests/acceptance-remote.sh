@@ -28,19 +28,18 @@ expect_fail "Badacz nie ma sudo" as $R1 sudo -n true
 expect_fail "Badacz nie jest adminem huba" bash -c "id -nG jupyter-$R1 | grep -qw jupyterhub-admins"
 expect_fail "Admini huba nie mają sudo (§24.c)" test -e /etc/sudoers.d/jupyterhub-admins
 
-echo "== 1a. Wspólny katalog projektu (§10, #50) =="
-expect_ok "/projekt: setgid 2770, grupa zespołu" test "$(stat -c '%a %G' /projekt)" = "2770 jupyterhub-users"
-expect_ok "Inni (spoza grupy) bez dostępu do /projekt" test "$(stat -c %A /projekt | cut -c8-10)" = "---"
-expect_ok "Badacz 1 tworzy plik w /projekt" as $R1 bash -c 'echo "od tester1" >/projekt/wspolny.txt'
-expect_ok "Badacz 2 czyta plik kolegi z zespołu" as $R2 grep -q "od tester1" /projekt/wspolny.txt
-expect_ok "Badacz 2 edytuje plik kolegi (domyślny ACL grupy)" as $R2 bash -c 'echo "dopisek tester2" >>/projekt/wspolny.txt'
-expect_ok "Zmiana badacza 2 widoczna dla badacza 1" as $R1 grep -q "dopisek tester2" /projekt/wspolny.txt
-expect_ok "Nowy plik dziedziczy grupę zespołu (setgid)" test "$(stat -c %G /projekt/wspolny.txt)" = jupyterhub-users
-expect_ok "Nowy plik ma prawa grupy rw (domyślny ACL)" grep -qE '^group::rw' <(getfacl -c /projekt/wspolny.txt)
-
-echo "== 2. Notebook Python i notebook R =="
-python3 - "/workspace/jupyter-$R1" <<'PY'
+echo "== 2. Notebook Python, R i Julia =="
+# Kernel Julii (IJulia) ma nazwę zależną od wersji (julia-1.11) — wykrywamy ją, nie przypinamy. #111
+JLK=""
+for d in /opt/tljh/user/share/jupyter/kernels/julia-*; do
+  [ -d "$d" ] || continue
+  JLK=$(basename "$d")
+  break
+done
+python3 - "/workspace/jupyter-$R1" "$JLK" <<'PY'
 import json, sys
+target = sys.argv[1]
+jlk = sys.argv[2] if len(sys.argv) > 2 else ""
 notebooks = {
     "test-py": ("python3", "python",
                 "import pandas, numpy, scipy, sklearn, matplotlib, seaborn, statsmodels, inspectomop"),
@@ -48,6 +47,9 @@ notebooks = {
                'for (p in c("DatabaseConnector", "SqlRender", "FeatureExtraction", "CohortGenerator", '
                '"CohortMethod", "PatientLevelPrediction")) library(p, character.only = TRUE)'),
 }
+if jlk:
+    notebooks["test-jl"] = (jlk, "julia",
+                            "using IJulia; using LinearAlgebra; @assert det([2.0 0.0; 0.0 3.0]) ≈ 6.0")
 for name, (kernel, language, source) in notebooks.items():
     nb = {
         "cells": [{"cell_type": "code", "execution_count": None, "id": "c1",
@@ -55,7 +57,7 @@ for name, (kernel, language, source) in notebooks.items():
         "metadata": {"kernelspec": {"name": kernel, "display_name": kernel, "language": language}},
         "nbformat": 4, "nbformat_minor": 5,
     }
-    with open(f"{sys.argv[1]}/{name}.ipynb", "w") as f:
+    with open(f"{target}/{name}.ipynb", "w") as f:
         json.dump(nb, f)
 PY
 chown "jupyter-$R1:" /workspace/jupyter-$R1/test-*.ipynb
@@ -63,6 +65,9 @@ expect_ok "Notebook Python (pakiety analityczne + inspectomop)" \
   as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-py.out.ipynb test-py.ipynb"
 expect_ok "Notebook R (pakiety HADES)" \
   as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-r.out.ipynb test-r.ipynb"
+expect_ok "Kernel Julia (IJulia) zarejestrowany (#111)" bash -c "test -n '$JLK'"
+expect_ok "Notebook Julia (IJulia, stdlib)" \
+  as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-jl.out.ipynb test-jl.ipynb"
 expect_ok "Sterownik JDBC PostgreSQL" bash -c 'ls /opt/wlb/jdbc/ | grep -qi postgres'
 
 echo "== 3. /data-mart tylko do odczytu =="

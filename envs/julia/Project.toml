@@ -1,0 +1,11 @@
+# Wspólne środowisko Julii dla kernela JupyterHub (#111).
+# IJulia + zależności instalowane do współdzielonego projektu (tylko do odczytu dla badaczy);
+# prywatne pakiety badacza trafiają do ~/.julia (pusty wpis w JULIA_DEPOT_PATH kernela).
+name = "wlb-julia"
+
+[deps]
+IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
+
+[compat]
+IJulia = "1"
+julia = "1.11"
