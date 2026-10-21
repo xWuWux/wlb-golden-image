@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Blokuje commit, gdy w indeksie zostaly znaczniki konfliktu (<<<<<<< / ======= / >>>>>>>).
+# Wlacz jednorazowo: git config core.hooksPath .githooks
+# Pełna lista znaczników i logika: ci/conflict_markers.py (skanuje indeks, nie dysk).
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+exec python3 ci/conflict_markers.py --staged
