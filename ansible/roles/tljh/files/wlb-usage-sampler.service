@@ -1,0 +1,8 @@
+[Unit]
+Description=WLB: próbkowanie szczytu zasobów sesji badaczy (#98)
+Documentation=https://github.com/xWuWux/wlb-golden-image/issues/98
+
+[Service]
+Type=oneshot
+ExecStart=/opt/wlb/bin/wlb-usage-sampler
+Nice=10
