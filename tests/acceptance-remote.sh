@@ -279,6 +279,11 @@ expect_ok "Banner /etc/issue.net (#62)" bash -c "sshd -T | grep -qx 'banner /etc
 expect_ok "Baner prawny o monitoringu (#62)" grep -q 'osob upowaznionych' /etc/issue.net
 expect_fail "Baner nie ujawnia wersji systemu (#62)" grep -qE '\\[slrmvSU]' /etc/issue.net
 
+echo "== 11. Jedno jądro w obrazie (#9) =="
+expect_ok "Dokładnie jedno /boot/vmlinuz-*" test "$(find /boot -maxdepth 1 -name 'vmlinuz-*' | wc -l)" -eq 1
+expect_ok "Jeden katalog modułów w /lib/modules" test "$(find /lib/modules -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1
+expect_ok "Katalog modułów = uruchomione jądro" test -d "/lib/modules/$(uname -r)"
+
 echo "== 13. AppArmor (CIS 1.6, #65) =="
 expect_ok "AppArmor włączony (aa-enabled)" aa-enabled
 expect_ok "apparmor=1 w parametrach jądra (GRUB)" grep -qw apparmor=1 /proc/cmdline

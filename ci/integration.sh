@@ -220,6 +220,16 @@ PY
   return $rc
 }
 
+kernel_single() {
+  # Twarde kryterium #9: dokładnie jedna wersja linux-image/modules/headers/tools w obrazie.
+  # dpkg-status z VM testowej zebrany w acceptance(); logika w ci/kernel_check.py (testowana jednostkowo).
+  [[ -s $ARTIFACTS/dpkg-status ]] || {
+    echo "Brak dpkg-status z VM — pomijam"
+    return 0
+  }
+  python3 ci/kernel_check.py "$ARTIFACTS/dpkg-status"
+}
+
 image_sca() {
   [[ -s $ARTIFACTS/renv.lock && -s $ARTIFACTS/environment.lock.yml ]] || {
     echo "Brak locków z obrazu — pomijam"
@@ -281,5 +291,6 @@ run_check "Kryteria akceptacji MVP" acceptance
 run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+run_check "Jedno jądro w obrazie (#9)" kernel_single
 run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 finish
