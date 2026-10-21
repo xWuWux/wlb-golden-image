@@ -29,6 +29,27 @@
     state: directory
     mode: "0755"
 
+# Siatka bezpieczeństwa rollbacku (#13, RB-05): kopia bazy huba sprzed migracji schematu robiona
+# ZANIM hub wystartuje (ExecStartPre). wlb-firstboot nie nadaje się — biegnie po starcie huba.
+- name: Katalog narzędzi WLB
+  ansible.builtin.file:
+    path: /opt/wlb/bin
+    state: directory
+    mode: "0755"
+
+- name: Skrypt kopii bazy huba sprzed migracji (#13)
+  ansible.builtin.copy:
+    src: wlb-hub-db-preupgrade
+    dest: /opt/wlb/bin/wlb-hub-db-preupgrade
+    mode: "0755"
+
+- name: Drop-in jupyterhub — kopia bazy przed migracją (#13)
+  ansible.builtin.copy:
+    src: jupyterhub-60-wlb-dbbackup.conf
+    dest: /etc/systemd/system/jupyterhub.service.d/60-wlb-dbbackup.conf
+    mode: "0644"
+  notify: Reload systemd
+
 - name: Konfiguracja TLJH
   ansible.builtin.template:
     src: config.yaml.j2
