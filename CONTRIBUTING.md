@@ -37,6 +37,17 @@ regresję”, #52 „testy negatywne/bezpieczeństwa”). Przyjęcie DoD śledzi
 python3 ci/mapa-testy.py   # nadpisuje docs/mapa-testy-zgloszenia.md
 ```
 
+## Haki gita (wskazane, nie obowiazkowe)
+
+```sh
+git config core.hooksPath .githooks   # jednorazowo, w kazdym lokalnym klonie
+```
+
+`pre-commit` blokuje commit, jesli w indeksie zostaly nierozwiazane znaczniki konfliktu —
+ta sama logika co w etapie 1 (`ci/conflict_markers.py --staged`, skan indeksu, nie dysku).
+Hak to tylko wygoda wczesnego alarmu (`--no-verify` go omija); prawdziwa bramka pozostaje
+CI: `run_check "znaczniki konfliktu"` w `ci/lint.sh` (#123).
+
 ## Etapy CI (skrót)
 
 | Etap | Kiedy | Zakres |

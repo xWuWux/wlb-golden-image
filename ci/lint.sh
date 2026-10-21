@@ -23,6 +23,8 @@ run_check "ansible-lint" bash -c 'cd ansible && ansible-lint --strict site.yml'
 # actionlint uruchamia też shellcheck na blokach run: w workflow
 run_check "actionlint (GitHub Actions)" actionlint
 run_check "packer fmt" packer fmt -check -diff -recursive packer/
+# znaczniki konfliktu trafiaja do repo nawet gdy linter znajomego jezyka ich nie widzi (.md, .txt) — f0b4b5a
+run_check "znaczniki konfliktu (merge markers)" python3 ci/conflict_markers.py
 # historia commitów (to, co trafia do repozytorium) i drzewo robocze (niezacommitowane zmiany)
 run_check "gitleaks (historia git)" gitleaks git --redact --no-banner .
 run_check "gitleaks (drzewo robocze)" gitleaks dir --redact --no-banner .
