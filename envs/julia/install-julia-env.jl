@@ -18,6 +18,14 @@ manifest_out = length(ARGS) >= 2 ? ARGS[2] : ""
 
 Pkg.activate(project)
 
+# Świeży depot (JULIA_DEPOT_PATH wskazuje pusty katalog) nie ma żadnego rejestru pakietów.
+# Bez niego resolve/instantiate po UUID pada: "expected package IJulia [...] to be registered".
+# Dokładamy rejestr General przed rozwiązaniem (build ma dostęp do sieci). Idempotentnie.
+if isempty(Pkg.Registry.reachable_registries())
+    @info "Brak rejestru — dodaję General"
+    Pkg.Registry.add("General")
+end
+
 if isfile(joinpath(project, "Manifest.toml"))
     @info "Manifest.toml obecny — odtwarzam środowisko (instantiate)"
     Pkg.instantiate()

@@ -76,7 +76,7 @@ collect_vm_logs() {
 }
 
 acceptance() {
-  local rc=0 sink ntp="" ntp_flag=""
+  local rc=0 sink ntp="" ntp_flag="" proxy="" proxy_flag=""
   # testowy SIEM: VM (sieć QEMU user) wysyła logi po TLS do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
   rm -f "$LOGS/siem.log"
   tests/lib/test-pki.sh build/test
@@ -105,9 +105,21 @@ acceptance() {
   else
     echo "Bez sudo — testowy serwer NTP pominięty (test synchronizacji w VM zrobi SKIP)"
   fi
+  # testowy proxy z allowlistą: badacz wychodzi wyłącznie przez 10.0.2.2:3128 — tests/proxy_sink.py (#16).
+  # Przepuszcza tylko mirrory (allowlista), resztę (w tym API LLM) odrzuca 403. Port nieuprzywilejowany
+  # (bez sudo). Bez niego test allowlisty robi SKIP (flaga --proxy-allowlist nieprzekazana).
+  python3 tests/proxy_sink.py --port 3128 --allow pypi.mirror.local,cran.mirror.local &
+  proxy=$!
+  sleep 1
+  if kill -0 "$proxy" 2>/dev/null; then
+    proxy_flag=1
+  else
+    echo "Testowy proxy nie wystartował — port 3128 zajęty? (ss -ltnp 'sport = :3128')"
+    proxy=""
+  fi
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
-    WLB_TEST_NTP=$ntp_flag tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
+    WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=$proxy_flag tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
     # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
     grep -q '^Wynik:' "$LOGS/acceptance.log" || {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
@@ -127,6 +139,10 @@ acceptance() {
   if [[ -n $ntp ]]; then
     sudo kill "$ntp" 2>/dev/null # $ntp to PID sudo; SIGTERM przekazywany do serwera (działa jako root)
     wait "$ntp" 2>/dev/null
+  fi
+  if [[ -n $proxy ]]; then
+    kill "$proxy" 2>/dev/null
+    wait "$proxy" 2>/dev/null
   fi
   {
     echo "### Kryteria akceptacji MVP"
