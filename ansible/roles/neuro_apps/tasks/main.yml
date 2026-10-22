@@ -1,0 +1,73 @@
+# Stos neuroobrazowania dla flavora wlb-radiologia (#135): FSL (zawiera FSLeyes) + 3DSlicer.
+# Licencja FSL: użytek niekomercyjny/akademicki — potwierdzone (#134). Instalacja przy budowaniu
+# (VM ma wtedy sieć); gotowy obraz jest offline. OGROMNE pliki — tylko ten flavor, nie baza.
+
+# --- FSL (conda-based; instaluje też FSLeyes) --------------------------------------------
+- name: Pobierz instalator FSL
+  ansible.builtin.get_url:
+    url: "{{ fsl_installer_url }}"
+    dest: /tmp/fslinstaller.py
+    mode: "0644"
+  register: neuro_apps_fsl_dl
+  until: neuro_apps_fsl_dl is succeeded
+  retries: 3
+  delay: 30
+
+# fslinstaller z -V <wersja> -d <katalog> działa nieinteraktywnie. Pierwsze budowanie bardzo długie
+# i pobiera dziesiątki GB. --miniconda do /tmp (usuwane po instalacji).
+- name: Instalacja FSL do {{ fsl_dir }} (długie, duże)
+  ansible.builtin.command: >-
+    python3 /tmp/fslinstaller.py -V {{ fsl_version }} -d {{ fsl_dir }} --miniconda /tmp/fsl-miniconda
+  args:
+    creates: "{{ fsl_dir }}/etc/fslversion"
+  changed_when: true
+
+- name: Środowisko FSL (FSLDIR + PATH) dla wszystkich użytkowników
+  ansible.builtin.copy:
+    dest: /etc/profile.d/fsl.sh
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola neuro_apps) — #135
+      FSLDIR={{ fsl_dir }}
+      export FSLDIR
+      [ -r "${FSLDIR}/etc/fslconf/fsl.sh" ] && . "${FSLDIR}/etc/fslconf/fsl.sh"
+      PATH="${FSLDIR}/share/fsl/bin:${PATH}"
+      export PATH
+
+- name: Sprzątanie po instalacji FSL
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/fslinstaller.py
+    - /tmp/fsl-miniconda
+
+# --- 3DSlicer (tarball Linux; GUI — wymaga pulpitu z roli desktop) ------------------------
+- name: Pobierz 3DSlicer (tarball, weryfikacja SHA-256)
+  ansible.builtin.get_url:
+    url: "{{ slicer_url }}"
+    dest: /tmp/slicer.tar.gz
+    checksum: "sha256:{{ slicer_sha256 }}"
+    mode: "0644"
+  register: neuro_apps_slicer_dl
+  until: neuro_apps_slicer_dl is succeeded
+  retries: 3
+  delay: 30
+
+- name: Rozpakuj 3DSlicer do {{ slicer_prefix }}
+  ansible.builtin.unarchive:
+    src: /tmp/slicer.tar.gz
+    remote_src: true
+    dest: "{{ slicer_prefix }}"
+    creates: "{{ slicer_prefix }}/Slicer-{{ slicer_version }}-linux-amd64/Slicer"
+
+- name: 3DSlicer na PATH (symlink)
+  ansible.builtin.file:
+    src: "{{ slicer_prefix }}/Slicer-{{ slicer_version }}-linux-amd64/Slicer"
+    dest: /usr/local/bin/Slicer
+    state: link
+
+- name: Sprzątanie tarballa 3DSlicer
+  ansible.builtin.file:
+    path: /tmp/slicer.tar.gz
+    state: absent

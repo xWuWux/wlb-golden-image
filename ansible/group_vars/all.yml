@@ -90,6 +90,19 @@ rstudio_rsession_proxy_spec: jupyter-rsession-proxy
 wlb_desktop_enabled: false
 desktop_proxy_spec: jupyter-remote-desktop-proxy
 
+# --- Stos neuroobrazowania (flavor wlb-radiologia, #135; rola neuro_apps) ----------
+# Używane tylko przez ansible/radiologia.yml. FSL (conda-based) instaluje też FSLeyes.
+# Licencja FSL: niekomercyjnie — potwierdzone (#134).
+fsl_version: "6.0.7.17" # DO WERYFIKACJI (python3 fslinstaller.py --help / strona FSL)
+fsl_dir: /usr/local/fsl
+fsl_installer_url: https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/releases/fslinstaller.py
+# 3DSlicer: konkretny plik Slicer-<wersja>-linux-amd64.tar.gz z download.slicer.org — DO UZUPEŁNIENIA
+# wraz z sumą SHA-256 (przypięcie wersji dla powtarzalności). Bez tego build 3DSlicer nie przejdzie.
+slicer_version: "5.8.1" # DO WERYFIKACJI
+slicer_url: "" # DO UZUPEŁNIENIA: pełny URL do Slicer-{{ slicer_version }}-linux-amd64.tar.gz
+slicer_sha256: "" # DO UZUPEŁNIENIA: sha256 tarballa
+slicer_prefix: /opt
+
 # --- Audyt ------------------------------------------------------------------------
 # Po pierwszym starcie reguły są blokowane (auditctl -e 2) — nawet root nie zmieni ich bez restartu.
 wlb_audit_immutable: true
