@@ -13,3 +13,6 @@ FeatureExtraction       OHDSI/FeatureExtraction@*release
 CohortGenerator         OHDSI/CohortGenerator@*release
 CohortMethod            OHDSI/CohortMethod@*release
 PatientLevelPrediction  OHDSI/PatientLevelPrediction@*release
+
+# Obrazowanie medyczne DICOM (badania)
+oro.dicom

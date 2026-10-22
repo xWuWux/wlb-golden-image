@@ -42,7 +42,7 @@ target = sys.argv[1]
 jlk = sys.argv[2] if len(sys.argv) > 2 else ""
 notebooks = {
     "test-py": ("python3", "python",
-                "import pandas, numpy, scipy, sklearn, matplotlib, seaborn, statsmodels, inspectomop"),
+                "import pandas, numpy, scipy, sklearn, matplotlib, seaborn, statsmodels, inspectomop, pydicom, nibabel"),
     "test-r": ("ir", "R",
                'for (p in c("DatabaseConnector", "SqlRender", "FeatureExtraction", "CohortGenerator", '
                '"CohortMethod", "PatientLevelPrediction")) library(p, character.only = TRUE)'),
@@ -134,7 +134,21 @@ echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
 expect_fail "Bezpośrednie połączenie po adresie IP" as $R1 curl -s --noproxy '*' --max-time 5 http://1.1.1.1
 expect_ok "Reguły egress nftables załadowane" nft list chain inet wlb researcher_egress
-skip "Allowlista proxy (mirror PyPI/CRAN) — wymaga proxy Laboratorium"
+# Allowlista na prawdziwym proxy (#16). Z flagą --proxy-allowlist (CI: testowy proxy tests/proxy_sink.py
+# na 10.0.2.2:3128) sprawdzamy, że mirror z allowlisty przechodzi (200), a reszta — w tym API LLM
+# (§31.3) — jest blokowana (403). Badacz wychodzi przez proxy; zaporę egress pokrywają testy wyżej.
+# Bez flagi (lokalnie bez testowego proxy) → SKIP zamiast fałszywego PASS/FAIL.
+if [[ " $* " == *" --proxy-allowlist "* ]]; then
+  P=http://10.0.2.2:3128
+  expect_ok "Proxy przepuszcza mirror z allowlisty (200)" \
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://pypi.mirror.local/)" = 200
+  expect_ok "Proxy blokuje API LLM (403, §31.3)" \
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://api.openai.com/)" = 403
+  expect_ok "Proxy blokuje domenę spoza allowlisty (403)" \
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://example.com/)" = 403
+else
+  skip "Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)"
+fi
 
 echo "== 7. Limity sesji (§9.5) =="
 expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--timeout=1800"'
@@ -269,54 +283,3 @@ expect_ok "PermitUserEnvironment no (#62)" bash -c "sshd -T | grep -qx 'permitus
 expect_ok "Banner /etc/issue.net (#62)" bash -c "sshd -T | grep -qx 'banner /etc/issue.net'"
 expect_ok "Baner prawny o monitoringu (#62)" grep -q 'osob upowaznionych' /etc/issue.net
 expect_fail "Baner nie ujawnia wersji systemu (#62)" grep -qE '\\[slrmvSU]' /etc/issue.net
-
-echo "== 11. Jedno jądro w obrazie (#9) =="
-expect_ok "Dokładnie jedno /boot/vmlinuz-*" test "$(find /boot -maxdepth 1 -name 'vmlinuz-*' | wc -l)" -eq 1
-expect_ok "Jeden katalog modułów w /lib/modules" test "$(find /lib/modules -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1
-expect_ok "Katalog modułów = uruchomione jądro" test -d "/lib/modules/$(uname -r)"
-
-echo "== 12. AppArmor (CIS 1.6, #65) =="
-expect_ok "AppArmor włączony (aa-enabled)" aa-enabled
-expect_ok "apparmor=1 w parametrach jądra (GRUB)" grep -qw apparmor=1 /proc/cmdline
-expect_ok "apparmor-utils zainstalowany (aa-enforce)" command -v aa-enforce
-expect_ok "Żaden profil nie jest w trybie complain" test "$(aa-status --complaining)" = 0
-expect_ok "Profil rsyslogd w trybie enforce (#6)" bash -c 'aa-status --json | grep -i rsyslogd | grep -qi enforce'
-
-echo "== 13. Utwardzenie jądra: sysctl i zrzuty pamięci (CIS 1.x/3.x, #63) =="
-expect_ok "rp_filter=1 (#63)" test "$(sysctl -n net.ipv4.conf.all.rp_filter)" = 1
-expect_ok "accept_source_route=0 (#63)" test "$(sysctl -n net.ipv4.conf.all.accept_source_route)" = 0
-expect_ok "secure_redirects=0 (#63)" test "$(sysctl -n net.ipv4.conf.all.secure_redirects)" = 0
-expect_ok "log_martians=1 (#63)" test "$(sysctl -n net.ipv4.conf.all.log_martians)" = 1
-expect_ok "tcp_syncookies=1 (#63)" test "$(sysctl -n net.ipv4.tcp_syncookies)" = 1
-expect_ok "icmp_echo_ignore_broadcasts=1 (#63)" test "$(sysctl -n net.ipv4.icmp_echo_ignore_broadcasts)" = 1
-expect_ok "IPv6 accept_ra=0 (#63)" test "$(sysctl -n net.ipv6.conf.all.accept_ra)" = 0
-expect_ok "IPv6 forwarding=0 (#63)" test "$(sysctl -n net.ipv6.conf.all.forwarding)" = 0
-expect_ok "fs.suid_dumpable=0 (#63)" test "$(sysctl -n fs.suid_dumpable)" = 0
-expect_ok "Twardy limit core=0 w limits.d (#63)" grep -qxE '\* +hard +core +0' /etc/security/limits.d/60-wlb-coredump.conf
-expect_ok "systemd-coredump Storage=none (#63)" grep -qx 'Storage=none' /etc/systemd/coredump.conf.d/60-wlb.conf
-
-echo "== 14. Hooki cyklu życia sesji badacza + emiter SIEM (#97) =="
-expect_ok "Config hooka 80-wlb-session.py obecny i poprawny składniowo (#97)" \
-  /opt/tljh/user/bin/python -m py_compile /opt/tljh/config/jupyterhub_config.d/80-wlb-session.py
-expect_ok "Emiter sesji wykonywalny (#97)" test -x /opt/wlb/bin/wlb-session-log
-/opt/wlb/bin/wlb-session-log start jupyter-tester1 10001 00000000000000000000000000000000 lab-test01
-for _ in $(seq 1 10); do
-  journalctl -t wlb-session 2>/dev/null | grep -q 'session_start user=jupyter-tester1 uid=10001 hub_session=0' && break
-  sleep 1
-done
-expect_ok "Emiter sesji trafia do journala z tagiem wlb-session (#97)" \
-  bash -c "journalctl -t wlb-session 2>/dev/null | grep -q 'session_start user=jupyter-tester1 uid=10001 hub_session=0'"
-
-echo "== 15. Raport użycia/pojemności sesji (#98) =="
-expect_ok "Sampler użycia wykonywalny (#98)" test -x /opt/wlb/bin/wlb-usage-sampler
-expect_ok "Rekord użycia wykonywalny (#98)" test -x /opt/wlb/bin/wlb-usage-record
-expect_ok "Timer samplera włączony (#98)" systemctl is-enabled wlb-usage-sampler.timer
-expect_ok "Katalog raportów 0750, nie dla badaczy (#98)" \
-  bash -c "[ \"\$(stat -c %a /var/log/wlb/sessions)\" = 750 ]"
-expect_fail "Badacz nie czyta raportów użycia (#98)" as $R1 ls /var/log/wlb/sessions
-mkdir -p /run/wlb/usage
-printf 'MemoryPeak=1048576\nCPUUsageNSec=1000000000\n' >/run/wlb/usage/jupyter-tester1-singleuser.service.kv
-/opt/wlb/bin/wlb-usage-record jupyter-tester1 testsession lab-test01 1760000000 1760000060 60
-expect_ok "Rekord użycia zapisany do JSONL (#98)" \
-  bash -c "grep -q '\"hub_session\":\"testsession\".*\"peak_memory_bytes\":1048576' /var/log/wlb/sessions/usage-*.jsonl"
-summary

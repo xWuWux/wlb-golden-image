@@ -1,0 +1,45 @@
+# Pulpit w przeglądarce dla flavora wlb-memory (#106, PoC). Osadzony w JupyterLab przez
+# jupyter-remote-desktop-proxy — ten sam wzorzec co RStudio przez jupyter-rsession-proxy:
+# logowanie, proxowanie, idle culling i twardy limit 12 h (§9.5) idą przez Hub.
+# Rola nakładana warstwowo na gotowy obraz wlb-general (playbook desktop.yml), nie w site.yml bazy.
+
+- name: Pakiety pulpitu (XFCE minimalny, TigerVNC, noVNC, websockify)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - xfce4 # sesja + panel + menedżer okien (bez xfce4-goodies — za ciężkie na PoC)
+      - xterm # terminal na pulpicie
+      - dbus-x11 # magistrala D-Bus sesji XFCE
+      - tigervnc-standalone-server
+      - tigervnc-common
+      - websockify
+      - novnc
+    state: present
+
+# server-proxy żyje w środowisku użytkowników TLJH (tam, gdzie kernele i rsession-proxy) — kafelek
+# "Desktop" pojawia się w Launcherze automatycznie po instalacji pakietu (entry point server-proxy).
+# Pulpit startuje JAKO proces potomny serwera badacza → jego cgroup i OOMScoreAdjust (#30).
+- name: Instalacja jupyter-remote-desktop-proxy w środowisku użytkowników TLJH
+  ansible.builtin.command: /opt/tljh/user/bin/pip install --retries 5 {{ desktop_proxy_spec }}
+  register: desktop_proxy_install
+  until: desktop_proxy_install is succeeded
+  retries: 3
+  delay: 30
+  changed_when: true
+
+# Granica eksfiltracji przeglądarka↔VM (§14.7/§24.e): schowek i transfer plików WYŁĄCZONE.
+# To NIE dotyczy wymiany notatnik↔pulpit — oba działają w tej samej VM, na wspólnym katalogu
+# domowym badacza (~/). TigerVNC steruje schowkiem po stronie serwera (-AcceptCutText/-SendCutText),
+# niezależnie od klienta noVNC.
+# UWAGA PoC: to KANDYDAT — czy jupyter-remote-desktop-proxy uruchamia Xvnc przez wrapper vncserver
+# (czytający ten plik), czy bezpośrednio (plik pominięty), rozstrzyga empiryczny test w #106.
+- name: TigerVNC bez schowka — granica przeglądarka↔VM (kandydat, weryfikacja w PoC)
+  ansible.builtin.copy:
+    dest: /etc/tigervnc/vncserver-config-mandatory
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola desktop) — §14.7/§24.e, #106
+      # Schowek VNC wyłączony po stronie serwera. Transfer plików noVNC nie jest domyślnie
+      # wystawiany przez jupyter-remote-desktop-proxy. Do potwierdzenia empirycznego (#106).
+      -AcceptCutText=0
+      -SendCutText=0

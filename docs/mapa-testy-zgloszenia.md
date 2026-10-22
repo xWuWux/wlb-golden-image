@@ -75,7 +75,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
 
 ### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _otwarte_
-- `tests/acceptance-remote.sh` — *13. AppArmor (CIS 1.6, #65)*
+- `tests/acceptance.d/20-apparmor.sh` — *AppArmor (CIS 1.6, #65)*
 
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
@@ -91,6 +91,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 
 ### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
 - `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, `Notebook Julia (IJulia, stdlib)`, *2. Notebook Python, R i Julia*
+
+### #106 — Pulpit w przeglądarce (flavor wlb-memory) + regresja lekkości bazy (#105)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — sekcja *11*: na `wlb-memory` sprawdza XFCE/TigerVNC/websockify/schowek i `WLB_IMAGE_NAME`; na `wlb-general` pilnuje, że pulpit NIE wyciekł do bazy. Testy interaktywne (idle culler na noVNC, dziedziczenie OOMScoreAdjust) — runbook w #106.
 
 ### #97 — Hooki cyklu życia sesji badacza (pre/post-spawn) + korelacja sesji w SIEM  ·  _otwarte_
 - `observability/contract.yml` — zdarzenia `session.start`, `session.stop` (tag `wlb-session`); pilnuje `tests/unit/test_observability_contract.py`.
