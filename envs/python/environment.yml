@@ -36,6 +36,9 @@ dependencies:
   - h2>=4.4.1           # GHSA-847f-9342-265h, GHSA-6hr6-w5qg-qmwg
   - hpack>=4.2.0        # GHSA-8v8h-hg4w-mvq2
   - certifi>=2026.10.19 # PYSEC-2026-4320 / GHSA-6q48-6c7w-9gw2 (CVSS 9.1)
+  # Musi nadążać za certifi i solverem conda (conda-libmamba-solver wymaga >=2026.10.19);
+  # stary pin w locku był usunięty z conda-forge (linux-64) → build nie solvował. #3/lock
+  - ca-certificates>=2026.10.19
   - pillow>=13.0.0      # 9 podatności naprawionych w 13.0.0 (m.in. GHSA-8g5g-8vmr-9782 CVSS 9.2)
   - pip:
       - inspectomop
