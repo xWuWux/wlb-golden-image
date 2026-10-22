@@ -48,7 +48,9 @@ rm -rf /var/lib/apt/lists/*
 
 # JupyterHub wygeneruje nowy cookie secret i bazę przy pierwszym starcie VM
 systemctl stop jupyterhub traefik || true
-rm -f /opt/tljh/state/jupyterhub_cookie_secret /opt/tljh/state/jupyterhub.sqlite /workspace/.wlb-hub/*
+rm -f /opt/tljh/state/jupyterhub_cookie_secret /opt/tljh/state/jupyterhub.sqlite
+# -rf, bo /workspace/.wlb-hub/ ma też katalogi (backup/ z #8/#13) — rm -f nie usuwa katalogów
+rm -rf /workspace/.wlb-hub/*
 
 # Klucze hosta SSH i machine-id odtwarza cloud-init przy pierwszym starcie
 rm -f /etc/ssh/ssh_host_*

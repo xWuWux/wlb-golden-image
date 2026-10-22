@@ -1,0 +1,57 @@
+# Zarządzane przez Ansible (rola tljh) — hooki cyklu życia sesji badacza (#97) + rekord użycia (#98).
+# Korelacja "jedna sesja badacza" dla SIEM (§21): pre_spawn emituje session_start, post_stop —
+# session_stop z czasem trwania. Emisja przez /opt/wlb/bin/wlb-session-log (root → pola zaufane
+# imuxsock/uid=0, #44). Po stopie dodatkowo zapisywany jest rekord użycia/pojemności (#98) przez
+# wlb-usage-record — OSOBNO od SIEM; szczyt zasobów bierze z próbek wlb-usage-sampler (hub_session
+# jako klucz). Odczyt cgroup w post_stop jest niemożliwy (jednostka transient już zniknęła).
+import os
+import pwd
+import subprocess
+import time
+import uuid
+
+c = get_config()  # noqa: F821
+
+_WLB_SESSION_LOG = "/opt/wlb/bin/wlb-session-log"
+_WLB_USAGE_RECORD = "/opt/wlb/bin/wlb-usage-record"
+
+
+def _wlb_ident(spawner):
+    user = "jupyter-" + spawner.user.name
+    try:
+        uid = str(pwd.getpwnam(user).pw_uid)
+    except KeyError:
+        uid = ""
+    sid = getattr(spawner, "_wlb_session", "")
+    lab = os.environ.get("LAB_NAME", "")
+    return user, uid, sid, lab
+
+
+def _wlb_run(spawner, args):
+    try:
+        subprocess.run(args, check=False, timeout=5)  # noqa: S603
+    except Exception as exc:  # noqa: BLE001 — hook nie może wywrócić spawnu/stopu
+        spawner.log.warning("wlb-session: nie wykonano %s: %s", args[0], exc)
+
+
+def wlb_pre_spawn_hook(spawner):
+    spawner._wlb_session = uuid.uuid4().hex
+    spawner._wlb_start = time.monotonic()
+    spawner._wlb_start_wall = time.time()
+    user, uid, sid, lab = _wlb_ident(spawner)
+    _wlb_run(spawner, [_WLB_SESSION_LOG, "start", user, uid, sid, lab])
+
+
+def wlb_post_stop_hook(spawner):
+    start = getattr(spawner, "_wlb_start", None)
+    duration = int(time.monotonic() - start) if start is not None else 0
+    user, uid, sid, lab = _wlb_ident(spawner)
+    _wlb_run(spawner, [_WLB_SESSION_LOG, "stop", user, uid, sid, lab, str(duration)])
+    start_wall = getattr(spawner, "_wlb_start_wall", None)
+    if start_wall is not None:
+        _wlb_run(spawner, [_WLB_USAGE_RECORD, user, sid, lab,
+                           str(int(start_wall)), str(int(time.time())), str(duration)])
+
+
+c.Spawner.pre_spawn_hook = wlb_pre_spawn_hook
+c.Spawner.post_stop_hook = wlb_post_stop_hook
