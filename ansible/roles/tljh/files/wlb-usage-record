@@ -1,0 +1,37 @@
+#!/bin/sh
+# Zapisuje rekord użycia zakończonej sesji badacza do /var/log/wlb/sessions/usage-<data>.jsonl (#98).
+# Wołany z post_stop_hook (80-wlb-session.py). Łączy tożsamość/czasy z hooka Huba ze szczytem
+# zasobów ostatnio spróbkowanym przez wlb-usage-sampler. ŚWIADOMIE osobno od SIEM (§21) — to dane
+# operacyjne (planowanie pojemności), nie bezpieczeństwa. Bez logger/tagów wlb-* (nie wchodzi w SIEM).
+# Użycie: wlb-usage-record <user> <hub_session> <lab> <start_epoch> <stop_epoch> <duration_seconds>
+set -eu
+
+user=$1
+sid=$2
+lab=$3
+start=$4
+stop=$5
+duration=$6
+
+run_dir=${WLB_USAGE_RUN_DIR:-/run/wlb/usage}
+out_dir=${WLB_USAGE_OUT_DIR:-/var/log/wlb/sessions}
+
+peak_file="$run_dir/$user-singleuser.service.kv"
+mem=0
+cpu_ns=0
+if [ -r "$peak_file" ]; then
+  mem=$(sed -n 's/^MemoryPeak=//p' "$peak_file")
+  cpu_ns=$(sed -n 's/^CPUUsageNSec=//p' "$peak_file")
+fi
+case "$mem" in '' | *[!0-9]*) mem=0 ;; esac
+case "$cpu_ns" in '' | *[!0-9]*) cpu_ns=0 ;; esac
+case "$duration" in '' | *[!0-9]*) duration=0 ;; esac
+cpu_sec=$(awk "BEGIN { printf \"%.3f\", $cpu_ns / 1000000000 }")
+
+iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo ""; }
+
+mkdir -p "$out_dir"
+# user=jupyter-<login> (ograniczony zestaw znaków), sid=hex, lab z lab.env (zaufane) — bez wstrzyknięć JSON.
+printf '{"hub_session":"%s","user":"%s","lab":"%s","start_time":"%s","stop_time":"%s","duration_seconds":%s,"peak_memory_bytes":%s,"cpu_time_seconds":%s}\n' \
+  "$sid" "$user" "$lab" "$(iso "$start")" "$(iso "$stop")" "$duration" "$mem" "$cpu_sec" \
+  >>"$out_dir/usage-$(date -u +%Y%m%d).jsonl"

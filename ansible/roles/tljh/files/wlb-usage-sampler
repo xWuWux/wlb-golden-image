@@ -1,0 +1,19 @@
+#!/bin/sh
+# Sampler szczytu zasobów sesji badaczy do raportu użycia/pojemności (#98). Uruchamiany cyklicznie
+# przez wlb-usage-sampler.timer. Dla każdego aktywnego serwera (jednostka jupyter-<user>-singleuser)
+# zapisuje bieżący MemoryPeak/CPUUsageNSec z księgowania systemd (wlb-badacze.slice ma
+# MemoryAccounting/CPUAccounting, #30). MemoryPeak jest monotoniczny — ostatnia próbka przed stopem
+# ~ prawdziwy szczyt sesji. Dane do /run (tmpfs, ulotne); rekord trwały składa wlb-usage-record.
+set -eu
+
+run_dir=${WLB_USAGE_RUN_DIR:-/run/wlb/usage}
+mkdir -p "$run_dir"
+
+units=$(systemctl list-units --type=service --state=active --no-legend 'jupyter-*-singleuser.service' 2>/dev/null | awk '{print $1}')
+for unit in $units; do
+  mem=$(systemctl show "$unit" -p MemoryPeak --value 2>/dev/null || echo "")
+  cpu=$(systemctl show "$unit" -p CPUUsageNSec --value 2>/dev/null || echo "")
+  case "$mem" in '' | *[!0-9]*) mem=0 ;; esac
+  case "$cpu" in '' | *[!0-9]*) cpu=0 ;; esac
+  printf 'MemoryPeak=%s\nCPUUsageNSec=%s\n' "$mem" "$cpu" >"$run_dir/$unit.kv"
+done

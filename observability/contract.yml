@@ -127,6 +127,33 @@ events:
     pattern: '^(?=.*"RouterName":"wlb-block-download@file")(?=.*"DownstreamStatus":403).*"RequestPath":"/user/(?P<user>[^/"]+)/'
     acceptance: true
 
+  - name: session.start
+    description: Serwer notebooków badacza wystartował (pre_spawn_hook JupyterHub) — korelacja sesji Huba (#97).
+    regulamin: "§21"
+    source: { tag: wlb-session, file: ansible/roles/tljh/files/wlb-session-log, marker: session_start }
+    trusted: { input: imuxsock, uid: "^0$" } # hub działa jako root
+    format: kv
+    fields:
+      user: "^jupyter-[a-z0-9._-]+$"
+      uid: "^[0-9]+$"
+      hub_session: "^[0-9a-f]{32}$"
+      lab: ".*"
+    acceptance: false
+
+  - name: session.stop
+    description: Serwer notebooków badacza zatrzymany (post_stop_hook); duration_seconds = czas trwania sesji (#97).
+    regulamin: "§21"
+    source: { tag: wlb-session, file: ansible/roles/tljh/files/wlb-session-log, marker: session_stop }
+    trusted: { input: imuxsock, uid: "^0$" } # hub działa jako root
+    format: kv
+    fields:
+      user: "^jupyter-[a-z0-9._-]+$"
+      uid: "^[0-9]+$"
+      hub_session: "^[0-9a-f]{32}$"
+      lab: ".*"
+      duration_seconds: "^[0-9]*$"
+    acceptance: false
+
   - name: network.egress_deny
     description: Zablokowane połączenie wychodzące procesu badacza (nftables, obrona w głębi).
     regulamin: "§31.3"

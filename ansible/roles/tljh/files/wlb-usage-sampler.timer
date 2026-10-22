@@ -1,0 +1,10 @@
+[Unit]
+Description=WLB: cykliczne próbkowanie zużycia sesji badaczy (#98)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

@@ -94,6 +94,14 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 
 ### #106 — Pulpit w przeglądarce (flavor wlb-memory) + regresja lekkości bazy (#105)  ·  _otwarte_
 - `tests/acceptance-remote.sh` — sekcja *11*: na `wlb-memory` sprawdza XFCE/TigerVNC/websockify/schowek i `WLB_IMAGE_NAME`; na `wlb-general` pilnuje, że pulpit NIE wyciekł do bazy. Testy interaktywne (idle culler na noVNC, dziedziczenie OOMScoreAdjust) — runbook w #106.
+
+### #97 — Hooki cyklu życia sesji badacza (pre/post-spawn) + korelacja sesji w SIEM  ·  _otwarte_
+- `observability/contract.yml` — zdarzenia `session.start`, `session.stop` (tag `wlb-session`); pilnuje `tests/unit/test_observability_contract.py`.
+- `tests/acceptance-remote.sh` — sekcja *11*: config hooka `80-wlb-session.py`, emiter `wlb-session-log` → journal.
+
+### #98 — Raport użycia/pojemności sesji (sampler systemd + JSONL, osobno od SIEM)  ·  _otwarte_
+- `tests/unit/wlb-usage-record.bats` — składanie rekordu JSONL (szczyt z próbki, zera przy braku, sanityzacja liczb).
+- `tests/acceptance-remote.sh` — sekcja *12*: sampler/rekord wykonywalne, timer włączony, katalog 0750 niedostępny dla badacza, zapis JSONL.
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.

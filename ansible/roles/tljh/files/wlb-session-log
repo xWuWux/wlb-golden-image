@@ -1,0 +1,27 @@
+#!/bin/sh
+# Emiter zdarzeń cyklu życia sesji badacza do SIEM (tag wlb-session, #97, §21).
+# Wołany przez hooki JupyterHub (80-wlb-session.py) jako root (proces huba) — dzięki temu rsyslog
+# dokłada pola zaufane imuxsock/uid=0 (#44), których badacz nie podrobi.
+# Użycie:  wlb-session-log start <user> <uid> <hub_session> <lab>
+#          wlb-session-log stop  <user> <uid> <hub_session> <lab> <duration_seconds>
+set -eu
+
+action=$1
+user=$2
+uid=$3
+sid=$4
+lab=$5
+
+case "$action" in
+  start)
+    logger -t wlb-session -p local6.info -- "session_start user=$user uid=$uid hub_session=$sid lab=$lab"
+    ;;
+  stop)
+    dur=${6:-}
+    logger -t wlb-session -p local6.info -- "session_stop user=$user uid=$uid hub_session=$sid lab=$lab duration_seconds=$dur"
+    ;;
+  *)
+    echo "wlb-session-log: nieznana akcja '$action'" >&2
+    exit 2
+    ;;
+esac
