@@ -25,6 +25,12 @@ dependencies:
   # skompresowanych transfer syntaxów (JPEG/JPEG2000). matplotlib/seaborn/scikit-learn są wyżej.
   - pydicom
   - python-gdcm
+  # Neuroobrazowanie (pipeline MRI/fMRI badaczy): nibabel (NIfTI), dcm2niix (konwersja DICOM->NIfTI, CLI),
+  # snakemake (silnik workflow). numpy/pandas/scipy/matplotlib/pydicom są wyżej. FSL/FSLeyes/3DSlicer
+  # to osobny temat (GUI + licencja + rozmiar) — nie tu.
+  - nibabel
+  - dcm2niix
+  - snakemake
   - pip
   # Minimalne wersje pakietów bazowych z instalatora TLJH (Miniforge), które miały znane podatności
   # (osv-scanner po pierwszym `make freeze`, 2026-09-26). Podbijaj przy nowych CVE, nie obniżaj.
