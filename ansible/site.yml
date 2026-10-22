@@ -10,6 +10,8 @@
     - julia_env
     - role: rstudio
       when: wlb_rstudio_enabled | bool
+    - role: desktop
+      when: wlb_desktop_enabled | bool
     - audit
     - logging
     - lab_config

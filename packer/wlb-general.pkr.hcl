@@ -1,16 +1,4 @@
-packer {
-  required_version = ">= 1.10.0"
-  required_plugins {
-    qemu = {
-      source  = "github.com/hashicorp/qemu"
-      version = "~> 1.1"
-    }
-    ansible = {
-      source  = "github.com/hashicorp/ansible"
-      version = "~> 1.1"
-    }
-  }
-}
+# Blok packer{}/required_plugins jest w packer/plugins.pkr.hcl (wspólny dla katalogu).
 
 locals {
   image_date = var.image_date != "" ? var.image_date : formatdate("YYYYMMDD", timestamp())

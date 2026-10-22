@@ -1,0 +1,15 @@
+#cloud-config
+# Seed warstwowego builda wlb-memory (#106). Obraz bazowy wlb-general jest zapieczętowany
+# (userdel packer, cloud-init clean --seed) i ma ZAHARTOWANY SSH: PasswordAuthentication no,
+# AllowGroups wlb-platform-admins. Dlatego tymczasowy "packer" MUSI być w tej grupie
+# (inaczej sshd odrzuci logowanie) i logować się kluczem. Użytkownik usuwany przy wyłączeniu.
+users:
+  - name: packer
+    groups: [sudo, wlb-platform-admins]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+ssh_pwauth: false
+package_update: false

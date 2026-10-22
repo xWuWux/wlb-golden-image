@@ -91,6 +91,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 
 ### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
 - `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, `Notebook Julia (IJulia, stdlib)`, *2. Notebook Python, R i Julia*
+
+### #106 — Pulpit w przeglądarce (flavor wlb-memory) + regresja lekkości bazy (#105)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — sekcja *11*: na `wlb-memory` sprawdza XFCE/TigerVNC/websockify/schowek i `WLB_IMAGE_NAME`; na `wlb-general` pilnuje, że pulpit NIE wyciekł do bazy. Testy interaktywne (idle culler na noVNC, dziedziczenie OOMScoreAdjust) — runbook w #106.
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.

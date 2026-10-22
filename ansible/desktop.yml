@@ -1,0 +1,22 @@
+# Warstwa pulpitu flavora wlb-memory (#106). Nakładana na GOTOWY obraz wlb-general, więc
+# uruchamia TYLKO rolę desktop — nie przebudowuje OS/Python/R (warstwowy build Packera).
+# Pełny build bazy pozostaje w site.yml; tam rola desktop jest gated wlb_desktop_enabled.
+- name: WLB wlb-memory — warstwa pulpitu na obrazie wlb-general
+  hosts: all
+  become: true
+  roles:
+    - desktop
+
+  post_tasks:
+    # Obraz wlb-general ma w /etc/wlb/image-release nazwę "wlb-general" — nadpisujemy na flavor.
+    - name: Zaktualizuj metadane obrazu na flavor wlb-memory
+      ansible.builtin.lineinfile:
+        path: /etc/wlb/image-release
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: WLB_IMAGE_NAME, value: "{{ wlb_image_name }}" }
+        - { key: WLB_IMAGE_VERSION, value: "{{ wlb_image_version }}" }
+        - { key: WLB_IMAGE_DATE, value: "{{ wlb_image_date }}" }
+      loop_control:
+        label: "{{ item.key }}"
