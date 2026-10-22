@@ -21,6 +21,10 @@ dependencies:
   - sqlalchemy
   - psycopg2
   - pyarrow
+  # Obrazowanie medyczne DICOM (badania): pydicom + backend python-gdcm do odczytu
+  # skompresowanych transfer syntaxów (JPEG/JPEG2000). matplotlib/seaborn/scikit-learn są wyżej.
+  - pydicom
+  - python-gdcm
   - pip
   # Minimalne wersje pakietów bazowych z instalatora TLJH (Miniforge), które miały znane podatności
   # (osv-scanner po pierwszym `make freeze`, 2026-09-26). Podbijaj przy nowych CVE, nie obniżaj.

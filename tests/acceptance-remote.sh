@@ -42,7 +42,7 @@ target = sys.argv[1]
 jlk = sys.argv[2] if len(sys.argv) > 2 else ""
 notebooks = {
     "test-py": ("python3", "python",
-                "import pandas, numpy, scipy, sklearn, matplotlib, seaborn, statsmodels, inspectomop"),
+                "import pandas, numpy, scipy, sklearn, matplotlib, seaborn, statsmodels, inspectomop, pydicom"),
     "test-r": ("ir", "R",
                'for (p in c("DatabaseConnector", "SqlRender", "FeatureExtraction", "CohortGenerator", '
                '"CohortMethod", "PatientLevelPrediction")) library(p, character.only = TRUE)'),
