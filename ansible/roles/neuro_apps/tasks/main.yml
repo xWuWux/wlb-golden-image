@@ -43,11 +43,11 @@
     - /tmp/fsl-miniconda
 
 # --- 3DSlicer (tarball Linux; GUI — wymaga pulpitu z roli desktop) ------------------------
-- name: Pobierz 3DSlicer (tarball, weryfikacja SHA-256)
+- name: Pobierz 3DSlicer (tarball, weryfikacja SHA-512)
   ansible.builtin.get_url:
     url: "{{ slicer_url }}"
     dest: /tmp/slicer.tar.gz
-    checksum: "sha256:{{ slicer_sha256 }}"
+    checksum: "sha512:{{ slicer_sha512 }}"
     mode: "0644"
   register: neuro_apps_slicer_dl
   until: neuro_apps_slicer_dl is succeeded
