@@ -16,7 +16,7 @@
 . "$(dirname "$0")/common.sh"
 # shellcheck source=ci/image-meta.sh
 . "$(dirname "$0")/image-meta.sh"
-require packer ansible-playbook qemu-system-x86_64 qemu-img cloud-localds osv-scanner python3
+require packer ansible-playbook qemu-system-x86_64 qemu-img cloud-localds osv-scanner oscap python3
 
 IMAGE_VERSION=${IMAGE_VERSION:-0.0.0-ci}
 IMAGE_DATE=${IMAGE_DATE:-$(date +%Y%m%d)}
@@ -263,6 +263,23 @@ image_sca() {
   } | summary >/dev/null
 }
 
+image_oval() {
+  [[ -s $ARTIFACTS/dpkg-status ]] || {
+    echo "Brak dpkg-status z VM — pomijam OVAL"
+    return 0
+  }
+  # OVAL Canonical (USN): CVE pakietów NIE-jądrowych (oscap) + sygnał świeżości jądra (oval_summary.py),
+  # bo oscap nie flaguje jądra (USN kluczują poprawki na wersjonowanych binarkach linux-image-*-NNN).
+  # Domyka ślepą plamkę po override "linux" w osv-scanner (#2/#3). Pomiar lokalny: ~0,7 GB / ~6 s.
+  ci/guard.sh --name "oscap OVAL (obraz, jądro)" --optional --timeout 10m --memory 1500M -- \
+    ci/image_oval.sh "$ARTIFACTS/dpkg-status" build/sca
+  {
+    echo "### Skan OVAL Canonical (USN) obrazu — jądro i pakiety (#3)"
+    echo
+    cat build/sca/oval-summary.md 2>/dev/null || echo "brak wyniku — zob. build/ci-logs/guard.jsonl"
+  } | summary >/dev/null
+}
+
 hardening_report() {
   # Raport utwardzenia z VM testowej (zebrany w acceptance). Krok opcjonalny: zawsze zwraca 0,
   # bo audyt walidują osobne testy akceptacyjne, a odstępstwa są świadome i opisane (#11).
@@ -285,6 +302,7 @@ if [[ ${1:-} == image-sca ]]; then
   fi
   echo "Artefakty: $ARTIFACTS"
   run_check "Podatności pakietów w obrazie (raport)" image_sca
+  run_check "Skan OVAL Canonical obrazu (raport)" image_oval
   finish
   exit
 fi
