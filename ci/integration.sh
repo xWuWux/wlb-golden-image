@@ -51,7 +51,11 @@ build_image() {
   rm -rf "output/$FULL"
   packer init packer/ >/dev/null
   image_provenance # GIT_COMMIT/GIT_DESCRIBE/GIT_DIRTY/BUILD_RUN do metadanych obrazu (#12a)
-  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false \
+  # Tylko baza (wlb.qemu.wlb). Bez -only Packer buduje też flavory (wlb-memory, wlb-radiologia)
+  # RÓWNOLEGLE z bazą — a te mają disk_image=true z base_image=output/wlb-general.qcow2
+  # (placeholder) i padają natychmiast, bo bazy jeszcze nie ma. Flavory buduje się warstwowo
+  # osobno (runbooki RB-build-*), z realnym -var base_image. Integracja testuje bazę.
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false -only='wlb.qemu.wlb' \
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
