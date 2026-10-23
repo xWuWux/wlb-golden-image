@@ -1,0 +1,22 @@
+# Warstwa radiologiczna flavora wlb-radiologia (#135). Nakładana na GOTOWY obraz wlb-general:
+# pulpit (rola desktop, #106) + ciężki stos neuroobrazowania (rola neuro_apps: FSL, FSLeyes, 3DSlicer).
+# Nie przebudowuje OS/Python/R (warstwowy build Packera). FSL/3DSlicer są ogromne — stąd osobny flavor.
+- name: WLB wlb-radiologia — pulpit + stos neuroobrazowania na obrazie wlb-general
+  hosts: all
+  become: true
+  roles:
+    - desktop
+    - neuro_apps
+
+  post_tasks:
+    - name: Zaktualizuj metadane obrazu na flavor wlb-radiologia
+      ansible.builtin.lineinfile:
+        path: /etc/wlb/image-release
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: WLB_IMAGE_NAME, value: "{{ wlb_image_name }}" }
+        - { key: WLB_IMAGE_VERSION, value: "{{ wlb_image_version }}" }
+        - { key: WLB_IMAGE_DATE, value: "{{ wlb_image_date }}" }
+      loop_control:
+        label: "{{ item.key }}"
