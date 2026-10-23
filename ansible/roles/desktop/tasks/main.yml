@@ -9,6 +9,7 @@
     name:
       - xfce4 # sesja + panel + menedżer okien (bez xfce4-goodies — za ciężkie na PoC)
       - xterm # terminal na pulpicie
+      - scrot # zrzuty ekranu: narzędzie badacza + zależność render-smoke (tests/desktop-render-smoke.sh, #138)
       - dbus-x11 # magistrala D-Bus sesji XFCE
       - tigervnc-standalone-server
       - tigervnc-common
