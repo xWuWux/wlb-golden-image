@@ -1,0 +1,260 @@
+#!/usr/bin/python3
+"""Private export snapshots; no authorization or publication outside WLB (#20).
+
+Only the trusted mover calls this helper. SOURCE and DEST must be below the
+root-only queue. Untrusted directory entries are opened relative to pinned fds.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import pwd
+import stat
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal, TypedDict
+
+
+class Entry(TypedDict):
+    path: str
+    type: Literal["file", "directory"]
+    size: int
+    sha256: str
+
+
+class Requester(TypedDict):
+    uid: int
+    username: str
+
+
+class Manifest(TypedDict):
+    schema_version: int
+    request_id: str
+    state: Literal["pending_review"]
+    created_at: str
+    requester: Requester
+    original_name: str
+    digest_algorithm: Literal["sha256-file", "sha256-inventory-v1"]
+    sha256: str
+    entries: list[Entry]
+
+
+class SnapshotError(ValueError):
+    """The request cannot be safely staged; retain its source for investigation."""
+
+
+# Safety ceilings, not export policy. Large transfers require a dedicated path.
+MAX_ENTRIES = 100_000
+MAX_DEPTH = 64
+MAX_BYTES = 100 * 1024**3
+CHUNK_SIZE = 1024**2
+
+
+def canonical(value: object) -> bytes:
+    """Version 1: ASCII JSON, sorted keys, compact separators, no trailing newline."""
+    return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("ascii")
+
+
+def signature(st: os.stat_result) -> tuple[int, ...]:
+    return (st.st_dev, st.st_ino, st.st_mode, st.st_uid, st.st_nlink, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+def child_names(fd: int, limit: int) -> list[str]:
+    """Bound memory before sorting an attacker-controlled directory."""
+    names: list[str] = []
+    with os.scandir(fd) as children:
+        for child in children:
+            if len(names) >= limit:
+                raise SnapshotError("limit_exceeded")
+            names.append(child.name)
+    return sorted(names, key=os.fsencode)
+
+
+def inventory(source: Path, destination: Path | None = None) -> list[Entry]:
+    """Copy to new inodes or verify a private payload; refuse unsafe/changing trees.
+
+    A retained write fd can still change SOURCE. It cannot change DEST. Checking
+    metadata detects ordinary concurrent edits, but is not an application-level
+    transaction or proof that the researcher finished writing.
+    """
+    entries: list[Entry] = []
+    total = 0
+    owner: int | None = None
+
+    def visit(parent_fd: int, name: str, relative: str, target: Path | None, depth: int) -> None:
+        nonlocal total, owner
+        if depth > MAX_DEPTH or len(entries) >= MAX_ENTRIES:
+            raise SnapshotError("limit_exceeded")
+        # O_NONBLOCK prevents a raced FIFO from hanging the root service.
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
+        try:
+            before = os.fstat(fd)
+            if owner is None:
+                owner = before.st_uid
+            if before.st_uid != owner:
+                raise SnapshotError("mixed_owner")
+            if stat.S_ISREG(before.st_mode):
+                if before.st_nlink != 1:
+                    raise SnapshotError("hardlink")
+                total += before.st_size
+                if total > MAX_BYTES:
+                    raise SnapshotError("limit_exceeded")
+                digest = hashlib.sha256()
+                out = None
+                try:
+                    if target is not None:
+                        out = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                    remaining = before.st_size
+                    while remaining:
+                        chunk = os.read(fd, min(CHUNK_SIZE, remaining))
+                        if not chunk:
+                            raise SnapshotError("source_changed")
+                        digest.update(chunk)
+                        if out is not None:
+                            view = memoryview(chunk)
+                            while view:
+                                written = os.write(out, view)
+                                if written == 0:
+                                    raise OSError("short write")
+                                view = view[written:]
+                        remaining -= len(chunk)
+                    if os.read(fd, 1):
+                        raise SnapshotError("source_changed")
+                    if out is not None:
+                        os.fsync(out)
+                finally:
+                    if out is not None:
+                        os.close(out)
+                entries.append(Entry(path=relative, type="file", size=before.st_size, sha256=digest.hexdigest()))
+            elif stat.S_ISDIR(before.st_mode):
+                entries.append(Entry(path=relative, type="directory", size=0, sha256=""))
+                if target is not None:
+                    target.mkdir(mode=0o700)
+                children = child_names(fd, MAX_ENTRIES - len(entries))
+                for child in children:
+                    child_path = child if relative == "." else relative + "/" + child
+                    visit(fd, child, child_path, target / child if target is not None else None, depth + 1)
+                if children != child_names(fd, MAX_ENTRIES):
+                    raise SnapshotError("source_changed")
+                if target is not None:
+                    sync_dir(target)
+            else:
+                raise SnapshotError("unsupported_type")
+            if signature(before) != signature(os.fstat(fd)):
+                raise SnapshotError("source_changed")
+            # Detect replacement/removal of an entry while its old fd was pinned.
+            if signature(before) != signature(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)):
+                raise SnapshotError("source_changed")
+        finally:
+            os.close(fd)
+
+    parent = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        visit(parent, source.name, ".", destination, 0)
+    finally:
+        os.close(parent)
+    return entries
+
+
+def sync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def payload_digest(entries: list[Entry]) -> str:
+    if len(entries) == 1 and entries[0]["type"] == "file":
+        return entries[0]["sha256"]
+    return hashlib.sha256(canonical(entries)).hexdigest()
+
+
+def create(source: Path, destination: Path, original_name: str, request_id: str) -> Manifest:
+    """Build an unpublished bundle; caller publishes by rename after success only.
+
+    Arguments: captured SOURCE, new DEST, exact original basename, opaque request ID.
+    Return the v1 manifest. Partial destination and source remain on errors.
+    """
+    before = source.lstat()
+    destination.mkdir(mode=0o700)
+    entries = inventory(source, destination / "payload")
+    if signature(before) != signature(source.lstat()):
+        raise SnapshotError("source_changed")
+    try:
+        username = pwd.getpwuid(before.st_uid).pw_name
+    except KeyError:
+        username = str(before.st_uid)
+    manifest: Manifest = {
+        "schema_version": 1,
+        "request_id": request_id,
+        "state": "pending_review",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "requester": {"uid": before.st_uid, "username": username},
+        "original_name": original_name,
+        "digest_algorithm": "sha256-file" if stat.S_ISREG(before.st_mode) else "sha256-inventory-v1",
+        "sha256": payload_digest(entries),
+        "entries": entries,
+    }
+    with (destination / "manifest.json").open("xb") as output:
+        os.chmod(output.name, 0o600)
+        output.write(canonical(manifest) + b"\n")
+        output.flush()
+        os.fsync(output.fileno())
+    sync_dir(destination)
+    return manifest
+
+
+def verify(bundle: Path) -> Manifest:
+    """Verify exact paths, types, sizes and content, including empty directories.
+
+    Manifest is local root-owned metadata, not a signature or evidence of approval.
+    Legacy queue entries without a v1 manifest are deliberately refused.
+    """
+    with (bundle / "manifest.json").open("rb") as source:
+        manifest = json.load(source)
+    if (
+        not isinstance(manifest, dict)
+        or manifest.get("schema_version") != 1
+        or manifest.get("state") != "pending_review"
+    ):
+        raise SnapshotError("unsupported_manifest")
+    entries = inventory(bundle / "payload")
+    algorithm = "sha256-file" if entries[0]["type"] == "file" else "sha256-inventory-v1"
+    if (
+        entries != manifest.get("entries")
+        or payload_digest(entries) != manifest.get("sha256")
+        or algorithm != manifest.get("digest_algorithm")
+    ):
+        raise SnapshotError("integrity_mismatch")
+    return manifest
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    new = commands.add_parser("create")
+    new.add_argument("source", type=Path)
+    new.add_argument("destination", type=Path)
+    new.add_argument("original_name")
+    new.add_argument("request_id")
+    check = commands.add_parser("verify")
+    check.add_argument("bundle", type=Path)
+    args = parser.parse_args()
+    try:
+        if args.command == "create":
+            manifest = create(args.source, args.destination, args.original_name, args.request_id)
+        else:
+            manifest = verify(args.bundle)
+        print(manifest["sha256"])
+        return 0
+    except (OSError, ValueError, RecursionError) as error:
+        # No untrusted names/content in stderr (journald). Details stay in quarantine.
+        print("export_snapshot_failed: " + type(error).__name__, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

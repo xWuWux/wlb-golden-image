@@ -85,6 +85,9 @@ sleep 5
 expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
 expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
 expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-tester1_wynik-test.csv\$'"
+# shellcheck disable=SC2016  # argumenty rozwija wewnętrzny bash
+expect_ok "Manifest i integralność kopii w kolejce (#20)" \
+  bash -c 'for bundle in "$1"/*_jupyter-tester1_wynik-test.csv; do /usr/local/sbin/wlb-export-snapshot verify "$bundle" || exit 1; done' _ "$QUEUE"
 expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls "$QUEUE"
 # kolejka na dysku roboczym (przeżywa wymianę dysku systemowego, #4)
 expect_ok "Kolejka eksportu na dysku roboczym" test "$(findmnt -no TARGET --target "$QUEUE")" = /workspace
