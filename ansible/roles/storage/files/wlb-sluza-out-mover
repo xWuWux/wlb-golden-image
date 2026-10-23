@@ -12,6 +12,7 @@ IMAGE_CONF=${WLB_IMAGE_CONF:-/etc/wlb/image.conf}
 [[ -r $IMAGE_CONF ]] && . "$IMAGE_CONF"
 SRC=${WLB_SLUZA_OUT:-/sluza-out}
 QUEUE=${WLB_EXPORT_QUEUE:-/workspace/.wlb-export-queue}
+SNAPSHOT="$(dirname -- "$(readlink -f -- "$0")")/wlb-export-snapshot"
 DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
@@ -26,66 +27,55 @@ is_temp() {
   esac
 }
 
-# Wpis sprawdzamy dopiero PO przeniesieniu do kolejki (0700 root), gdzie badacz nie ma już do niego
-# dostępu. Sprawdzenie w /sluza-out i przeniesienie to dwa kroki: w międzyczasie badacz może podmienić
-# własny plik na dowiązanie symboliczne (np. do /etc/passwd) — root zmieniłby wtedy prawa celu, a do
-# kolejki trafiłoby dowiązanie do cudzych danych. #29
+# Przeniesienie nie unieważnia otwartych deskryptorów. Tylko nowa kopia na prywatnych
+# i-węzłach może być podstawą przeglądu i decyzji (#20). Błędne/niepełne żądania
+# zostają w .incoming.*, bez manifestu gotowego wniosku; operator bada je lokalnie.
+# Wywołanie jest warunkiem w sweep: bash wyłącza wtedy errexit także wewnątrz
+# funkcji. Każdy błąd przed usunięciem źródła musi być obsłużony jawnie.
 queue_entry() {
-  local path=$1 name owner uid ts incoming dest sha type inner
-  name=$(basename -- "$path")
-  ts=$(date -u +%Y%m%dT%H%M%SZ)
-  incoming=$(mktemp -u "$QUEUE/.incoming.XXXXXXXX")
-  # mv nie podąża za dowiązaniami (przenosi samo dowiązanie); między systemami plików kopiuje
-  # zawartość do nowego i-węzła. Wpis mógł zniknąć (badacz go usunął) — to nie błąd usługi.
-  if ! mv -T -- "$path" "$incoming" 2>/dev/null; then
-    rm -rf -- "$incoming"
-    return 0
+  local path=$1 name owner uid ts incoming dest sha request_id
+  name=${path##*/}
+  ts=$(date -u +%Y%m%dT%H%M%SZ) || return 1
+  incoming=$(mktemp -d "$QUEUE/.incoming.XXXXXXXX") || return 1
+  request_id=$(python3 -c 'import uuid; print(uuid.uuid4())') || return 1
+  if ! mv -T -- "$path" "$incoming/source" 2>/dev/null; then
+    # EXDEV może pozostawić częściową kopię: nigdy nie usuwaj jej automatycznie.
+    if rmdir -- "$incoming" 2>/dev/null; then return 0; fi
+    log "snapshot_failed request_id=$request_id reason=transfer_error"
+    return 1
   fi
-  # od tego miejsca wszystko na kopii w kolejce; stat bez -L nie podąża za dowiązaniem
-  owner=$(stat -c %U -- "$incoming")
-  uid=$(stat -c %u -- "$incoming")
-
-  if [[ -L $incoming ]] || [[ ! -f $incoming && ! -d $incoming ]]; then
-    log "rejected user=$owner entry=$name reason=unsupported_type"
-    rm -rf -- "$incoming"
-    return 0
+  owner=$(stat -c %U -- "$incoming/source") || return 1
+  uid=$(stat -c %u -- "$incoming/source") || return 1
+  if ! sha=$("$SNAPSHOT" create "$incoming/source" "$incoming/bundle" "$name" "$request_id"); then
+    log "snapshot_failed request_id=$request_id reason=snapshot_error"
+    return 1
   fi
-  # drugie dowiązanie twarde do tego samego i-węzła zostaje u badacza — mógłby zmienić treść
-  # pliku już po wyliczeniu sumy kontrolnej (przez wcześniej otwarty deskryptor)
-  if [[ -f $incoming && $(stat -c %h -- "$incoming") -gt 1 ]]; then
-    log "rejected user=$owner entry=$name reason=hardlink"
-    rm -f -- "$incoming"
-    return 0
-  fi
-  if [[ -d $incoming ]]; then
-    # wewnątrz katalogu: dowiązania, pliki specjalne i dowiązania twarde usuwamy, resztę eksportujemy
-    while IFS= read -r -d '' inner; do
-      type=${inner%% *} inner=${inner#* }
-      log "rejected user=$owner entry=$name/${inner#"$incoming"/} reason=$([[ $type == f ]] && echo hardlink || echo unsupported_type)"
-      rm -f -- "$inner"
-    done < <(find -P "$incoming" -mindepth 1 \( \( ! -type f ! -type d \) -o \( -type f -links +1 \) \) -printf '%y %p\0')
-  fi
-
-  # w kolejce zostały tylko zwykłe pliki i katalogi; -h na wszelki wypadek nie podąża za dowiązaniami
-  chown -hR root:root -- "$incoming"
-  chmod -R go-rwx -- "$incoming"
-  if [[ -f $incoming ]]; then
-    sha=$(sha256sum -- "$incoming" | cut -d' ' -f1)
-  else
-    # suma katalogu niezależna od jego położenia (nazwa tymczasowa, ścieżka w kolejce) i od locale —
-    # Kontroler odtworzy ją w dowolnym miejscu tym samym poleceniem:
-    #   cd KATALOG && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum
-    sha=$(cd -- "$incoming" && find -P . -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
-  fi
+  # Nazwa z badacza jest kodowana, żeby nie mogła wstrzyknąć pól/wierszy do logu.
+  name=$(printf '%s' "$name" | LC_ALL=C tr -c 'a-zA-Z0-9._-' '_') || return 1
+  name=${name:0:120}
   dest="$QUEUE/${ts}_${owner}_${name}"
-  # dwa wpisy o tej samej nazwie w tej samej sekundzie nie mogą się nadpisać
-  [[ -e $dest || -L $dest ]] && dest+=".$(basename -- "$incoming" | cut -d. -f3)"
-  mv -T -- "$incoming" "$dest"
-  log "export_request user=$owner uid=$uid entry=$name sha256=$sha queued_as=$(basename -- "$dest")"
+  [[ -e $dest || -L $dest ]] && dest+=".$request_id"
+  if ! mv -T -- "$incoming/bundle" "$dest"; then
+    log "snapshot_failed request_id=$request_id reason=publish_error"
+    return 1
+  fi
+  # Utrwalenie rename przed usunięciem źródła. Awaria zostawia gotowy wniosek
+  # i/lub kwarantannę — nie publikuje nic poza WLB i nie ponawia automatycznie.
+  if ! sync -f "$QUEUE"; then
+    log "snapshot_failed request_id=$request_id reason=sync_error"
+    return 1
+  fi
+  log "export_request user=$owner uid=$uid entry=$name sha256=$sha queued_as=${dest##*/}" || return 1
+  rm -rf -- "$incoming"
 }
 
 sweep() {
   local entry newest
+  # Nie ponawiaj przyjęć po przerwanym przejęciu/kopii. Źródło może nadal być
+  # w /sluza-out (EXDEV/ENOSPC); ponawianie tworzyłoby kolejne częściowe kopie.
+  for entry in "$QUEUE"/.incoming.*; do
+    [[ -d $entry ]] && return 0
+  done
   shopt -s nullglob dotglob
   for entry in "$SRC"/*; do
     # plik tymczasowy/atomowy — pomijamy do zmiany nazwy na docelową (#33)
@@ -94,16 +84,16 @@ sweep() {
     if [[ -f $entry && ! -L $entry ]]; then
       # plik wciąż otwarty przez proces badacza — poczekaj na zamknięcie
       fuser -s -- "$entry" 2>/dev/null && continue
-      queue_entry "$entry"
+      queue_entry "$entry" || return 0
     elif [[ -d $entry && ! -L $entry ]]; then
       # badacz może w tym czasie usuwać pliki — błąd find nie może zatrzymać usługi
       newest=$(find -P "$entry" -printf '%T@\n' 2>/dev/null | sort -n | tail -1) || true
       [[ -n $newest ]] || continue
-      if (($(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS)); then queue_entry "$entry"; fi
+      if (($(date +%s) - ${newest%.*} >= DIR_SETTLE_SECONDS)); then queue_entry "$entry" || return 0; fi
     else
       # dowiązania i pliki specjalne nie są dopuszczone do eksportu (rm -f nie podąża za dowiązaniem;
       # jeśli wpis został w międzyczasie podmieniony na katalog, obsłuży go następny przegląd)
-      log "rejected user=$(stat -c %U -- "$entry" 2>/dev/null || echo '?') entry=$(basename -- "$entry") reason=unsupported_type"
+      log "rejected user=$(stat -c %U -- "$entry" 2>/dev/null || echo '?') entry=$(printf '%s' "${entry##*/}" | LC_ALL=C tr -c 'a-zA-Z0-9._-' '_') reason=unsupported_type"
       rm -f -- "$entry" 2>/dev/null || true
     fi
   done
@@ -112,6 +102,9 @@ sweep() {
 
 mkdir -p "$QUEUE"
 chmod 0700 "$QUEUE"
+# Usługa i --once nie mogą jednocześnie publikować ani nadpisywać wniosków.
+exec 9>"$QUEUE/.mover.lock"
+flock -n 9 || exit 0
 
 if [[ ${1:-} == --once ]]; then
   sweep

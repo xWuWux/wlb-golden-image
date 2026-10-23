@@ -12,8 +12,12 @@
 1. Zapisz **gotowy** wynik w katalogu domowym (`~`).
 2. Skopiuj go do `/sluza-out` **jednym poleceniem**, np. `cp ~/wyniki.csv /sluza-out/`.
 
-Plik od razu znika z katalogu i trafia do kolejki zatwierdzenia przez Kontrolera Przesyłu
-Danych — nie da się go już odczytać ani zmienić. **Każdy plik to osobny wniosek.**
+Po przejęciu plik znika ze śluzy. System przygotowuje osobną kopię do przeglądu;
+jej przyjęcie do kolejki **nie jest zgodą na eksport**. Zmiana oryginału nie zmienia kopii.
+**Każdy plik to osobny wniosek.** W razie błędu cały wniosek pozostaje w kwarantannie
+operatora; nie jest przekazywany częściowo. Brak pliku w śluzie nie potwierdza przyjęcia.
+Zachowaj oryginał w katalogu domowym do potwierdzenia przez operatora. Automatyczny
+status dla badacza, zgoda Lidera i publikacja pozostają do wdrożenia (#20).
 
 Żeby wynik nie rozpadł się na niekompletne części:
 

@@ -39,7 +39,10 @@ correlation:
 
 events:
   - name: sluza_out.export_request
-    description: Plik lub katalog zapisany w /sluza-out trafił do kolejki zatwierdzenia eksportu.
+    description: >-
+      Prywatna kopia pliku lub katalogu i manifest v1 trafiły do kolejki (pending_review, nie zgoda).
+      sha256: plik = SHA-256 bajtów; katalog = SHA-256 kanonicznego inventory v1 (od #20).
+      entry/queued_as mają oczyszczoną nazwę; pełna nazwa jest wyłącznie w chronionym manifeście.
     regulamin: "§10, §21"
     source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: export_request }
     trusted: { input: imuxsock, uid: "^0$" } # usługa roota
@@ -54,8 +57,9 @@ events:
 
   - name: sluza_out.rejected
     description: >-
-      Wpis w /sluza-out (albo element eksportowanego katalogu, entry=katalog/ścieżka) odrzucony i usunięty
-      — reason=unsupported_type (dowiązanie symboliczne, plik specjalny) lub hardlink (drugie dowiązanie twarde). #29
+      Niedozwolony wpis najwyższego poziomu w /sluza-out odrzucony i usunięty.
+      Wykryte po przejęciu wpisu błędy trafiają do snapshot_failed; cały wniosek zostaje w kwarantannie.
+      reason=hardlink zachowane dla historycznych logów (#29).
     regulamin: "§10"
     source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: rejected }
     trusted: { input: imuxsock, uid: "^0$" } # usługa roota
@@ -65,6 +69,19 @@ events:
       entry: ".+"
       reason: "^(unsupported_type|hardlink)$"
     acceptance: true
+
+  - name: sluza_out.snapshot_failed
+    description: >-
+      Nie utworzono gotowej kopii; .incoming.* zawiera źródło i ewentualną częściową kopię.
+      Wymagana interwencja operatora; bez automatycznego replay ani eksportu (#20).
+    regulamin: "§10, §21"
+    source: { tag: wlb-sluza-out, file: ansible/roles/storage/files/wlb-sluza-out-mover, marker: snapshot_failed }
+    trusted: { input: imuxsock, uid: "^0$" }
+    format: kv
+    fields:
+      request_id: "^[0-9a-f-]{36}$"
+      reason: "^(snapshot_error|transfer_error|publish_error|sync_error)$"
+    acceptance: false
 
   - name: sluza_out.start
     description: Start usługi śluzy wyjściowej (przy starcie VM — przed konfiguracją SIEM).
