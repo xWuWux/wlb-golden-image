@@ -15,7 +15,8 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`
 
 ### #6 — Logi do SIEM wysyłane bez szyfrowania — TLS dla rsyslog  ·  _scalone_
-- `tests/acceptance-remote.sh` — `Moduł TLS rsyslog zainstalowany (lmnsd_gtls, #6)`, `Profil rsyslogd w trybie enforce (#6)`, `Przekazywanie do SIEM skonfigurowane`, `SIEM po TLS z weryfikacją nazwy serwera (#6)`, `rsyslog bez błędów TLS (moduł, nazwa i zaufanie certyfikatu, #6)`, `rsyslog bez odmów AppArmor (#44, #6)`
+- `tests/acceptance-remote.sh` — `Moduł TLS rsyslog zainstalowany (lmnsd_gtls, #6)`, `Przekazywanie do SIEM skonfigurowane`, `SIEM po TLS z weryfikacją nazwy serwera (#6)`, `rsyslog bez błędów TLS (moduł, nazwa i zaufanie certyfikatu, #6)`, `rsyslog bez odmów AppArmor (#44, #6)`
+- `tests/acceptance.d/20-apparmor.sh` — `Profil rsyslogd w trybie enforce (#6)`, `Profil rsyslogd nie jest w trybie complain (#6)`
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`, *TLS do SIEM (#6)*
 
 ### #7 — Blokada pobierania plików z JupyterLab na urządzenia badaczy (§24.e, częściowo)  ·  _scalone_
@@ -75,7 +76,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-21). Odświ
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
 
 ### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _otwarte_
-- `tests/acceptance.d/20-apparmor.sh` — *AppArmor (CIS 1.6, #65)*
+- `tests/acceptance.d/20-apparmor.sh` — *AppArmor (CIS 1.6, #65)*: `apparmor=1` i `security=apparmor` w `/proc/cmdline`, dropin GRUB `60-wlb-apparmor.cfg` (brak starego `50-`), `apparmor-utils` w PATH, licznik profili w complain = 0 i pusta lista profili complain (CIS 1.6.3)
 
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
