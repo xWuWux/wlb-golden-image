@@ -193,7 +193,7 @@
       net.ipv4.conf.all.send_redirects = 0
       net.ipv4.conf.default.send_redirects = 0
       # Reverse path filter, brak source routing, brak secure redirects, log marsjańskich adresów (CIS 3.x, #63).
-      # VM nie jest routerem ani nie przekazuje ruchu — to standardowe wzmocnienia bez wpływu na pracę badaczy.
+      # Profil wymaga symetrycznego routingu IPv4; rp_filter=1 należy sprawdzić w topologii Laboratorium.
       net.ipv4.conf.all.rp_filter = 1
       net.ipv4.conf.default.rp_filter = 1
       net.ipv4.conf.all.accept_source_route = 0

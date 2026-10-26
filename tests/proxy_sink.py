@@ -2,7 +2,8 @@
 """Testowy proxy z allowlistą (#16): przepuszcza tylko hosty z allowlisty, resztę (w tym API LLM,
 §31.3) odrzuca kodem 403. Jak tests/syslog_sink.py / ntp_sink.py — minimalny serwer na hoście, który
 VM (sieć QEMU user) widzi jako 10.0.2.2. NIE forwarduje ruchu (VM jest izolowana): dla hosta z
-allowlisty zwraca atrapę 200, co wystarcza do sprawdzenia egzekwowania allowlisty na prawdziwym proxy.
+allowlisty zwraca atrapę 200, sprawdzając jedynie kontrakt klienta z atrapą.
+Nie dowodzi działania TLS, mirrorów ani polityki produkcyjnej.
 
     python3 tests/proxy_sink.py --port 3128 --allow pypi.mirror.local,cran.mirror.local
 """
