@@ -34,7 +34,8 @@ repo_with_base() {
 # --- PR: domyślnie BEZ etapu 5 (największa oszczędność minut) ---
 
 @test "PR bez etykiet: etap 5/6 pominięty (#86)" {
-  run env EVENT=pull_request LABELS='[]' BASE= bash "$CHANGES"
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
   [ "$status" -eq 0 ]
   has_line "image=false"
   has_line "perf=false"
@@ -42,8 +43,8 @@ repo_with_base() {
 }
 
 @test "PR ze zmianą kodu obrazu, ale bez etykiety: nadal bez etapu 5 (#86)" {
-  # treść zmian nie ma znaczenia na PR — liczy się wyłącznie etykieta
-  run env EVENT=pull_request LABELS='["dokumentacja"]' BASE= bash "$CHANGES"
+  repo_with_base envs/r/renv.lock
+  run env EVENT=pull_request LABELS='["dokumentacja"]' bash "$CHANGES"
   [ "$status" -eq 0 ]
   has_line "image=false"
 }
@@ -111,4 +112,16 @@ repo_with_base() {
   [ "$status" -eq 0 ]
   has_line "image=true"
   has_line "perf=true"
+}
+
+@test "śluza: PR i merge_group wymagają integracji bez etykiety (#149)" {
+  for file in ansible/roles/storage/templates/60-resources.conf.j2 ansible/group_vars/all.yml \
+    tests/sluza_resources.py tests/acceptance.sh ci/changes.sh; do
+    repo_with_base "$file"
+    for event in pull_request merge_group; do
+      run env EVENT="$event" LABELS='[]' bash "$CHANGES"
+      [ "$status" -eq 0 ]
+      has_line "image=true"
+    done
+  done
 }

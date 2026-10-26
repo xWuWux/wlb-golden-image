@@ -1,0 +1,14 @@
+# Zarządzane przez Ansible, storage (#149). Wartości pamięci w MiB.
+[Service]
+MemoryAccounting=yes
+MemoryHigh={{ wlb_sluza_memory_high_mb }}M
+MemoryMax={{ wlb_sluza_memory_max_mb }}M
+MemorySwapMax=0
+TasksAccounting=yes
+TasksMax={{ wlb_sluza_tasks_max }}
+IOAccounting=yes
+IOWeight={{ wlb_sluza_io_weight }}
+Delegate=no
+ProtectControlGroups=yes
+OOMPolicy=stop
+KillMode=control-group

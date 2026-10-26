@@ -12,7 +12,13 @@ require_vm
 shopt -s nullglob
 combined=$(mktemp)
 cat "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh >"$combined"
-printf '\nsummary\n' >>"$combined"
+# #149: program testowy trafia do VM razem z akceptacją, nie do obrazu produkcyjnego.
+{
+  printf "\nif python3 - \"\$R1\" <<'WLB_RESOURCE_TEST'\n"
+  cat "$ROOT/tests/sluza_resources.py"
+  printf "\nWLB_RESOURCE_TEST\nthen ok 'Limity i izolacja śluzy (#149)'; else ko 'Limity i izolacja śluzy (#149)'; fi\n"
+  printf '\nsummary\n'
+} >>"$combined"
 remote_run "$combined" \
   ${WLB_TEST_NTP:+--ntp-sync} \
   ${WLB_TEST_PROXY:+--proxy-allowlist}

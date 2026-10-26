@@ -77,7 +77,7 @@ jobs:
         id: changes
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           IN_PERF: ${{ inputs.perf }}
           IN_EPHEMERAL: ${{ inputs.ephemeral }}

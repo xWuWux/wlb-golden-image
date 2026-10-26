@@ -33,12 +33,20 @@ doc_only() {
   ! git diff --name-only "$base" HEAD | grep -qvE '^(README\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$)'
 }
 
+# #149: limity śluzy i ich testy wymagają rzeczywistego jądra przed merge.
+storage_change() {
+  local changed
+  [[ -n $BASE ]] || return 0
+  changed=$(git diff --name-only "$BASE" HEAD) || return 0
+  grep -qE '^(ansible/roles/storage/|ansible/group_vars/all\.yml$|tests/(sluza_resources\.py|acceptance\.sh|acceptance\.d/80-sluza)|ci/changes\.sh$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
-  pull_request)
+  pull_request | merge_group)
     # Tylko na żądanie: etykieta integracji lub etykiety etapu 6 (perf/deploy-test potrzebują obrazu).
-    if has_label "$INTEGRATION_LABEL" || has_label perf || has_label deploy-test; then
+    if storage_change || has_label "$INTEGRATION_LABEL" || has_label perf || has_label deploy-test; then
       image=true
     fi
     ;;

@@ -37,6 +37,13 @@ wlb_readonly_paths: [/sluza-in, /data-mart, /docs]
 # obrazu) i jest objęta backupem. Badacze jej nie widzą (/workspace 0711, kolejka 0700 root). #4
 wlb_export_queue_dir: /workspace/.wlb-export-queue
 
+# Budżet całej usługi śluzy i jej potomków (#149), liczby całkowite; strojenie przy budowie.
+# 256/192 MiB to punkt startowy do kalibracji, nie gwarancja obsługi dowolnego drzewa plików.
+wlb_sluza_memory_max_mb: 256
+wlb_sluza_memory_high_mb: 192
+wlb_sluza_tasks_max: 32 # zapas dla potoków find/sort/xargs/hash; 10 jest zbyt blisko ich kosztu
+wlb_sluza_io_weight: 50 # względna waga, NIE twardy limit przepustowości
+
 # --- The Littlest JupyterHub -------------------------------------------------
 tljh_version: "2.0.0"
 # Baza huba na dysku roboczym: konta badaczy przeżywają wymianę dysku systemowego
