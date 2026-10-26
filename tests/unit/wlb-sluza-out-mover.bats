@@ -39,7 +39,7 @@ setup() {
   run "$MOVER" --once
   [ "$status" -eq 0 ]
   [ -e "$WLB_SLUZA_OUT/duzy.csv" ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
 }
 
 @test "pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)" {
@@ -53,7 +53,7 @@ setup() {
   [ -e "$WLB_SLUZA_OUT/wynik.tmp" ]
   [ -e "$WLB_SLUZA_OUT/wynik.part" ]
   [ -e "$WLB_SLUZA_OUT/wynik~" ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   refute called "export_request"
 }
 
@@ -74,7 +74,7 @@ setup() {
   [ "$status" -eq 0 ]
   [ ! -L "$WLB_SLUZA_OUT/link" ]
   [ -e "$BATS_TEST_TMPDIR/cel" ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   calls | grep -q "rejected user=$ME entry=link reason=unsupported_type"
 }
 
@@ -100,7 +100,7 @@ setup() {
 @test "pusta śluza — nic się nie dzieje" {
   run "$MOVER" --once
   [ "$status" -eq 0 ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   [ ! -s "$CALLS" ]
 }
 
@@ -138,7 +138,7 @@ EOF
   [ "$status" -eq 0 ]
   [ "$(stat -c %a "$BATS_TEST_TMPDIR/cel")" = 644 ]
   [ "$(cat "$BATS_TEST_TMPDIR/cel")" = tajne ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   [ ! -e "$WLB_SLUZA_OUT/wynik.csv" ] && [ ! -L "$WLB_SLUZA_OUT/wynik.csv" ]
   calls | grep -q "snapshot_failed .*reason=snapshot_error"
   compgen -G "$WLB_EXPORT_QUEUE/.incoming.*/source" >/dev/null
@@ -151,7 +151,7 @@ EOF
   ln -s /etc/passwd "$WLB_SLUZA_OUT/wyniki/pod/link"
   WLB_DIR_SETTLE_SECONDS=0 run "$MOVER" --once
   [ "$status" -eq 0 ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   compgen -G "$WLB_EXPORT_QUEUE/.incoming.*/source/a.csv" >/dev/null
   calls | grep -q "snapshot_failed .*reason=snapshot_error"
   refute called "export_request"
@@ -162,7 +162,7 @@ EOF
   ln "$BATS_TEST_TMPDIR/oryginal" "$WLB_SLUZA_OUT/wynik.csv"
   run "$MOVER" --once
   [ "$status" -eq 0 ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   [ "$(cat "$BATS_TEST_TMPDIR/oryginal")" = wynik ]
   calls | grep -q "snapshot_failed .*reason=snapshot_error"
 }
@@ -177,7 +177,7 @@ EOF
   chmod +x "$STUBS/fuser"
   run "$MOVER" --once
   [ "$status" -eq 0 ]
-  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+  [ -z "$(find "$WLB_EXPORT_QUEUE" -mindepth 1 -maxdepth 1 ! -name .mover.lock)" ]
   refute called "export_request"
 }
 

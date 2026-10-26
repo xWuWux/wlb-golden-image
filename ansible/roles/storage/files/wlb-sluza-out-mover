@@ -36,8 +36,10 @@ queue_entry() {
   local path=$1 name owner uid ts incoming dest sha request_id
   name=${path##*/}
   ts=$(date -u +%Y%m%dT%H%M%SZ) || return 1
+  # request_id PRZED mktemp: gdyby pobranie padło, nie zostaje sierota .incoming.* blokująca sweep.
+  # /proc/sys/kernel/random/uuid zamiast forka python3 — bez zależności od PATH, praktycznie nie pada.
+  request_id=$(cat /proc/sys/kernel/random/uuid) || return 1
   incoming=$(mktemp -d "$QUEUE/.incoming.XXXXXXXX") || return 1
-  request_id=$(python3 -c 'import uuid; print(uuid.uuid4())') || return 1
   if ! mv -T -- "$path" "$incoming/source" 2>/dev/null; then
     # EXDEV może pozostawić częściową kopię: nigdy nie usuwaj jej automatycznie.
     if rmdir -- "$incoming" 2>/dev/null; then return 0; fi
