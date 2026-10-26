@@ -24,13 +24,11 @@ dependencies:
   # Obrazowanie medyczne DICOM (badania): pydicom + backend python-gdcm do odczytu
   # skompresowanych transfer syntaxów (JPEG/JPEG2000). matplotlib/seaborn/scikit-learn są wyżej.
   - pydicom
-  - python-gdcm
-  # Neuroobrazowanie (pipeline MRI/fMRI badaczy): nibabel (NIfTI), dcm2niix (konwersja DICOM->NIfTI, CLI),
-  # snakemake (silnik workflow). numpy/pandas/scipy/matplotlib/pydicom są wyżej. FSL/FSLeyes/3DSlicer
-  # to osobny temat (GUI + licencja + rozmiar) — nie tu.
+  # python-gdcm (backend GDCM) oraz snakemake są na PyPI, NIE na conda-forge → w sekcji pip niżej.
+  # Neuroobrazowanie (pipeline MRI/fMRI badaczy): nibabel (NIfTI), dcm2niix (konwersja DICOM->NIfTI, CLI).
+  # numpy/pandas/scipy/matplotlib/pydicom są wyżej. FSL/FSLeyes/3DSlicer to osobny temat (GUI + licencja).
   - nibabel
   - dcm2niix
-  - snakemake
   - pip
   # Minimalne wersje pakietów bazowych z instalatora TLJH (Miniforge), które miały znane podatności
   # (osv-scanner po pierwszym `make freeze`, 2026-09-26). Podbijaj przy nowych CVE, nie obniżaj.
@@ -50,6 +48,8 @@ dependencies:
   - pip:
       - inspectomop
       - jupyter-app-launcher  # kafelek "Pomoc i zgłoszenia" w Launcherze JupyterLab (#54)
+      - python-gdcm  # backend GDCM dla pydicom (skompresowane transfer syntaxy); tylko PyPI (#128)
+      - snakemake    # silnik workflow neuro; na PyPI, nie na conda-forge (#133)
       # Tranzytywne (ciągnięte przez pakiety pip); podbite pod CVE, nie obniżaj.
       - aiohttp>=3.14.4  # GHSA-2g87-pp6c-29x5 (8.7), GHSA-5wr8-gcqf-gqf3 (8.2), GHSA-494j-54xm-rwp3
       - nbconvert>=7.17.2  # GHSA-pjvx-prjx-h659 (8.8); stack jupyter

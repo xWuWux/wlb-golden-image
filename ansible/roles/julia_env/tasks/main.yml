@@ -11,6 +11,7 @@
     dest: /tmp/julia-{{ julia_version }}.tar.gz
     checksum: "sha256:{{ julia_sha256 }}"
     mode: "0644"
+    timeout: 120  # tarball ~130 MB — domyślne 10 s za mało przy zmiennej sieci (read timeout)
   register: julia_env_download
   until: julia_env_download is succeeded
   retries: 3
@@ -67,6 +68,9 @@
   ansible.builtin.command: >-
     julia {{ julia_project_dir }}/install-julia-env.jl
     {{ julia_project_dir }} {{ julia_project_dir }}/Manifest.toml.generated
+  args:
+    stdin: ""  # EOF na stdin: precompile REPL (-i) nie wisi na nieistniejącym TTY w headless buildzie (#111)
+    stdin_add_newline: false
   environment:
     JULIA_DEPOT_PATH: "{{ julia_depot_path }}"
     JUPYTER: /opt/tljh/user/bin/jupyter
