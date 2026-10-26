@@ -41,13 +41,17 @@ Pkg.precompile()
 # badacza (~/.julia, zapisywalny) PRZED wspólnym (tylko do odczytu), a JULIA_PROJECT przypina
 # kernel do wspólnego, zainstantiowanego środowiska.
 using IJulia
-IJulia.installkernel("Julia";
+kernel_dir = IJulia.installkernel("Julia";
     env = Dict(
         "JULIA_DEPOT_PATH"  => ":" * ENV["JULIA_DEPOT_PATH"],
         "JULIA_PROJECT"     => project,
         "JULIA_NUM_THREADS" => "1",
     ),
 )
+# installkernel instaluje spec do lokalizacji użytkownika budującego (root), której jupyter huba
+# NIE widzi. Kopiujemy go do prefiksu TLJH — jak IRkernel::installspec(prefix="/opt/tljh/user") (#111).
+jupyter = get(ENV, "JUPYTER", "jupyter")
+run(`$jupyter kernelspec install $kernel_dir --prefix=/opt/tljh/user --replace`)
 
 # Zrzut dokładnych wersji do artefaktów budowania (powtarzalność).
 if !isempty(manifest_out)

@@ -68,6 +68,9 @@
   ansible.builtin.command: >-
     julia {{ julia_project_dir }}/install-julia-env.jl
     {{ julia_project_dir }} {{ julia_project_dir }}/Manifest.toml.generated
+  args:
+    stdin: ""  # EOF na stdin: precompile REPL (-i) nie wisi na nieistniejącym TTY w headless buildzie (#111)
+    stdin_add_newline: false
   environment:
     JULIA_DEPOT_PATH: "{{ julia_depot_path }}"
     JUPYTER: /opt/tljh/user/bin/jupyter
