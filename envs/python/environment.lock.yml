@@ -29,9 +29,9 @@ dependencies:
   - azure-storage-files-datalake-cpp=12.16.0
   - backports.zstd=1.7.0
   - boltons=24.0.0
-  - brotli=1.2.0
-  - brotli-bin=1.2.0
-  - brotli-python=1.2.0
+  - brotli=1.2.1
+  - brotli-bin=1.2.1
+  - brotli-python=1.2.1
   - bzip2=1.0.8
   - c-ares=1.34.8
   - ca-certificates=2026.10.19
@@ -103,9 +103,9 @@ dependencies:
   - libarrow-dataset=25.0.0
   - libarrow-substrait=25.0.0
   - libblas=3.11.0
-  - libbrotlicommon=1.2.0
-  - libbrotlidec=1.2.0
-  - libbrotlienc=1.2.0
+  - libbrotlicommon=1.2.1
+  - libbrotlidec=1.2.1
+  - libbrotlienc=1.2.1
   - libcblas=3.11.0
   - libclang-cpp23.1=23.1.2
   - libclang13=23.1.2
@@ -242,7 +242,7 @@ dependencies:
   - scipy=1.18.1
   - seaborn=0.13.2
   - seaborn-base=0.13.2
-  - setuptools=84.0.0
+  - setuptools=84.1.0
   - simdjson=4.6.11
   - six=1.17.0
   - snappy=1.2.2

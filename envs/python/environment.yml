@@ -37,7 +37,8 @@ dependencies:
   - urllib3>=2.7.0      # m.in. GHSA-2xpw-w6gg-jr37 (CVSS 8.9)
   - requests>=2.33.0    # GHSA-9hjg-9r4m-mvj7, GHSA-gc5v-m9x4-r6x2
   - idna>=3.15          # GHSA-65pc-fj4g-8rjx
-  - setuptools>=83.0.0  # GHSA-5rjg-fvgr-3xxf (CVSS 8.8), GHSA-h35f-9h28-mq5c
+  - setuptools>=84.1.0  # GHSA-5rjg-fvgr-3xxf (8.8), GHSA-h35f-9h28-mq5c, GHSA-xmj3-9gf7-h52w
+  - brotli>=1.2.1       # GHSA-9v8h-qqgm-4m35 / PYSEC-2026-4322 (Critical 9.2); tranzytywny, nie obniżaj
   - wheel>=0.46.2       # GHSA-8rrh-rw8j-w5fx
   - h2>=4.4.1           # GHSA-847f-9342-265h, GHSA-6hr6-w5qg-qmwg
   - hpack>=4.2.0        # GHSA-8v8h-hg4w-mvq2
