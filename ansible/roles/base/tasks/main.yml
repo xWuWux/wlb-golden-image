@@ -223,15 +223,50 @@
 
 # AppArmor jest w Ubuntu 24.04 domyślnie włączony, ale profil CIS L1 sprawdza jawny wpis w cmdline jądra
 # (grub2_enable_apparmor, #65). Drop-in /etc/default/grub.d/ jest sourcowany po /etc/default/grub, więc
-# dokłada parametry bez nadpisywania istniejących (idempotentnie).
-- name: AppArmor wymuszony w parametrach jądra GRUB (CIS 1.6)
+# dokłada parametry bez nadpisywania istniejących.
+#
+# Prefiks 60-, nie 50-: obok naszego pliku w obrazach Ubuntu bywa 50-cloudimg-settings.cfg, z którym
+# 50-wlb-apparmor.cfg startowało do alfabetycznego wyścigu o GRUB_CMDLINE_LINUX_DEFAULT (zgłoszenie 65).
+- name: AppArmor wymuszony w parametrach jądra GRUB (#65, CIS 1.6)
   ansible.builtin.copy:
-    dest: /etc/default/grub.d/50-wlb-apparmor.cfg
+    dest: /etc/default/grub.d/60-wlb-apparmor.cfg
     mode: "0644"
     content: |
       # Zarządzane przez Ansible (rola base) — CIS 1.6, #65
       GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT apparmor=1 security=apparmor"
-  notify: Update GRUB
+
+# Nazwa pliku zmieniła się z 50- na 60- — stary drop-in zostałby sourcowany na zawsze i podwajał parametry.
+- name: Usunięcie starego dropina GRUB z prefiksem 50- (#65)
+  ansible.builtin.file:
+    path: /etc/default/grub.d/50-wlb-apparmor.cfg
+    state: absent
+
+# Bezwarunkowe (nie handlerowe) przeładowanie GRUB: handler nie odpala przy re-runie, gdy drop-in nie
+# zmienił treści, a w procesie budowy obrazu menu musi na pewno odpowiadać parametrom z pliku (zgłoszenie 65).
+- name: Przeładowanie GRUB (#65) — gwarancja parametrów AppArmor w obrazie
+  ansible.builtin.command: update-grub
+  changed_when: true
+
+# Profile dystrybucyjne (m.in. transmission z bazowego pakietu `apparmor`) Ubuntu ładowuje w trybie
+# complain, przez co CIS 1.6.3 („żaden profil w complain”) pada na profilach aplikacji, których w obrazie
+# nie ma. Przełączamy na enforce cały katalog: aa-enforce to `apparmor_parser -p enforce`, czyli
+# przeparsowanie profilu (dla transmission i innych nieistniejących binarek — no-op), a nie ładowanie
+# nowego kodu; profil rsyslogd przechodzi tą samą ścieżką i trafia do enforce razem z resztą (#6).
+# Profile oznaczone przez dystrybucję jako unconfined (Discord, brave, ~90 sztuk) to nie jest tryb
+# complain — nich zostają, jak są; ich wymuszanie wykracza poza #65 i poza test CIS 1.6.3.
+- name: Profile AppArmor z trybu complain przełączone na enforce (#65, CIS 1.6.3)
+  ansible.builtin.shell: |
+    set -o pipefail
+    n=$(aa-status --complaining)
+    if [[ $n =~ ^[0-9]+$ ]] && ((n > 0)); then
+      echo "Przełączam $n profili AppArmor z trybu complain na enforce (CIS 1.6.3, #65)"
+      aa-enforce --recursive /etc/apparmor.d/
+    fi
+  args:
+    executable: /bin/bash
+  # aa-enforce tylko przepisuje istniejące profile na tryb enforce (bez profilów w complain to no-op),
+  # więc nie raportujemy zmiany — stan weryfikuje test akceptacyjny 20-apparmor.sh.
+  changed_when: false
 
 # Zrzuty pamięci użytkowników wyłączone (CIS 1.5.1, #63): twardy limit core=0 (limits) i brak zapisu
 # przez systemd-coredump. Zapobiega wyciekowi wrażliwych danych z pamięci do plików core w Laboratorium.
