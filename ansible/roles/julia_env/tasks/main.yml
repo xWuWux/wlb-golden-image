@@ -11,6 +11,7 @@
     dest: /tmp/julia-{{ julia_version }}.tar.gz
     checksum: "sha256:{{ julia_sha256 }}"
     mode: "0644"
+    timeout: 120  # tarball ~130 MB — domyślne 10 s za mało przy zmiennej sieci (read timeout)
   register: julia_env_download
   until: julia_env_download is succeeded
   retries: 3

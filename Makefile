@@ -61,7 +61,7 @@ perf: ## 6. Benchmarki wydajności ostatniego obrazu
 ci: lint check security observability unit ## Etapy 1–4 (szybkie, przed każdym pushem)
 
 build: doctor keys ## Buduje golden image -> output/<nazwa>-<wersja>-<data>/
-	packer build $(PACKER_VARS) packer/
+	packer build -only='wlb.qemu.wlb' $(PACKER_VARS) packer/
 	@echo "Zamrożone wersje pakietów: $(BUILD_DIR)/artifacts/$(FULL_NAME)/ (make freeze, aby przenieść do envs/)"
 
 test-up: doctor ## Uruchamia najnowszy obraz lokalnie jako Laboratorium testowe
