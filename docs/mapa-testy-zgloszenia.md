@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-23). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-26). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -16,7 +16,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-23). Odświ
 
 ### #6 — Logi do SIEM wysyłane bez szyfrowania — TLS dla rsyslog  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Moduł TLS rsyslog zainstalowany (lmnsd_gtls, #6)`, `Przekazywanie do SIEM skonfigurowane`, `SIEM po TLS z weryfikacją nazwy serwera (#6)`, `rsyslog bez błędów TLS (moduł, nazwa i zaufanie certyfikatu, #6)`, `rsyslog bez odmów AppArmor (#44, #6)`
-- `tests/acceptance.d/20-apparmor.sh` — `Profil rsyslogd w trybie enforce (#6)`
+- `tests/acceptance.d/20-apparmor.sh` — `Profil rsyslogd nie jest w trybie complain (#6)`, `Profil rsyslogd w trybie enforce (#6)`
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`, *TLS do SIEM (#6)*
 
 ### #7 — Blokada pobierania plików z JupyterLab na urządzenia badaczy (§24.e, częściowo)  ·  _scalone_
@@ -88,7 +88,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-23). Odświ
 - `tests/acceptance.d/30-sysctl-coredump.sh` — `IPv6 accept_ra=0 (#63)`, `IPv6 forwarding=0 (#63)`, `Twardy limit core=0 w limits.d (#63)`, `accept_source_route=0 (#63)`, `fs.suid_dumpable=0 (#63)`, `icmp_echo_ignore_broadcasts=1 (#63)`, `log_martians=1 (#63)`, `rp_filter=1 (#63)`, `secure_redirects=0 (#63)`, `systemd-coredump Storage=none (#63)`, `tcp_syncookies=1 (#63)`, *Utwardzenie jądra: sysctl i zrzuty pamięci (CIS 1.x/3.x, #63)*
 
 ### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _otwarte_
-- `tests/acceptance.d/20-apparmor.sh` — *AppArmor (CIS 1.6, #65)*
+- `tests/acceptance.d/20-apparmor.sh` — `security=apparmor w parametrach jądra (GRUB)`, *AppArmor (CIS 1.6, #65)*
 
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
@@ -115,6 +115,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-23). Odświ
 
 ### #123 — Bramka etapu 1: nierozwiązane znaczniki konfliktu gita w plikach nielintowanych  ·  _scalone_
 - `tests/unit/test_conflict_markers.py` — *Bramka znacznikow konfliktu (#123)*
+
+### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
+- `tests/acceptance.d/70-radiologia.sh` — *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 
 ## Uwagi
 

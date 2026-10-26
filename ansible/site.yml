@@ -17,6 +17,22 @@
     - lab_config
 
   post_tasks:
+    # Profil rsyslogd musi zostać w trybie enforce — na nim trzyma się odczyt CA SIEM i pól zaufanych
+    # (#6). Weryfikacja w post_tasks, po wypłukaniu handlerów roli logging (Reload AppArmor rsyslogd):
+    # to one ładują profil jako ostatnie, więc tylko tutaj widać jego końcowy tryb w jądrze.
+    - name: Profil rsyslogd w trybie enforce (#6, CIS 1.6.3)
+      ansible.builtin.shell: |
+        set -o pipefail
+        # aa-status (jako ścieżka profilu) wypisuje jego tryb: "enforce" albo "complain". Brak
+        # "complain" w odpowiedzi (profil załadowany w enforce albo niezaładowany) = zadanie nic nie robi.
+        if aa-status /usr/sbin/rsyslogd 2>/dev/null | grep -qi complain; then
+          aa-enforce usr.sbin.rsyslogd
+        fi
+      args:
+        executable: /bin/bash
+      register: wlb_rsyslog_enforce
+      changed_when: "'changed: yes' in (wlb_rsyslog_enforce.stdout | lower())"
+
     - name: Zbierz wersje składników
       ansible.builtin.shell: |
         set -o pipefail

@@ -65,3 +65,35 @@ exceptions:
     note: >-
       "file LICENSE" = BSD-3-Clause (stringi) + licencja ICU (Unicode, typu MIT) dla dołączonych
       bibliotek ICU; obie dozwolone (2026-09-25).
+  # Stos snakemake (silnik workflow neuro, #133): metadane PyPI nie zawierają pola licencji,
+  # ale upstream to MIT (dozwolona) — zweryfikowane 2026-10-26 ze źródeł wymienionych niżej.
+  - ecosystem: pypi
+    package: conda-inject
+    note: >-
+      MIT (github.com/koesterlab/conda-inject; listy Oracle EPEL / Gentoo / FreshPorts); brak pola
+      licencji w metadanych PyPI. Zależność snakemake (#133). Zweryfikowane 2026-10-26.
+  - ecosystem: pypi
+    package: snakemake-interface-common
+    note: >-
+      MIT (github.com/snakemake/snakemake-interface-common, GitHub license API); brak pola licencji
+      w metadanych PyPI. Zależność snakemake (#133). Zweryfikowane 2026-10-26.
+  - ecosystem: pypi
+    package: snakemake-interface-logger-plugins
+    note: >-
+      MIT (org snakemake, ten sam autor i licencja co pozostałe snakemake-interface-*); brak pola
+      w metadanych PyPI. Zależność snakemake (#133). Zweryfikowane 2026-10-26.
+  - ecosystem: pypi
+    package: snakemake-interface-report-plugins
+    note: >-
+      MIT (org snakemake, jak pozostałe snakemake-interface-*); brak pola w metadanych PyPI.
+      Zależność snakemake (#133). Zweryfikowane 2026-10-26.
+  - ecosystem: pypi
+    package: snakemake-interface-scheduler-plugins
+    note: >-
+      MIT (org snakemake, jak pozostałe snakemake-interface-*); brak pola w metadanych PyPI.
+      Zależność snakemake (#133). Zweryfikowane 2026-10-26.
+  - ecosystem: pypi
+    package: snakemake-interface-storage-plugins
+    note: >-
+      MIT (github.com/snakemake/snakemake-interface-storage-plugins, GitHub license API); brak pola
+      w metadanych PyPI. Zależność snakemake (#133). Zweryfikowane 2026-10-26.
