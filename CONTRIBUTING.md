@@ -53,11 +53,13 @@ CI: `run_check "znaczniki konfliktu"` w `ci/lint.sh` (#123).
 | Etap | Kiedy | Zakres |
 |---|---|---|
 | 1–4 (lint, build, security, kontrakt, jednostkowe) | **każdy PR** + nocny/cotygodniowy harmonogram | szybka pętla |
-| 5 (integracja + migracja na KVM) | PR dotykające obrazu + **nocny pełny build** | e2e na żywej VM |
-| 6a/6b (benchmarki, wdrożenie tymczasowe) | etykieta/`workflow_dispatch` + **nocny build** | wydajność, OpenStack |
+| 5 (integracja + migracja na KVM) | PR sieci/utwardzenia i harnessu; inne na etykietę; push kodu do main | e2e na żywej VM |
+| 6a/6b (benchmarki, wdrożenie tymczasowe) | etykieta/`workflow_dispatch` | wydajność, OpenStack |
 
-Nocny pełny przebieg (harmonogram `CI`) uruchamia etapy 1–6 niezależnie od zakresu zmian — łapie
-regresje spoza repozytorium (dryf zamrożonych wersji, nowe CVE), zanim uderzą w PR.
+Nocny pełny build jest obecnie wyłączony w workflow. Harmonogram tygodniowy uruchamia
+etapy 1–4. Zmiany sieci/utwardzenia wymagają etapu 5 przed scaleniem (także w merge queue),
+pozostałe PR mogą go włączyć etykietą `run-integration`. Zakres ścieżek, kontrakty
+oraz ograniczenia dowodów opisuje [kontrakt testów sieci](docs/network-ci.md).
 
 ## Publiczne wątki
 

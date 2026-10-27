@@ -179,7 +179,11 @@
 
 - name: Utwardzenie jądra
   ansible.builtin.copy:
-    dest: /etc/sysctl.d/60-wlb.conf
+    # Prefiks 99-wlb, nie 60-: systemd ładuje sysctl.d w kolejności nazw, ostatni wygrywa.
+    # Ubuntu ma /usr/lib/sysctl.d/99-protect-links.conf z fs.protected_fifos = 1 — przy 60-
+    # nadpisywał nasze 2 (#63). "99-wlb" sortuje się po "99-protect-links" ('w' > 'p'),
+    # więc nasze wartości stosują się jako ostatnie i wygrywają.
+    dest: /etc/sysctl.d/99-wlb.conf
     mode: "0644"
     content: |
       # Zarządzane przez Ansible (rola base)
@@ -193,7 +197,7 @@
       net.ipv4.conf.all.send_redirects = 0
       net.ipv4.conf.default.send_redirects = 0
       # Reverse path filter, brak source routing, brak secure redirects, log marsjańskich adresów (CIS 3.x, #63).
-      # VM nie jest routerem ani nie przekazuje ruchu — to standardowe wzmocnienia bez wpływu na pracę badaczy.
+      # Profil wymaga symetrycznego routingu IPv4; rp_filter=1 należy sprawdzić w topologii Laboratorium.
       net.ipv4.conf.all.rp_filter = 1
       net.ipv4.conf.default.rp_filter = 1
       net.ipv4.conf.all.accept_source_route = 0
@@ -248,25 +252,68 @@
   changed_when: true
 
 # Profile dystrybucyjne (m.in. transmission z bazowego pakietu `apparmor`) Ubuntu ładowuje w trybie
-# complain, przez co CIS 1.6.3 („żaden profil w complain”) pada na profilach aplikacji, których w obrazie
-# nie ma. Przełączamy na enforce cały katalog: aa-enforce to `apparmor_parser -p enforce`, czyli
-# przeparsowanie profilu (dla transmission i innych nieistniejących binarek — no-op), a nie ładowanie
-# nowego kodu; profil rsyslogd przechodzi tą samą ścieżką i trafia do enforce razem z resztą (#6).
-# Profile oznaczone przez dystrybucję jako unconfined (Discord, brave, ~90 sztuk) to nie jest tryb
-# complain — nich zostają, jak są; ich wymuszanie wykracza poza #65 i poza test CIS 1.6.3.
+# complain, przez co CIS 1.6.3 („żaden profil w complain") pada na profilach aplikacji, których w obrazie
+# nie ma (#65). Naprawa dotyczy wyłącznie profili wskazanych jako complaining — profile `unconfined`
+# (w obrazie ~90, m.in. Discord, brave, 1password) to inny tryb, poza zakresem CIS 1.6.3.
+#
+# Kształt outputu i zachowanie narzędzi sprawdzono na VM z obrazu (Ubuntu 24.04, apparmor 4.0.1):
+#   - `aa-status --json` zwraca `{"profiles": {"<nazwa>": "<tryb>"}, ...}` — tryb jest WARTOŚCIĄ,
+#     nie kluczem (błąd poprzedniej implementacji: szukała kluczy z „complain" i nie znajdowała nic);
+#   - `aa-enforce <nazwa profilu>` NIE działa: aa-enforce szuka ścieżki binarki (`/usr/bin/x`), dla
+#     nieobecnej wypisuje ostrzeżenie i **kończy się rc=0, nic nie zmieniając**;
+#   - `aa-enforce <plik>` działa: usuwa `flags=(complain)` z pliku i przeładowuje profil;
+#   - jeden plik może definiować kilka profili (`/etc/apparmor.d/transmission` → 4 nazwy), więc
+#     nazwę dopasowujemy przez `apparmor_parser -N <plik>`, a nie po nazwie pliku.
+# Guardy: licznik > 0 bez nazw — build pada; licznik niezerowy po przełączeniu — build pada.
 - name: Profile AppArmor z trybu complain przełączone na enforce (#65, CIS 1.6.3)
   ansible.builtin.shell: |
     set -o pipefail
-    n=$(aa-status --complaining)
-    if [[ $n =~ ^[0-9]+$ ]] && ((n > 0)); then
-      echo "Przełączam $n profili AppArmor z trybu complain na enforce (CIS 1.6.3, #65)"
-      aa-enforce --recursive /etc/apparmor.d/
+    before=$(aa-status --complaining)
+    if [[ ! $before =~ ^[0-9]+$ ]]; then
+      echo "BŁĄD (#65): aa-status --complaining zwróciło '${before}' — nie znam liczby profili w complain" >&2
+      exit 1
     fi
+    if ((before == 0)); then
+      echo "aa-status --complaining=0 — brak profili do przełączenia (CIS 1.6.3, #65)"
+      echo "WLB_SWITCHED=0"
+      exit 0
+    fi
+    mapfile -t names < <(aa-status --json | python3 -c 'import json,sys; [print(n) for n,m in json.load(sys.stdin)["profiles"].items() if m=="complain"]')
+    if [[ -z "${names[*]:-}" ]]; then
+      echo "BŁĄD (#65): $before profili w complain, ale aa-status --json nie zwróciło żadnej nazwy" >&2
+      exit 1
+    fi
+    echo "Profile w trybie complain (before=$before): ${names[*]}"
+    # Przeszukujemy tylko pliki z `flags=(complain` (nie cały katalog) i dopasowujemy nazwy profilów,
+    # które dany plik definiuje — jeden plik może ich mieć kilka.
+    switched=0
+    mapfile -t files < <(grep -rl 'flags=(complain' /etc/apparmor.d/ 2>/dev/null || true)
+    for f in "${files[@]}"; do
+      defined=$(apparmor_parser -N "$f" 2>/dev/null || true)
+      for n in "${names[@]}"; do
+        if grep -qxF -- "$n" <<<"$defined"; then
+          if aa-enforce "$f"; then
+            echo "  aa-enforce $f (m.in. profil $n): OK"
+          else
+            echo "  aa-enforce $f: niepowodzenie — stan sprawdzi licznik ponizej" >&2
+          fi
+          switched=1
+          break
+        fi
+      done
+    done
+    after=$(aa-status --complaining)
+    echo "aa-status --complaining: before=$before after=$after"
+    if [[ $after != 0 ]]; then
+      echo "BŁĄD (#65): po aa-enforce nadal $after profili w trybie complain: $(aa-status --filter.mode=complain --show=profiles 2>/dev/null | tr '\n' ' ')" >&2
+      exit 1
+    fi
+    echo "WLB_SWITCHED=$switched"
   args:
     executable: /bin/bash
-  # aa-enforce tylko przepisuje istniejące profile na tryb enforce (bez profilów w complain to no-op),
-  # więc nie raportujemy zmiany — stan weryfikuje test akceptacyjny 20-apparmor.sh.
-  changed_when: false
+  register: base_complain_enforce
+  # Zmiana tylko gdy coś faktycznie przełączaliśmy (before>0); przy before=0 zadanie jest no-opem.
+  changed_when: "'WLB_SWITCHED=1' in base_complain_enforce.stdout"
 
 # Zrzuty pamięci użytkowników wyłączone (CIS 1.5.1, #63): twardy limit core=0 (limits) i brak zapisu
 # przez systemd-coredump. Zapobiega wyciekowi wrażliwych danych z pamięci do plików core w Laboratorium.
