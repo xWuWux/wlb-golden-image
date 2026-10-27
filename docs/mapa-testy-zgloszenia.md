@@ -124,6 +124,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-26). Odświ
 ### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
 - `tests/acceptance.d/70-radiologia.sh` — *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 
+### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
+- `tests/unit/changes.bats` — `śluza: PR i merge_group wymagają integracji bez etykiety (#149)`
+
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.

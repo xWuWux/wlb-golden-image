@@ -1,3 +1,19 @@
+- name: Walidacja budżetu śluzy (#149)
+  ansible.builtin.assert:
+    that:
+      - wlb_sluza_memory_max_mb is integer
+      - wlb_sluza_memory_high_mb is integer
+      - wlb_sluza_tasks_max is integer
+      - wlb_sluza_io_weight is integer
+      - wlb_sluza_memory_high_mb >= 64
+      - wlb_sluza_memory_high_mb < wlb_sluza_memory_max_mb
+      - wlb_sluza_memory_max_mb <= 4096
+      - wlb_sluza_tasks_max >= 16
+      - wlb_sluza_tasks_max <= 512
+      - wlb_sluza_io_weight >= 1
+      - wlb_sluza_io_weight <= 10000
+    fail_msg: "Niepoprawny budżet śluzy; wymagane liczby całkowite i high < max."
+
 # TLJH tworzy użytkowników przez `useradd --create-home`, więc domyślne wartości useradd
 # decydują o położeniu i prawach katalogów domowych badaczy.
 - name: Katalogi domowe badaczy w /workspace
@@ -96,6 +112,19 @@
 
       [Install]
       WantedBy=multi-user.target
+
+- name: Katalog drop-in limitów śluzy (#149)
+  ansible.builtin.file:
+    path: /etc/systemd/system/wlb-sluza-out.service.d
+    state: directory
+    mode: "0755"
+
+- name: Limity zasobów śluzy (#149)
+  ansible.builtin.template:
+    src: 60-resources.conf.j2
+    dest: /etc/systemd/system/wlb-sluza-out.service.d/60-resources.conf
+    mode: "0644"
+  notify: Reload storage systemd
 
 - name: Włącz usługę śluzy wyjściowej
   ansible.builtin.systemd_service:

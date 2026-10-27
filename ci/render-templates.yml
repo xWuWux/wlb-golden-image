@@ -26,5 +26,6 @@
         - { role: audit, file: 50-wlb.rules.j2 }
         - { role: logging, file: wlb-shell-audit.sh.j2 }
         - { role: r_env, file: Rprofile.site.j2 }
+        - { role: storage, file: 60-resources.conf.j2 }
       loop_control:
         label: "{{ item.file }}"

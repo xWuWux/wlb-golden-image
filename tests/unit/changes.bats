@@ -114,6 +114,18 @@ repo_with_base() {
   has_line "perf=true"
 }
 
+@test "śluza: PR i merge_group wymagają integracji bez etykiety (#149)" {
+  for file in ansible/roles/storage/templates/60-resources.conf.j2 ansible/group_vars/all.yml \
+    tests/sluza_resources.py tests/acceptance.sh ci/changes.sh; do
+    repo_with_base "$file"
+    for event in pull_request merge_group; do
+      run env EVENT="$event" LABELS='[]' bash "$CHANGES"
+      [ "$status" -eq 0 ]
+      has_line "image=true"
+    done
+  done
+}
+
 @test "PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)" {
   for file in ansible/roles/base/tasks/main.yml ansible/roles/lab_config/files/wlb-firstboot \
     ansible/roles/tljh/templates/config.j2 cloud-init/lab.env.example tests/proxy_sink.py \
