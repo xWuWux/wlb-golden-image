@@ -150,6 +150,33 @@ else
   skip "Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)"
 fi
 
+# Pakiety po stronie badacza (#23, IMG-004): obraz musi realizować tryb z lab.env.
+# O możliwości instalacji decyduje proxy/mirror (#16) — tu sprawdzamy konfigurację wystawioną przez
+# wlb-firstboot; runtime'owy test pipa to tylko dowód, że w trybie deny badacz nie ma dokąd instalować.
+PKG_MODE=$(sed -n 's/^RESEARCHER_PACKAGE_INSTALL=//p' /etc/wlb/lab.env)
+PKG_MODE=${PKG_MODE:-deny}
+if [[ $PKG_MODE == deny ]]; then
+  expect_fail "deny: obraz nie wystawia /etc/pip.conf" test -e /etc/pip.conf
+  expect_ok "deny: R bez repozytoriów (install.packages zakończy się błędem)" \
+    grep -q 'options(repos = character(0))' /etc/wlb/r-repos.R
+  expect_ok "deny: ~/.local wyłączony z importu (/etc/environment)" \
+    grep -qx 'PYTHONNOUSERSITE=1' /etc/environment
+  expect_ok "deny: ~/.local wyłączony w sesjach badacza (Spawner.environment)" \
+    grep -q '"PYTHONNOUSERSITE": "1"' /opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py
+  expect_ok "deny: interpreter TLJH z pipem dostępny dla badacza" \
+    as $R1 /opt/tljh/user/bin/python3 -m pip --version
+  expect_fail "deny: pip nie ma skąd instalować (§24.c)" \
+    as $R1 timeout 60 /opt/tljh/user/bin/python3 -m pip install --disable-pip-version-check --retries 0 --timeout 5 tabulate
+else
+  expect_ok "mirror: obraz wystawia kuratorowany index w /etc/pip.conf" \
+    bash -c 'test -s /etc/pip.conf && grep -q "^index-url = https://" /etc/pip.conf'
+  expect_ok "mirror: r-repos.R wskazuje mirror Laboratorium" \
+    grep -q 'CRAN = "https://' /etc/wlb/r-repos.R
+  expect_fail "mirror: ~/.local pozostaje ładowany (brak PYTHONNOUSERSITE)" \
+    grep -q 'PYTHONNOUSERSITE' /etc/environment
+  skip "Faktyczna instalacja z kuratorowanego mirrora — wymaga mirrora z allowlistą pakietów (#16)"
+fi
+
 echo "== 7. Limity sesji (§9.5) =="
 expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--timeout=1800"'
 expect_ok "Twardy limit 12 h (culler --max-age)" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--max-age=43200"'

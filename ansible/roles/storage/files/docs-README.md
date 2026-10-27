@@ -28,6 +28,4 @@ Danych — nie da się go już odczytać ani zmienić. **Każdy plik to osobny w
 **Sesja:** serwer notebooków zamyka się po 30 minutach bezczynności, a sesja kończy
 się po 12 godzinach niezależnie od aktywności (§9.5 Regulaminu). Zapisuj pracę.
 
-**Sieć:** VM nie ma dostępu do internetu. Pakiety instaluje administrator przez
-nową wersję obrazu. Wysyłanie danych WLB do zewnętrznych usług, w tym modeli LLM,
-jest zabronione (§31.3).
+**Sieć:** VM nie ma dostępu do internetu — dozwolone są tylko adresy z allowlisty Laboratorium (patrz konfiguracyjna allowlista proxy i zapora egress). Zasady instalacji pakietów ustawia Administrator Laboratorium i opisuje je `/docs/pakiety.md` (decyzja IMG-004). Wysyłanie danych WLB do zewnętrznych usług, w tym modeli LLM, jest zabronione (§31.3).
