@@ -149,10 +149,13 @@ if [[ " $* " == *" --proxy-allowlist "* ]]; then
   # proxy_denies_connect URL: HTTPS URL; sukces tylko po odmowie CONNECT przez proxy.
   # Sam timeout/DNS/TLS error nie dowodzi blokady; http_connect musi wynieść dokładnie 403.
   proxy_denies_connect() {
-    local code rc=0
+    # Odmowa proxy = http_connect 403 (proxy odrzuciło CONNECT; sukces CONNECT to 200). Kod wyjścia
+    # curla dla odrzuconego CONNECT jest WERSYJNY (stare 56, curl 8.x 7), więc nie sprawdzamy rc —
+    # dowodem odmowy jest 403, a awaria transportu/DNS/cert daje http_connect 000.
+    local code
     code=$(as "$R1" curl -q -s -o /dev/null -w '%{http_connect}' \
-      --noproxy '' -x "$P" --connect-timeout 3 --max-time 5 "$1") || rc=$?
-    [[ $rc -eq 56 && $code == 403 ]]
+      --noproxy '' -x "$P" --connect-timeout 3 --max-time 5 "$1") || true
+    [[ $code == 403 ]]
   }
   for target in https://api.openai.com/ https://outside.invalid/ https://192.0.2.1/; do
     expect_ok "CONNECT poza allowlistą: $target (403, #16, #63)" proxy_denies_connect "$target"
