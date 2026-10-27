@@ -10,7 +10,7 @@
 - Uruchomienie proxy w etapie 5 jest obowiązkowe. Jego awaria kończy etap błędem,
   sprząta uruchomione odbiorniki i nie uruchamia VM. Ręczna akceptacja bez fixture
   nadal może zwrócić SKIP; nie jest wtedy pełnym dowodem odbioru #16.
-- Akceptacja #63 sprawdza wszystkie 30 wartości przypiętych w `60-wlb.conf`
+- Akceptacja #63 sprawdza wszystkie 30 wartości przypiętych w `99-wlb.conf`
   (w tym `all` i `default`), nie tylko dziewięć wybranych wartości.
   Wartości oczekiwane są zapisane niezależnie od pliku konfiguracyjnego.
   Błąd odczytu sysctl oznacza FAIL nawet przy poprawnym stdout.

@@ -179,7 +179,11 @@
 
 - name: Utwardzenie jądra
   ansible.builtin.copy:
-    dest: /etc/sysctl.d/60-wlb.conf
+    # Prefiks 99-wlb, nie 60-: systemd ładuje sysctl.d w kolejności nazw, ostatni wygrywa.
+    # Ubuntu ma /usr/lib/sysctl.d/99-protect-links.conf z fs.protected_fifos = 1 — przy 60-
+    # nadpisywał nasze 2 (#63). "99-wlb" sortuje się po "99-protect-links" ('w' > 'p'),
+    # więc nasze wartości stosują się jako ostatnie i wygrywają.
+    dest: /etc/sysctl.d/99-wlb.conf
     mode: "0644"
     content: |
       # Zarządzane przez Ansible (rola base)
