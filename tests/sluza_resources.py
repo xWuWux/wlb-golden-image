@@ -73,7 +73,9 @@ def budget(memory: int, tasks: int) -> tuple[int, int]:
     return memory + 64 * 1024**2, tasks + 8
 
 
-def probe(root: Path, label: str, code: str, args: list[str], control: bool = False) -> tuple[str, str]:
+def probe(
+    root: Path, label: str, code: str, args: list[str], control: bool = False, oom_hard: bool = False
+) -> tuple[str, str]:
     """Jednostka testowa z kopią drop-in; kontrola ma nadal 512 MiB/128 tasks i timeout."""
     unit = f"wlb149-{root.name}-{label}.service"
     # Slice pozostaje aktywny po OOM dziecka: zachowuje hierarchiczne liczniki memory.events.
@@ -89,6 +91,11 @@ def probe(root: Path, label: str, code: str, args: list[str], control: bool = Fa
     shutil.copyfile(DROPIN, drop / "60-resources.conf")
     if control:
         (drop / "90-control.conf").write_text("[Service]\nMemoryHigh=480M\nMemoryMax=512M\nTasksMax=128\n")
+    if oom_hard:
+        # Test twardego MemoryMax (OOM): wyłącz MemoryHigh, by throttling reclaimu nie opóźniał
+        # alokacji poza RuntimeMaxSec. MemoryMax + MemorySwapMax=0 nadal wymuszają OOM. Presję
+        # MemoryHigh weryfikują osobno wartości usługi produkcyjnej (main) i sonda memory-control.
+        (drop / "91-oom.conf").write_text("[Service]\nMemoryHigh=infinity\n")
     unit_path.write_text(
         f"[Service]\nType=exec\nSlice={slice_name}\n"
         f"ExecStart=/usr/bin/python3 {script} {' '.join(args)}\n"
@@ -111,6 +118,11 @@ def probe(root: Path, label: str, code: str, args: list[str], control: bool = Fa
         print(label, result, flush=True)
         if result[0] != "success":
             print(run("journalctl", "-u", unit, "--no-pager", "-n", "20"))
+            # throttle (MemoryHigh) vs twardy OOM (MemoryMax): stan pamięci slice'a przed sprzątaniem
+            for name in ("memory.events", "memory.current", "memory.peak", "memory.swap.current"):
+                stat = events_path.parent / name
+                if stat.is_file():
+                    print(f"  {name}: {' '.join(stat.read_text().split())}", flush=True)
         return result
     finally:
         run("systemctl", "stop", unit)
@@ -168,7 +180,7 @@ def main(login: str) -> None:
     assert available >= 1024**3, "Brak 1 GiB zapasu dla ograniczonej kontroli; FAIL, nie SKIP"
     with tempfile.TemporaryDirectory(prefix="sluza-", dir="/run") as tmp:
         root = Path(tmp)
-        assert probe(root, "memory", MEMORY, [str(allocation)]) == ("oom-kill", "9")
+        assert probe(root, "memory", MEMORY, [str(allocation)], oom_hard=True) == ("oom-kill", "9")
         assert probe(root, "memory-control", MEMORY, [str(allocation)], control=True) == ("success", "0")
         assert probe(root, "tasks", FORK, [str(children), "blocked"]) == ("success", "0")
         assert probe(root, "tasks-control", FORK, [str(children), "allowed"], control=True) == ("success", "0")
@@ -183,8 +195,14 @@ subprocess.run(['/usr/local/sbin/wlb-sluza-out-mover', '--once'], check=True)
 """
         assert probe(root, "mover", code, []) == ("success", "0")
         assert not list(source.iterdir())
-        files = list(queue.iterdir())
-        assert len(files) == 1 and files[0].read_bytes() == b"x" * 1024**2
+        # Po #147 wpis kolejki to pakiet: katalog <ts>_<owner>_<nazwa>/ z payload + manifest.json,
+        # nie surowy plik. Dotfiles (.mover.lock, .incoming.*) są wewnętrzne i niewidoczne dla badacza —
+        # pomijamy je jak bats (ls bez -a). Weryfikujemy pakiet i payload (dla pojedynczego pliku to plik).
+        entries = [e for e in queue.iterdir() if not e.name.startswith(".")]
+        assert len(entries) == 1, entries
+        pkg = entries[0]
+        assert (pkg / "manifest.json").is_file(), list(pkg.iterdir())
+        assert (pkg / "payload").read_bytes() == b"x" * 1024**2
     run("systemctl", "is-active", *services)
     assert before == {s: prop(s, "MainPID") for s in services}, "Usługa krytyczna zrestartowała się"
 
