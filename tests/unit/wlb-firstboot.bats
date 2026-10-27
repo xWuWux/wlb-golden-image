@@ -28,15 +28,22 @@ CRAN_MIRROR_URL=https://cran.wlb.local
 EGRESS_ALLOW="10.20.0.10:3128 10.30.0.0/24:5432"
 NTP_SERVERS="10.10.0.2 ntp.wlb.local"
 ADMIN_SSH_CIDR=10.10.0.0/24
+HUB_ALLOWED_CIDR=10.10.1.0/24
 SIEM_HOST=10.40.0.20
 SIEM_TLS_NAME=siem.wlb.local
 EOF
   mkdir -p "$SANDBOX/etc/sudoers.d"
   touch "$SANDBOX/etc/sudoers.d/jupyterhub-admins"
-  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep chronyc openssl; do stub "$cmd"; done
-  # TLS do SIEM (#6): moduł rsyslog i CA z cloud-init; openssl (atrapa) "potwierdza" poprawny PEM
+  for cmd in logger systemctl nft rsyslogd chown curl groupadd useradd sleep chronyc; do stub "$cmd"; done
+  # openssl (atrapa): spójne niepuste wyjście, by walidacja TLS huba (#18) i SIEM CA (#6) przeszły
+  # happy-path. Kontrola pary klucz–cert porównuje skróty — przy tej samej treści dla certu i klucza
+  # obie strony są równe. Testy negatywne re-stubują openssl (kod 1). Realny TLS sprawdza E2E na VM.
+  stub openssl 0 "wlb-tls-pubkey-der-digest"
+  # TLS do SIEM (#6): moduł rsyslog i CA z cloud-init; TLS huba (#18): cert i klucz (klucz 0600)
   mkdir -p "$SANDBOX/usr/lib/x86_64-linux-gnu/rsyslog"
   touch "$SANDBOX/usr/lib/x86_64-linux-gnu/rsyslog/lmnsd_gtls.so" "$SANDBOX/etc/wlb/siem-ca.pem"
+  touch "$SANDBOX/etc/wlb/hub-tls.crt" "$SANDBOX/etc/wlb/hub-tls.key"
+  chmod 0600 "$SANDBOX/etc/wlb/hub-tls.key"
   stub getent 2
   stub tljh-config 0 "users:"
   stub wlb-hub-user 0 "haslo-poczatkowe-123"
@@ -89,7 +96,8 @@ EOF
   grep -q 'ip daddr 10.30.0.0/24 tcp dport 5432 accept' "$nftcfg"
   grep -q 'meta skuid 10000-59999 jump researcher_egress' "$nftcfg"
   grep -q 'ip saddr 10.10.0.0/24 tcp dport 22 accept' "$nftcfg"
-  grep -q 'ip saddr 0.0.0.0/0 tcp dport { 80, 443 } accept' "$nftcfg"
+  # Hub otwierany na realny HUB_ALLOWED_CIDR (nigdy 0.0.0.0/0) i dopiero w fazie 2, po potwierdzeniu TLS (#18)
+  grep -q 'ip saddr 10.10.1.0/24 tcp dport { 80, 443 } accept' "$nftcfg"
   calls | grep -q "nft -c -f $nftcfg"
 
   # SIEM
@@ -123,6 +131,103 @@ EOF
   calls | grep -qx 'systemctl start wlb-audit-rules.service'
   # dane testowe tylko w LOCAL_TEST_MODE
   [ ! -e "$SANDBOX/data-mart/wlb-test-cohort.csv" ]
+}
+
+# --- #18: dostęp (CIDR fail-secure, TLS huba) ---------------------------------------
+
+@test "#18 dostęp: HUB_TLS domyślnie 1 — HTTPS włączone, cert i klucz ustawione" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'tljh-config set https.enabled true'
+  calls | grep -qx 'tljh-config set https.tls.cert /etc/wlb/hub-tls.crt'
+  calls | grep -qx 'tljh-config set https.tls.key /etc/wlb/hub-tls.key'
+}
+
+@test "#18 dostęp: HUB_TLS=0 — hub tylko po HTTP (port 80, bez 443), z ostrzeżeniem" {
+  echo 'HUB_TLS=0' >>"$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  # kontrole $output/calls PRZED kolejnym `run` (run nadpisuje $output/$status)
+  [[ $output == *"OSTRZEŻENIE: HUB_TLS=0"* ]]
+  calls | grep -qx 'tljh-config set https.enabled false'
+  nftcfg="$SANDBOX/etc/nftables.conf"
+  grep -q 'ip saddr 10.10.1.0/24 tcp dport 80 accept' "$nftcfg"
+  run grep -q '443' "$nftcfg"
+  [ "$status" -ne 0 ]
+}
+
+@test "#18 fail-secure: błąd TLS huba nie otwiera portu huba ani nie kończy firstboot" {
+  rm "$SANDBOX/etc/wlb/hub-tls.crt"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak certyfikatu huba"* ]]
+  # przerwanie nastąpiło przed otwarciem portu huba: reguła portu huba nie została zapisana
+  nftcfg="$SANDBOX/etc/nftables.conf"
+  [ ! -e "$nftcfg" ] || ! grep -qE 'tcp dport (80|\{ 80, 443 \}) accept' "$nftcfg"
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "#18 TLS: klucz huba o zbyt szerokich prawach jest odrzucany" {
+  chmod 0644 "$SANDBOX/etc/wlb/hub-tls.key"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"zbyt szerokie prawa"* ]]
+}
+
+@test "#18 TLS: certyfikat i klucz nie są parą — odrzucone" {
+  # openssl rozróżnia klucz publiczny certu (CERTPUB) od publicznego klucza prywatnego (KEYPUB),
+  # dgst/pkey -pubin przepuszczają wejście — skróty się różnią, więc para nie pasuje.
+  cat >"$STUBS/openssl" <<'OS'
+#!/usr/bin/env bash
+echo "openssl $*" >>"$CALLS"
+case "$*" in
+  *-pubkey*) echo CERTPUB ;;
+  *-pubout*) echo KEYPUB ;;
+  *-pubin*)  cat ;;
+  *dgst*)    cat ;;
+  *)         : ;;
+esac
+exit 0
+OS
+  chmod +x "$STUBS/openssl"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"certyfikat i klucz nie są parą"* ]]
+}
+
+@test "#18 CIDR: HUB_ALLOWED_CIDR=0.0.0.0/0 jest odrzucane (/0)" {
+  sed -i 's#^HUB_ALLOWED_CIDR=.*#HUB_ALLOWED_CIDR=0.0.0.0/0#' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"prefiks musi być 1–32"* ]]
+}
+
+@test "#18 CIDR: końcowa spacja w HUB_ALLOWED_CIDR jest odrzucana" {
+  sed -i 's#^HUB_ALLOWED_CIDR=.*#HUB_ALLOWED_CIDR="10.10.1.0/24 "#' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"pojedynczej sieci IPv4"* ]]
+}
+
+@test "#18 CIDR: lista adresów w ADMIN_SSH_CIDR jest odrzucana" {
+  sed -i 's#^ADMIN_SSH_CIDR=.*#ADMIN_SSH_CIDR=10.10.0.0/24,10.20.0.0/24#' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"pojedynczej sieci IPv4"* ]]
+}
+
+@test "#18 CIDR: prefiks > 32 jest odrzucany" {
+  sed -i 's#^ADMIN_SSH_CIDR=.*#ADMIN_SSH_CIDR=10.10.0.0/33#' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"prefiks musi być 1–32"* ]]
+}
+
+@test "#18 CIDR: brak HUB_ALLOWED_CIDR przerywa konfigurację" {
+  sed -i '/^HUB_ALLOWED_CIDR=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"HUB_ALLOWED_CIDR jest wymagane"* ]]
 }
 
 @test "drugie uruchomienie nic nie robi" {
@@ -378,10 +483,12 @@ siem_env() { # siem_env KLUCZ=WARTOŚĆ... — nadpisuje lub dopisuje zmienne w 
 }
 
 @test "SIEM TLS: nieczytelny certyfikat CA przerywa konfigurację" {
+  # HUB_TLS=0, by openssl 1 trafiał w ścieżkę SIEM CA, nie w wcześniejszą walidację certu huba (#18)
+  echo 'HUB_TLS=0' >>"$SANDBOX/etc/wlb/lab.env"
   stub openssl 1
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
-  [[ $output == *"nie jest poprawnym certyfikatem PEM"* ]]
+  [[ $output == *"SIEM_TLS=1: /etc/wlb/siem-ca.pem nie jest poprawnym certyfikatem PEM"* ]]
 }
 
 @test "SIEM TLS: brak modułu lmnsd_gtls przerywa konfigurację" {

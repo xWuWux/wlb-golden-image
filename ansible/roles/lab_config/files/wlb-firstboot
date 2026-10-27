@@ -55,12 +55,25 @@ NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
 PYPI_INDEX_URL=${PYPI_INDEX_URL:-}
 CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
 EGRESS_ALLOW=${EGRESS_ALLOW:-}
-# Fail-secure (#18/IMG-005): wymagany jawny zakres źródłowy — brak domyślnego 0.0.0.0/0, a jawne
-# 0.0.0.0/0 jest odrzucane. SSH administratora i dostęp do huba nie są otwierane z całego internetu.
+# Fail-secure (#18/IMG-005): wymagany jawny zakres źródłowy — brak domyślnego 0.0.0.0/0. Zakres jest
+# walidowany jako pojedyncza kanoniczna sieć IPv4 (prefiks 1–32); listy, zakresy, dodatkowe tokeny,
+# spacje, /0 i IPv6 są odrzucane PRZED modyfikacją zapory. To walidacja składni konfiguracji
+# administratora platformy, nie twierdzenie, że badacz może edytować lab.env.
+validate_cidr() { # $1=nazwa zmiennej $2=wartość
+  local name=$1 val=$2 prefix o
+  [[ $val =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] ||
+    die "${name}='${val}' — oczekiwano pojedynczej sieci IPv4 w zapisie A.B.C.D/prefiks, bez list, spacji i IPv6 (#18)"
+  for o in "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}"; do
+    ((10#$o <= 255)) || die "${name}='${val}' — oktet ${o} poza zakresem 0–255 (#18)"
+  done
+  prefix=${BASH_REMATCH[5]}
+  ((10#$prefix >= 1 && 10#$prefix <= 32)) ||
+    die "${name}='${val}' — prefiks musi być 1–32 (/0 otwierające cały internet i >32 są zabronione, #18)"
+}
 : "${ADMIN_SSH_CIDR:?ADMIN_SSH_CIDR jest wymagane (#18): zakres źródłowy SSH administratora platformy}"
 : "${HUB_ALLOWED_CIDR:?HUB_ALLOWED_CIDR jest wymagane (#18): zakres źródłowy dostępu do huba}"
-[[ $ADMIN_SSH_CIDR == 0.0.0.0/0 ]] && die "ADMIN_SSH_CIDR=0.0.0.0/0 zabronione (#18) — podaj realny zakres sieci"
-[[ $HUB_ALLOWED_CIDR == 0.0.0.0/0 ]] && die "HUB_ALLOWED_CIDR=0.0.0.0/0 zabronione (#18) — podaj realny zakres sieci"
+validate_cidr ADMIN_SSH_CIDR "$ADMIN_SSH_CIDR"
+validate_cidr HUB_ALLOWED_CIDR "$HUB_ALLOWED_CIDR"
 # TLS huba (#18/IMG-005, §20): domyślnie włączony. HUB_TLS=0 tylko świadomie (dev/izolowana sieć,
 # z ostrzeżeniem). HUB_TLS=1 wymaga certyfikatu i klucza z cloud-init write_files (jak SIEM_CA_CERT) —
 # traefik/TLJH słucha HTTPS na 443, a 80 przekierowuje. Wewnętrzne sprawdzenia huba idą wtedy po HTTPS.
@@ -68,8 +81,33 @@ HUB_TLS=${HUB_TLS:-1}
 HUB_TLS_CERT=${HUB_TLS_CERT:-/etc/wlb/hub-tls.crt}
 HUB_TLS_KEY=${HUB_TLS_KEY:-/etc/wlb/hub-tls.key}
 [[ $HUB_TLS == 1 && -z ${WLB_HUB_URL:-} ]] && HUB_URL="https://127.0.0.1"
-HUB_CURL_K=() # przy TLS: self-signed/wewnętrzne CA na pętli lokalnej akceptujemy (-k)
-[[ $HUB_TLS == 1 ]] && HUB_CURL_K=(-k)
+# -k tylko dla samokontroli po pętli lokalnej (127.0.0.1): cert huba ma SAN nazwy, nie IP pętli.
+# Przy nadpisanym WLB_HUB_URL NIE wyłączamy weryfikacji — zaufanie i nazwę trzeba wtedy sprawdzić naprawdę.
+HUB_CURL_K=()
+[[ $HUB_TLS == 1 && -z ${WLB_HUB_URL:-} ]] && HUB_CURL_K=(-k)
+# Fail-secure: pełna walidacja TLS (para klucz–cert, ważność, prawa, brak hasła) PRZED otwarciem zapory
+# i uruchomieniem proxy — inaczej błędny TLS wystawiłby hub po jawnym tekście (§20, dane medyczne/RODO).
+validate_hub_tls() { # waliduje HUB_TLS_CERT/KEY; wołane tylko dla HUB_TLS=1
+  local cert=$R$HUB_TLS_CERT key=$R$HUB_TLS_KEY perm cpub kpub
+  [[ -r $cert ]] || die "HUB_TLS=1: brak certyfikatu huba ${HUB_TLS_CERT} (cloud-init write_files)"
+  [[ -r $key ]] || die "HUB_TLS=1: brak klucza huba ${HUB_TLS_KEY} (cloud-init write_files)"
+  perm=$(stat -c '%a' "$key" 2>/dev/null || echo 777)
+  (((8#$perm & 8#077) == 0)) || die "HUB_TLS=1: klucz ${HUB_TLS_KEY} ma zbyt szerokie prawa (${perm}) — wymagane maks. 0600 (#18)"
+  openssl x509 -in "$cert" -noout >/dev/null 2>&1 || die "HUB_TLS=1: ${HUB_TLS_CERT} nie jest poprawnym certyfikatem PEM"
+  openssl x509 -in "$cert" -checkend 0 -noout >/dev/null 2>&1 || die "HUB_TLS=1: certyfikat ${HUB_TLS_CERT} wygasł (#18)"
+  # Klucz bez hasła: </dev/null sprawia, że chroniony klucz dostaje EOF zamiast promptu i daje błąd (nie zawisa).
+  openssl pkey -in "$key" -noout </dev/null >/dev/null 2>&1 ||
+    die "HUB_TLS=1: ${HUB_TLS_KEY} nie jest poprawnym kluczem PEM albo jest chroniony hasłem (firstboot jest nieinteraktywny, #18)"
+  # Zgodność pary: klucz publiczny z certu == publiczny z klucza prywatnego (DER — działa dla RSA i ECDSA).
+  cpub=$(openssl x509 -in "$cert" -noout -pubkey 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | openssl dgst -sha256 2>/dev/null) || true
+  kpub=$(openssl pkey -in "$key" -pubout -outform DER </dev/null 2>/dev/null | openssl dgst -sha256 2>/dev/null) || true
+  [[ -n $cpub && $cpub == "$kpub" ]] || die "HUB_TLS=1: certyfikat i klucz nie są parą (#18)"
+}
+case $HUB_TLS in
+  1) validate_hub_tls ;;
+  0) ;;
+  *) die "HUB_TLS musi być 0 albo 1, jest '${HUB_TLS}'" ;;
+esac
 # Uwierzytelnianie: native (MVP, Native Authenticator) albo oidc (Entra ID / Keycloak przez OAuth). #18
 AUTH_MODE=${AUTH_MODE:-native}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
@@ -228,7 +266,13 @@ done
 
 # Porty huba (#18): przy TLS otwieramy 80 (przekierowanie traefika) i 443; bez TLS tylko 80.
 hub_dports=$([[ $HUB_TLS == 1 ]] && echo '{ 80, 443 }' || echo '80')
-cat >"$R/etc/nftables.conf" <<EOF
+# Fail-secure (#18): zaporę ładujemy NAJPIERW bez reguły portu huba — SSH administratora, egress i polityka
+# drop działają od razu, ale hub jest niedostępny z sieci, dopóki nie potwierdzimy TLS i gotowości huba po
+# HTTPS. Samo przesunięcie walidacji nie wystarcza: proxy mogło już działać po HTTP, więc trzymamy port zamknięty.
+write_nftables() { # $1=1 dołącza regułę portu huba (faza 2)
+  local hub_rule=""
+  [[ ${1:-0} == 1 ]] && hub_rule="        ip saddr ${HUB_ALLOWED_CIDR} tcp dport ${hub_dports} accept"$'\n'
+  cat >"$R/etc/nftables.conf" <<EOF
 #!/usr/sbin/nft -f
 # Wygenerowane przez wlb-firstboot dla Laboratorium ${LAB_NAME} — nie edytować ręcznie.
 flush ruleset
@@ -242,8 +286,7 @@ table inet wlb {
         meta l4proto { icmp, ipv6-icmp } accept
         udp dport { 68, 546 } accept
         ip saddr ${ADMIN_SSH_CIDR} tcp dport 22 accept
-        ip saddr ${HUB_ALLOWED_CIDR} tcp dport ${hub_dports} accept
-        limit rate 5/second log prefix "wlb-in-deny " level info
+${hub_rule}        limit rate 5/second log prefix "wlb-in-deny " level info
     }
 
     chain output {
@@ -259,8 +302,11 @@ ${allow_rules}        limit rate 5/second log prefix "wlb-egress-deny " level in
     }
 }
 EOF
-nft -c -f "$R/etc/nftables.conf" || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
-systemctl restart nftables
+  nft -c -f "$R/etc/nftables.conf" || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
+  systemctl restart nftables
+}
+# Faza 1: zapora bez portu huba (hub zamknięty do potwierdzenia TLS + gotowości).
+write_nftables 0
 
 # --- 5. Przekazywanie logów do centralnego SIEM (§21) ------------------------------
 SIEM_CONF=$R/etc/rsyslog.d/60-wlb-siem.conf
@@ -442,16 +488,10 @@ esac
 if ! "$TLJH_CONFIG" show | grep -qE "^\s*-\s*${HUB_ADMIN_USER}\s*$"; then
   "$TLJH_CONFIG" add-item users.admin "$HUB_ADMIN_USER"
 fi
-# TLS huba (#18/IMG-005): fail-secure — HUB_TLS=1 wymaga poprawnego certu i klucza (jak SIEM TLS),
-# inaczej firstboot się nie kończy, zamiast wystawić hub po jawnym tekście (§20).
+# TLS huba (#18/IMG-005): cert i klucz zwalidowaliśmy już na starcie (validate_hub_tls), zanim
+# otworzyliśmy zaporę. Tu tylko włączamy HTTPS w TLJH; proxy/hub przeładujemy poniżej.
 case $HUB_TLS in
   1)
-    [[ -r $R$HUB_TLS_CERT ]] || die "HUB_TLS=1: brak certyfikatu huba ${HUB_TLS_CERT} (cloud-init write_files)"
-    [[ -r $R$HUB_TLS_KEY ]] || die "HUB_TLS=1: brak klucza huba ${HUB_TLS_KEY} (cloud-init write_files)"
-    openssl x509 -in "$R$HUB_TLS_CERT" -noout >/dev/null 2>&1 ||
-      die "HUB_TLS=1: ${HUB_TLS_CERT} nie jest poprawnym certyfikatem PEM"
-    openssl pkey -in "$R$HUB_TLS_KEY" -noout >/dev/null 2>&1 ||
-      die "HUB_TLS=1: ${HUB_TLS_KEY} nie jest poprawnym kluczem PEM"
     "$TLJH_CONFIG" set https.enabled true
     "$TLJH_CONFIG" set https.tls.cert "$HUB_TLS_CERT"
     "$TLJH_CONFIG" set https.tls.key "$HUB_TLS_KEY"
@@ -460,9 +500,6 @@ case $HUB_TLS in
   0)
     "$TLJH_CONFIG" set https.enabled false
     log "OSTRZEŻENIE: HUB_TLS=0 — hub po HTTP bez szyfrowania (§20). Dozwolone tylko w dev/izolowanej sieci."
-    ;;
-  *)
-    die "HUB_TLS musi być 0 albo 1, jest '${HUB_TLS}'"
     ;;
 esac
 "$TLJH_CONFIG" reload proxy
@@ -473,6 +510,9 @@ for ((waited = 0; waited < HUB_WAIT_SECONDS; waited += 2)); do
   sleep 2
 done
 hub_ready || die "JupyterHub nie odpowiada"
+# Faza 2 (#18): hub potwierdzony (po HTTPS przy HUB_TLS=1) — dopiero teraz otwieramy port huba w zaporze.
+# Do tego momentu z sieci dostępny był wyłącznie SSH administratora; błąd TLS/gotowości nie wystawia HTTP.
+write_nftables 1
 
 # Baza huba leży na dysku roboczym: po wymianie dysku systemowego konto już istnieje
 # i jego hasło zostaje bez zmian.
