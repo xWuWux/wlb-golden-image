@@ -40,6 +40,9 @@ write_files:
       EGRESS_ALLOW="10.0.2.2:3128"
       ADMIN_SSH_CIDR=10.0.2.0/24
       HUB_ALLOWED_CIDR=10.0.2.0/24
+      # Dev/test na izolowanej sieci QEMU: hub po HTTP (harness łączy się na 127.0.0.1:80). Produkcja:
+      # HUB_TLS=1 + HUB_TLS_CERT/HUB_TLS_KEY (write_files). Walidacja TLS end-to-end: #18 inkrement 2.
+      HUB_TLS=0
       # host QEMU (sieć user) — testowy serwer czasu (tests/ntp_sink.py) odpowiada na 10.0.2.2:123,
       # a etap 5 sprawdza faktyczną synchronizację (chronyc waitsync + stratum), nie tylko konfigurację (#36)
       NTP_SERVERS=10.0.2.2
