@@ -5,7 +5,7 @@ set -euo pipefail
 . "$(dirname "$0")/lib/local-common.sh"
 require_vm
 # WLB_TEST_NTP=1   → test synchronizacji NTP (#36)
-# WLB_TEST_PROXY=1 → test allowlisty na prawdziwym proxy (#16)
+# WLB_TEST_PROXY=1 → test kontraktu z atrapą proxy (#16)
 # Jeden skrypt na VM: rdzeń (acceptance-remote.sh) + fragmenty obszarów (acceptance.d/*.sh,
 # po nazwie) + summary. Sklejanie na HOŚCIE — VM dostaje pojedynczy plik (remote_run dokłada
 # remote-common.sh). Dzięki temu nowy feature = nowy plik fragmentu, bez konfliktów na wspólnym pliku.
