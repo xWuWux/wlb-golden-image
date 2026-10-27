@@ -5,7 +5,7 @@
 #   3.5 Kontrakt obserwowalności           ci/observability.sh  (zdarzenia VM zgodne z kodem)
 #   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
 #   5. Integracja i migracja (KVM)         ci/integration.sh    — NIE na każdym PR (koszt, #86):
-#                                          po merge do main, na etykietę "run-integration", nocą lub lokalnie;
+#                                          PR sieci/utwardzenia, push main, etykieta lub ręcznie;
 #                                          także: czy zdarzenia z kontraktu docierają do SIEM
 #   6. Benchmarki / wdrożenie tymczasowe   ci/perf.sh, ci/ephemeral-openstack.sh — na żądanie
 #   => "Gotowe do code review" (wymagany status check dla main; etap 5 wymagany tylko gdy image=true)
@@ -77,7 +77,7 @@ jobs:
         id: changes
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           IN_PERF: ${{ inputs.perf }}
           IN_EPHEMERAL: ${{ inputs.ephemeral }}

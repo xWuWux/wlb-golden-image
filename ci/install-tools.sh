@@ -103,6 +103,8 @@ install_security() {
       "$OSV_SCANNER_SHA256" "$TOOLS_DIR/bin/osv-scanner"
     chmod +x "$TOOLS_DIR/bin/osv-scanner"
   fi
+  # oscap: skan OVAL Canonical (USN) obrazu w etapie 5 (#3) — pakiet systemowy, bez gotowej binarki.
+  command -v oscap >/dev/null || sudo apt-get install -y --no-install-recommends openscap-utils
   venv venv-security ci/requirements-security.txt
 }
 

@@ -85,6 +85,9 @@ sleep 5
 expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
 expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
 expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-tester1_wynik-test.csv\$'"
+# shellcheck disable=SC2016  # argumenty rozwija wewnętrzny bash
+expect_ok "Manifest i integralność kopii w kolejce (#20)" \
+  bash -c 'for bundle in "$1"/*_jupyter-tester1_wynik-test.csv; do /usr/local/sbin/wlb-export-snapshot verify "$bundle" || exit 1; done' _ "$QUEUE"
 expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls "$QUEUE"
 # kolejka na dysku roboczym (przeżywa wymianę dysku systemowego, #4)
 expect_ok "Kolejka eksportu na dysku roboczym" test "$(findmnt -no TARGET --target "$QUEUE")" = /workspace
@@ -134,18 +137,32 @@ echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
 expect_fail "Bezpośrednie połączenie po adresie IP" as $R1 curl -s --noproxy '*' --max-time 5 http://1.1.1.1
 expect_ok "Reguły egress nftables załadowane" nft list chain inet wlb researcher_egress
-# Allowlista na prawdziwym proxy (#16). Z flagą --proxy-allowlist (CI: testowy proxy tests/proxy_sink.py
+# Kontrakt klienta z atrapą proxy (#16), nie walidacja proxy produkcyjnego. Z flagą --proxy-allowlist (CI: testowy proxy tests/proxy_sink.py
 # na 10.0.2.2:3128) sprawdzamy, że mirror z allowlisty przechodzi (200), a reszta — w tym API LLM
-# (§31.3) — jest blokowana (403). Badacz wychodzi przez proxy; zaporę egress pokrywają testy wyżej.
+# — jest blokowana (403). Atrapa nie forwarduje ruchu i nie testuje pozytywnego TLS.
 # Bez flagi (lokalnie bez testowego proxy) → SKIP zamiast fałszywego PASS/FAIL.
 if [[ " $* " == *" --proxy-allowlist "* ]]; then
   P=http://10.0.2.2:3128
   expect_ok "Proxy przepuszcza mirror z allowlisty (200)" \
-    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://pypi.mirror.local/)" = 200
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' --noproxy '' -x $P --max-time 5 http://pypi.mirror.local/)" = 200
   expect_ok "Proxy blokuje API LLM (403, §31.3)" \
-    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://api.openai.com/)" = 403
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' --noproxy '' -x $P --max-time 5 http://api.openai.com/)" = 403
   expect_ok "Proxy blokuje domenę spoza allowlisty (403)" \
-    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' -x $P --max-time 5 http://example.com/)" = 403
+    test "$(as $R1 curl -s -o /dev/null -w '%{http_code}' --noproxy '' -x $P --max-time 5 http://example.com/)" = 403
+  # proxy_denies_connect URL: HTTPS URL; sukces tylko po odmowie CONNECT przez proxy.
+  # Sam timeout/DNS/TLS error nie dowodzi blokady; http_connect musi wynieść dokładnie 403.
+  proxy_denies_connect() {
+    # Odmowa proxy = http_connect 403 (proxy odrzuciło CONNECT; sukces CONNECT to 200). Kod wyjścia
+    # curla dla odrzuconego CONNECT jest WERSYJNY (stare 56, curl 8.x 7), więc nie sprawdzamy rc —
+    # dowodem odmowy jest 403, a awaria transportu/DNS/cert daje http_connect 000.
+    local code
+    code=$(as "$R1" curl -q -s -o /dev/null -w '%{http_connect}' \
+      --noproxy '' -x "$P" --connect-timeout 3 --max-time 5 "$1") || true
+    [[ $code == 403 ]]
+  }
+  for target in https://api.openai.com/ https://outside.invalid/ https://192.0.2.1/; do
+    expect_ok "CONNECT poza allowlistą: $target (403, #16, #63)" proxy_denies_connect "$target"
+  done
 else
   skip "Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)"
 fi

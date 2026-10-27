@@ -19,7 +19,7 @@ SHELL_SCRIPTS=(
   ansible/roles/storage/files/wlb-sluza-out-mover
 )
 BATS_FILES=(tests/unit/*.bats tests/unit/helpers.bash)
-PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user)
+PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/storage/files/wlb-export-snapshot)
 
 step() {
   if [[ -n ${GITHUB_ACTIONS:-} ]]; then echo "::group::$*"; else echo && echo "== $*"; fi

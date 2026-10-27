@@ -16,7 +16,7 @@
 . "$(dirname "$0")/common.sh"
 # shellcheck source=ci/image-meta.sh
 . "$(dirname "$0")/image-meta.sh"
-require packer ansible-playbook qemu-system-x86_64 qemu-img cloud-localds osv-scanner python3
+require packer ansible-playbook qemu-system-x86_64 qemu-img cloud-localds osv-scanner oscap python3
 
 IMAGE_VERSION=${IMAGE_VERSION:-0.0.0-ci}
 IMAGE_DATE=${IMAGE_DATE:-$(date +%Y%m%d)}
@@ -80,7 +80,7 @@ collect_vm_logs() {
 }
 
 acceptance() {
-  local rc=0 sink ntp="" ntp_flag="" proxy="" proxy_flag=""
+  local rc=0 sink ntp="" ntp_flag="" proxy=""
   # testowy SIEM: VM (sieć QEMU user) wysyła logi po TLS do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
   rm -f "$LOGS/siem.log"
   tests/lib/test-pki.sh build/test
@@ -111,19 +111,24 @@ acceptance() {
   fi
   # testowy proxy z allowlistą: badacz wychodzi wyłącznie przez 10.0.2.2:3128 — tests/proxy_sink.py (#16).
   # Przepuszcza tylko mirrory (allowlista), resztę (w tym API LLM) odrzuca 403. Port nieuprzywilejowany
-  # (bez sudo). Bez niego test allowlisty robi SKIP (flaga --proxy-allowlist nieprzekazana).
+  # (bez sudo). W etapie 5 brak fixture jest błędem, nigdy pominięciem testu (#16, #63).
   python3 tests/proxy_sink.py --port 3128 --allow pypi.mirror.local,cran.mirror.local &
   proxy=$!
   sleep 1
-  if kill -0 "$proxy" 2>/dev/null; then
-    proxy_flag=1
-  else
-    echo "Testowy proxy nie wystartował — port 3128 zajęty? (ss -ltnp 'sport = :3128')"
-    proxy=""
+  if ! kill -0 "$proxy" 2>/dev/null; then
+    echo "Testowy proxy nie wystartował — integracja przerwana (#16, #63)"
+    kill "$sink" 2>/dev/null || true
+    wait "$sink" 2>/dev/null || true
+    if [[ -n $ntp ]]; then
+      sudo kill "$ntp" 2>/dev/null || true
+      wait "$ntp" 2>/dev/null || true
+    fi
+    wait "$proxy" 2>/dev/null || true
+    return 1
   fi
   tests/run-local.sh "$IMAGE" || rc=$?
   if [[ $rc -eq 0 ]]; then
-    WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=$proxy_flag tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
+    WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=1 tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
     # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
     grep -q '^Wynik:' "$LOGS/acceptance.log" || {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
@@ -263,6 +268,23 @@ image_sca() {
   } | summary >/dev/null
 }
 
+image_oval() {
+  [[ -s $ARTIFACTS/dpkg-status ]] || {
+    echo "Brak dpkg-status z VM — pomijam OVAL"
+    return 0
+  }
+  # OVAL Canonical (USN): CVE pakietów NIE-jądrowych (oscap) + sygnał świeżości jądra (oval_summary.py),
+  # bo oscap nie flaguje jądra (USN kluczują poprawki na wersjonowanych binarkach linux-image-*-NNN).
+  # Domyka ślepą plamkę po override "linux" w osv-scanner (#2/#3). Pomiar lokalny: ~0,7 GB / ~6 s.
+  ci/guard.sh --name "oscap OVAL (obraz, jądro)" --optional --timeout 10m --memory 1500M -- \
+    ci/image_oval.sh "$ARTIFACTS/dpkg-status" build/sca
+  {
+    echo "### Skan OVAL Canonical (USN) obrazu — jądro i pakiety (#3)"
+    echo
+    cat build/sca/oval-summary.md 2>/dev/null || echo "brak wyniku — zob. build/ci-logs/guard.jsonl"
+  } | summary >/dev/null
+}
+
 hardening_report() {
   # Raport utwardzenia z VM testowej (zebrany w acceptance). Krok opcjonalny: zawsze zwraca 0,
   # bo audyt walidują osobne testy akceptacyjne, a odstępstwa są świadome i opisane (#11).
@@ -285,6 +307,7 @@ if [[ ${1:-} == image-sca ]]; then
   fi
   echo "Artefakty: $ARTIFACTS"
   run_check "Podatności pakietów w obrazie (raport)" image_sca
+  run_check "Skan OVAL Canonical obrazu (raport)" image_oval
   finish
   exit
 fi

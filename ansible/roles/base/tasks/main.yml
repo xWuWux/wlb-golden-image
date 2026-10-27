@@ -179,7 +179,11 @@
 
 - name: Utwardzenie jądra
   ansible.builtin.copy:
-    dest: /etc/sysctl.d/60-wlb.conf
+    # Prefiks 99-wlb, nie 60-: systemd ładuje sysctl.d w kolejności nazw, ostatni wygrywa.
+    # Ubuntu ma /usr/lib/sysctl.d/99-protect-links.conf z fs.protected_fifos = 1 — przy 60-
+    # nadpisywał nasze 2 (#63). "99-wlb" sortuje się po "99-protect-links" ('w' > 'p'),
+    # więc nasze wartości stosują się jako ostatnie i wygrywają.
+    dest: /etc/sysctl.d/99-wlb.conf
     mode: "0644"
     content: |
       # Zarządzane przez Ansible (rola base)
@@ -193,7 +197,7 @@
       net.ipv4.conf.all.send_redirects = 0
       net.ipv4.conf.default.send_redirects = 0
       # Reverse path filter, brak source routing, brak secure redirects, log marsjańskich adresów (CIS 3.x, #63).
-      # VM nie jest routerem ani nie przekazuje ruchu — to standardowe wzmocnienia bez wpływu na pracę badaczy.
+      # Profil wymaga symetrycznego routingu IPv4; rp_filter=1 należy sprawdzić w topologii Laboratorium.
       net.ipv4.conf.all.rp_filter = 1
       net.ipv4.conf.default.rp_filter = 1
       net.ipv4.conf.all.accept_source_route = 0
@@ -249,15 +253,18 @@
 
 # Profile dystrybucyjne (m.in. transmission z bazowego pakietu `apparmor`) Ubuntu ładowuje w trybie
 # complain, przez co CIS 1.6.3 („żaden profil w complain") pada na profilach aplikacji, których w obrazie
-# nie ma (#65).
+# nie ma (#65). Naprawa dotyczy wyłącznie profili wskazanych jako complaining — profile `unconfined`
+# (w obrazie ~90, m.in. Discord, brave, 1password) to inny tryb, poza zakresem CIS 1.6.3.
 #
-# Naprawa jest celowo wąska: przełączamy WYŁĄCZNIE profile wskazane jako complaining, a nie cały katalog
-# (`aa-enforce --recursive /etc/apparmor.d/`). Rekurencyjne aa-enforce dotknęłoby też ~90 profili
-# oznaczonych przez dystrybucję jako unconfined (Discord, brave, 1password) — to inny tryb, jego zmiana
-# nie jest wymagana przez CIS 1.6.3, a skutku nie da się sprawdzić bez żywej VM (po stronie kontrolującej
-# brak apparmor-utils i zamontowanego apparmorfs). Nazwy bierzemy z `aa-status --json` (kształt nieznany
-# zdalnie — przechodzimy całe drzewo JSON), z fallbackiem do `aa-status --verbose`; po naprawie
-# twardo assertujemy, ze licznik spadl do zera — wolimy glosna porazke builda niz FAIL w etapie 5.
+# Kształt outputu i zachowanie narzędzi sprawdzono na VM z obrazu (Ubuntu 24.04, apparmor 4.0.1):
+#   - `aa-status --json` zwraca `{"profiles": {"<nazwa>": "<tryb>"}, ...}` — tryb jest WARTOŚCIĄ,
+#     nie kluczem (błąd poprzedniej implementacji: szukała kluczy z „complain" i nie znajdowała nic);
+#   - `aa-enforce <nazwa profilu>` NIE działa: aa-enforce szuka ścieżki binarki (`/usr/bin/x`), dla
+#     nieobecnej wypisuje ostrzeżenie i **kończy się rc=0, nic nie zmieniając**;
+#   - `aa-enforce <plik>` działa: usuwa `flags=(complain)` z pliku i przeładowuje profil;
+#   - jeden plik może definiować kilka profili (`/etc/apparmor.d/transmission` → 4 nazwy), więc
+#     nazwę dopasowujemy przez `apparmor_parser -N <plik>`, a nie po nazwie pliku.
+# Guardy: licznik > 0 bez nazw — build pada; licznik niezerowy po przełączeniu — build pada.
 - name: Profile AppArmor z trybu complain przełączone na enforce (#65, CIS 1.6.3)
   ansible.builtin.shell: |
     set -o pipefail
@@ -271,64 +278,37 @@
       echo "WLB_SWITCHED=0"
       exit 0
     fi
-    # Nazwy profili w complain: przechodzimy cale drzewo json i bierzemy wartesci/klucze spod kazdego
-    # klucza zawierajacego "complain"; jesli aa-status nie zna --json — lista z `--verbose`.
-    names=$(aa-status --json 2>/dev/null | python3 -c '
-    import json,sys
-    try: d=json.load(sys.stdin)
-    except Exception: sys.exit()
-    def walk(x):
-      if isinstance(x,dict):
-        for k,v in x.items():
-          if "complain" in str(k).lower():
-            if isinstance(v,dict): yield from v.keys()
-            elif isinstance(v,list):
-              for i in v:
-                if isinstance(i,str): yield i
-                elif isinstance(i,dict): yield i.get("name") or i.get("profile") or ""
-          yield from walk(v)
-      elif isinstance(x,list):
-        for i in x:
-          if isinstance(i,str): yield i
-          else: yield from walk(i)
-    def modes(x):
-      # ksztalt "[{name, mode: complain}]" — nazwa przy wartosci trybu, nie w kluczu
-      if isinstance(x,dict):
-        if str(x.get("mode","")).lower().startswith("complain"): yield x.get("name") or x.get("profile") or ""
-        for v in x.values(): yield from modes(v)
-      elif isinstance(x,list):
-        for i in x: yield from modes(i)
-    out={s for s in walk(d) if s} | {s for s in modes(d) if s}
-    for n in sorted(out): print(n)
-    ')
-    if [[ -z ${names//[[:space:]]/} ]]; then
-      names=$(aa-status --verbose 2>/dev/null | sed -n 's/^[[:space:]]*\(.*[^[:space:]]\)[[:space:]].*complain mode.*$/\1/p' | sort -u)
-    fi
-    if [[ -z ${names//[[:space:]]/} ]]; then
-      echo "BŁĄD (#65): $before profili w complain, ale nie umiem odczytac ich nazw — nie zgaduje" >&2
-      aa-status --verbose 2>/dev/null | grep -i "complain mode" >&2 || true
+    mapfile -t names < <(aa-status --json | python3 -c 'import json,sys; [print(n) for n,m in json.load(sys.stdin)["profiles"].items() if m=="complain"]')
+    if [[ -z "${names[*]:-}" ]]; then
+      echo "BŁĄD (#65): $before profili w complain, ale aa-status --json nie zwróciło żadnej nazwy" >&2
       exit 1
     fi
-    # nazwy profili nie zawieraja spacji — rozbicie na slowa jest celowe (petla ponizej)
-    # shellcheck disable=SC2086
-    echo "Profile w trybie complain (before=$before): $(printf '%s ' $names)"
-    for p in $names; do
-      if aa-enforce "$p"; then
-        echo "  aa-enforce $p: OK (nazwa profilu)"
-      elif [[ -f /etc/apparmor.d/$p ]] && aa-enforce "/etc/apparmor.d/$p"; then
-        echo "  aa-enforce /etc/apparmor.d/$p: OK (sciezka)"
-      else
-        echo "UWAGA: aa-enforce nie przełączył profilu '$p' — stan zweryfikuje licznik ponizej" >&2
-      fi
+    echo "Profile w trybie complain (before=$before): ${names[*]}"
+    # Przeszukujemy tylko pliki z `flags=(complain` (nie cały katalog) i dopasowujemy nazwy profilów,
+    # które dany plik definiuje — jeden plik może ich mieć kilka.
+    switched=0
+    mapfile -t files < <(grep -rl 'flags=(complain' /etc/apparmor.d/ 2>/dev/null || true)
+    for f in "${files[@]}"; do
+      defined=$(apparmor_parser -N "$f" 2>/dev/null || true)
+      for n in "${names[@]}"; do
+        if grep -qxF -- "$n" <<<"$defined"; then
+          if aa-enforce "$f"; then
+            echo "  aa-enforce $f (m.in. profil $n): OK"
+          else
+            echo "  aa-enforce $f: niepowodzenie — stan sprawdzi licznik ponizej" >&2
+          fi
+          switched=1
+          break
+        fi
+      done
     done
     after=$(aa-status --complaining)
     echo "aa-status --complaining: before=$before after=$after"
     if [[ $after != 0 ]]; then
-      echo "BŁĄD (#65): po aa-enforce nadal $after profili w trybie complain — test akceptacyjny padnie" >&2
-      aa-status --verbose 2>/dev/null | grep -i "complain mode" >&2 || true
+      echo "BŁĄD (#65): po aa-enforce nadal $after profili w trybie complain: $(aa-status --filter.mode=complain --show=profiles 2>/dev/null | tr '\n' ' ')" >&2
       exit 1
     fi
-    echo "WLB_SWITCHED=1"
+    echo "WLB_SWITCHED=$switched"
   args:
     executable: /bin/bash
   register: base_complain_enforce

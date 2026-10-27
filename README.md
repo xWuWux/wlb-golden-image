@@ -237,6 +237,9 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
 - **RStudio** działa przez JupyterLab (`jupyter-rsession-proxy`), a nie na osobnym porcie. Konta
   tworzone przez TLJH nie mają haseł systemowych, więc logowanie PAM do samodzielnego RStudio
   Server nie zadziała. Dzięki temu limity sesji obejmują też RStudio.
+- **Kolejka eksportu v1 (#20):** osobna kopia `payload` i manifest, weryfikator integralności,
+  kwarantanna całego wniosku przy błędzie. Nie stanowi zgody na eksport. Zmiana formatu,
+  limity, awarie i migracja: [runbook kolejki eksportu](docs/runbooks/RB-eksport-kolejka.md).
 - **Reguły audytu** są ładowane po zamontowaniu udziałów i blokowane (`auditctl -e 2`).
   Zmiana reguł wymaga restartu VM.
 - **Brak automatycznych aktualizacji.** Poprawki bezpieczeństwa wchodzą przez nową wersję obrazu.
