@@ -72,6 +72,12 @@
     dest: /usr/local/sbin/wlb-sluza-out-mover
     mode: "0750"
 
+- name: Pomocnik prywatnych kopii i manifestów eksportu (#20)
+  ansible.builtin.copy:
+    src: wlb-export-snapshot
+    dest: /usr/local/sbin/wlb-export-snapshot
+    mode: "0750"
+
 - name: Usługa śluzy wyjściowej
   ansible.builtin.copy:
     dest: /etc/systemd/system/wlb-sluza-out.service
