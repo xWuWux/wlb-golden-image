@@ -23,15 +23,22 @@
     - name: Profil rsyslogd w trybie enforce (#6, CIS 1.6.3)
       ansible.builtin.shell: |
         set -o pipefail
-        # aa-status (jako ścieżka profilu) wypisuje jego tryb: "enforce" albo "complain". Brak
-        # "complain" w odpowiedzi (profil załadowany w enforce albo niezaładowany) = zadanie nic nie robi.
-        if aa-status /usr/sbin/rsyslogd 2>/dev/null | grep -qi complain; then
-          aa-enforce usr.sbin.rsyslogd
+        # aa-status 4.0.1 NIE przyjmuje sciezki ani nazwy profilu jako argumentu pozycyjnego (rc=1,
+        # komunikat uzycia), a aa-enforce po nazwie profilu nie robi nic i konczy sie rc=0 — sprawdzono
+        # na VM. Tryb czytamy zatem z `aa-status --json`, a aa-enforce dostaje PLIK profilu.
+        f=/etc/apparmor.d/usr.sbin.rsyslogd
+        tryb=$(aa-status --json | python3 -c 'import json,sys
+        P = json.load(sys.stdin)["profiles"]
+        print(",".join(sorted({m for n, m in P.items() if "rsyslogd" in n})))')
+        echo "profil rsyslogd: ${tryb:-nieladowany}"
+        if [[ $tryb == *complain* ]]; then
+          aa-enforce "$f"
+          echo "profil rsyslogd: przelaczono na enforce"
         fi
       args:
         executable: /bin/bash
       register: wlb_rsyslog_enforce
-      changed_when: "'changed: yes' in (wlb_rsyslog_enforce.stdout | lower())"
+      changed_when: "'przelaczono na enforce' in wlb_rsyslog_enforce.stdout"
 
     - name: Zbierz wersje składników
       ansible.builtin.shell: |
