@@ -37,6 +37,9 @@ case $1 in
     expect_ok "Hub działa po ewentualnej aktualizacji schematu bazy" curl -sf -o /dev/null "$HUB/hub/api"
     queue=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
     expect_ok "Wniosek o eksport z poprzedniej VM jest w kolejce (#4)" compgen -G "$queue/*_przed-migracja.csv"
+    # shellcheck disable=SC2016  # argumenty rozwija wewnętrzny bash
+    expect_ok "Manifest i kopia przeżywają wymianę VM (#20)" \
+      bash -c 'for bundle in "$1"/*_przed-migracja.csv; do /usr/local/sbin/wlb-export-snapshot verify "$bundle" || exit 1; done' _ "$queue"
     summary
     ;;
   rollback-prepare)

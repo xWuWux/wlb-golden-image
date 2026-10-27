@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Decyduje, które kosztowne etapy (5–6) uruchomić; wypisuje linie klucz=wartość dla $GITHUB_OUTPUT.
-#   EVENT    pull_request | push | workflow_dispatch | schedule
+#   EVENT    pull_request | merge_group | push | workflow_dispatch | schedule
 #   BASE     baza do porównania zmian: PR → base.sha gałęzi docelowej; push → event.before (poprzedni main)
 #   LABELS   JSON z etykietami PR, np. ["perf","deploy-test","run-integration"]
 #   IN_PERF, IN_EPHEMERAL   wejścia workflow_dispatch (true/false)
@@ -12,7 +12,7 @@
 #   - jako BRAMKA PO MERGE: push do main buduje obraz, chyba że scalono wyłącznie dokumentację,
 #   - w nocnym pełnym buildzie (gdy włączony) oraz ręcznie (workflow_dispatch),
 #   - lokalnie zawsze: `make ci` / ci/integration.sh (bez minut GitHuba).
-# Jakość przed wejściem na main zachowana: bramka przesunięta z „każdy PR" na „po scaleniu do main".
+# Zmiany sieci/utwardzenia i ich harnessu wymagają etapu 5 PRZED merge (#63, #16).
 set -euo pipefail
 EVENT=${EVENT:-push}
 LABELS=${LABELS:-[]}
@@ -33,12 +33,21 @@ doc_only() {
   ! git diff --name-only "$base" HEAD | grep -qvE '^(README\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$)'
 }
 
+# network_change BASE: kod 0 oznacza wymaganą integrację. Brak bazy/błąd git
+# wymusza walidację; nie pozwalamy uzyskać zielonej bramki przez błąd klasyfikacji.
+network_change() {
+  local changed
+  [[ -n $1 ]] || return 0
+  changed=$(git diff --name-only "$1" HEAD) || return 0
+  grep -qE '^(ansible/roles/(base|lab_config|tljh)/|cloud-init/|tests/(acceptance|cloud-init/|lib/|proxy_sink\.py)|ci/(changes|integration|ready)\.sh$|\.github/workflows/ci\.yml$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
-  pull_request)
-    # Tylko na żądanie: etykieta integracji lub etykiety etapu 6 (perf/deploy-test potrzebują obrazu).
-    if has_label "$INTEGRATION_LABEL" || has_label perf || has_label deploy-test; then
+  pull_request | merge_group)
+    # Sieć/utwardzenie zawsze; pozostałe zmiany na etykietę (#86).
+    if network_change "$BASE" || has_label "$INTEGRATION_LABEL" || has_label perf || has_label deploy-test; then
       image=true
     fi
     ;;

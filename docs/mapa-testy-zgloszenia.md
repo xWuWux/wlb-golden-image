@@ -37,16 +37,24 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odświ
 ### #13 — Runbooki operacyjne cyklu życia Laboratorium  ·  _otwarte_
 - `tests/unit/wlb-hub-db-preupgrade.bats` — `brak image-release -> pre-unknown (#13)`, `druga próba tej samej wersji nie nadpisuje starej kopii (#13)`, `kopia pre-<wersja> powstaje, gdy baza istnieje (#13)`, `świeży dysk bez bazy -> brak kopii (#13)`
 
-### #16 — Proxy z allowlistą, mirrory PyPI/CRAN, blokada zewnętrznych API (w tym LLM, §31.3)  ·  _otwarte_
-- `tests/acceptance-remote.sh` — `Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)`, `Reguły egress nftables załadowane`
+### #16 — Proxy z allowlistą, mirrory PyPI/CRAN, blokada zewnętrznych API (w tym LLM, §31.3)  ·  _scalone_
+- `tests/acceptance-remote.sh` — `Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)`, `CONNECT poza allowlistą: $target (403, #16, #63)`, `Reguły egress nftables załadowane`
+- `tests/unit/changes.bats` — `PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)`
+- `tests/unit/test_network_gates.py` — `test_connect_denial_over_real_socket`, `test_connect_requires_explicit_proxy_denial`
 
 ### #18 — Dostęp: MFA (Keycloak / Entra ID) i HTTPS przez portal WLB lub bramkę VDI  ·  _otwarte_
 - `tests/acceptance.d/15-dostep-tls-cidr.sh` — `443 nie jest otwarte przy HUB_TLS=0 (port warunkowy, #18)`, `nftables: SSH administratora z ADMIN_SSH_CIDR (dport 22)`, `nftables: brak 0.0.0.0/0 (wymuszony CIDR, #18)`, *Dostęp: wymuszony CIDR + TLS huba (#18)*
-- `tests/unit/wlb-firstboot.bats` — *Uwierzytelnianie: native / OIDC (#18)*
+- `tests/unit/wlb-firstboot.bats` — `#18 CIDR: HUB_ALLOWED_CIDR=0.0.0.0/0 jest odrzucane (/0)`, `#18 CIDR: brak HUB_ALLOWED_CIDR przerywa konfigurację`, `#18 CIDR: końcowa spacja w HUB_ALLOWED_CIDR jest odrzucana`, `#18 CIDR: lista adresów w ADMIN_SSH_CIDR jest odrzucana`, `#18 CIDR: prefiks > 32 jest odrzucany`, `#18 TLS: certyfikat i klucz nie są parą — odrzucone`, `#18 TLS: klucz huba o zbyt szerokich prawach jest odrzucany`, `#18 dostęp: HUB_TLS domyślnie 1 — HTTPS włączone, cert i klucz ustawione`, `#18 dostęp: HUB_TLS=0 — hub tylko po HTTP (port 80, bez 443), z ostrzeżeniem`, `#18 fail-secure: błąd TLS huba nie otwiera portu huba ani nie kończy firstboot`, `SIEM TLS: nieczytelny certyfikat CA przerywa konfigurację`, `pełna konfiguracja Laboratorium`, *#18: dostęp (CIDR fail-secure, TLS huba)*, *Uwierzytelnianie: native / OIDC (#18)*
+
+### #20 — Proces zatwierdzania eksportu przez Kontrolera Przesyłu Danych  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Manifest i integralność kopii w kolejce (#20)`
+- `tests/migration-remote.sh` — `Manifest i kopia przeżywają wymianę VM (#20)`
+- `tests/unit/test_wlb_export_snapshot.py` — *#20: integralność kopii, manifest, wyścigi i awarie*
+- `tests/unit/wlb-sluza-out-mover.bats` — `#20: niedozwolony element zatrzymuje cały katalog w kwarantannie`, `#20: suma katalogu odtwarzalna przez weryfikator po przeniesieniu pakietu`
 
 ### #29 — TOCTOU w śluzie wyjściowej: podmiana pliku na dowiązanie symboliczne przed przeniesieniem przez root  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Dowiązanie w /sluza-out odrzucone (#29)`, `Kolejka eksportu na dysku roboczym`, `Prawa /etc/passwd bez zmian (#29)`, `W kolejce nie ma dowiązań ani plików specjalnych (#29)`
-- `tests/unit/wlb-sluza-out-mover.bats` — `#29: dowiązania i pliki specjalne wewnątrz katalogu są usuwane, reszta eksportowana`, `#29: dwa wpisy o tej samej nazwie w tej samej sekundzie nie nadpisują się`, `#29: plik podmieniony na dowiązanie po sprawdzeniu — cel nietknięty, kolejka pusta`, `#29: plik z drugim dowiązaniem twardym jest odrzucany, oryginał badacza zostaje`, `#29: wpis usunięty przez badacza w trakcie przeglądu nie zatrzymuje usługi`, *#29: podmiana wpisu między sprawdzeniem a przeniesieniem (TOCTOU)*
+- `tests/unit/wlb-sluza-out-mover.bats` — `#29: dwa wpisy o tej samej nazwie w tej samej sekundzie nie nadpisują się`, `#29: plik podmieniony na dowiązanie po sprawdzeniu — cel nietknięty, kolejka pusta`, `#29: plik z drugim dowiązaniem twardym jest odrzucany, oryginał badacza zostaje`, `#29: wpis usunięty przez badacza w trakcie przeglądu nie zatrzymuje usługi`, *#29: podmiana wpisu między sprawdzeniem a przeniesieniem (TOCTOU)*
 
 ### #30 — Limity zasobów na badacza (pamięć, CPU, liczba procesów) i ochrona usług systemowych przed OOM  ·  _scalone_
 - `tests/acceptance-remote.sh` — *7b. Limity zasobów badaczy (#30)*
@@ -79,8 +87,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odświ
 - `tests/acceptance-remote.sh` — `Baner nie ujawnia wersji systemu (#62)`, `Baner prawny o monitoringu (#62)`, `Banner /etc/issue.net (#62)`, `LogLevel VERBOSE (#62)`, `LoginGraceTime 60 (#62)`, `MaxAuthTries 4 (#62)`, `MaxSessions 4 (#62)`, `MaxStartups 10:30:60 (#62)`, `PermitUserEnvironment no (#62)`, *10. Utwardzenie SSH (CIS 5.2, #62)*
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
 
-### #63 — sysctl: brakujące parametry sieciowe i wyłączenie zrzutów pamięci (CIS 1.x/3.x)  ·  _otwarte_
-- `tests/acceptance.d/30-sysctl-coredump.sh` — `IPv6 accept_ra=0 (#63)`, `IPv6 forwarding=0 (#63)`, `Twardy limit core=0 w limits.d (#63)`, `accept_source_route=0 (#63)`, `fs.suid_dumpable=0 (#63)`, `icmp_echo_ignore_broadcasts=1 (#63)`, `log_martians=1 (#63)`, `rp_filter=1 (#63)`, `secure_redirects=0 (#63)`, `systemd-coredump Storage=none (#63)`, `tcp_syncookies=1 (#63)`, *Utwardzenie jądra: sysctl i zrzuty pamięci (CIS 1.x/3.x, #63)*
+### #63 — sysctl: brakujące parametry sieciowe i wyłączenie zrzutów pamięci (CIS 1.x/3.x)  ·  _scalone_
+- `tests/acceptance-remote.sh` — `CONNECT poza allowlistą: $target (403, #16, #63)`
+- `tests/acceptance.d/30-sysctl-coredump.sh` — `$key=$expected (#63)`, `Twardy limit core=0 w limits.d (#63)`, `systemd-coredump ProcessSizeMax=0 (#63)`, `systemd-coredump Storage=none (#63)`, *Utwardzenie jądra: sysctl i zrzuty pamięci (#63)*
+- `tests/unit/changes.bats` — `PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)`, `PR: brak albo błędna baza nie omija integracji (#63)`
+- `tests/unit/test_network_gates.py` — `test_connect_requires_explicit_proxy_denial`
 
 ### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _otwarte_
 - `tests/acceptance.d/20-apparmor.sh` — `apparmor-utils zainstalowany (aa-enforce, aa-status)`, `security=apparmor w parametrach jądra (GRUB)`, *AppArmor (CIS 1.6, #65)*
@@ -89,7 +100,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odświ
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
 
 ### #86 — CI: etap 5/6a rzadziej lub lokalnie — bramkowanie weryfikacji ciężkiej (do czasu self-hosted #25)  ·  _otwarte_
-- `tests/unit/changes.bats` — `PR bez etykiet: etap 5/6 pominięty (#86)`, `PR z etykietą run-integration: etap 5 na żądanie (#86)`, `PR ze zmianą kodu obrazu, ale bez etykiety: nadal bez etapu 5 (#86)`
+- `tests/unit/changes.bats` — `PR bez etykiet: etap 5/6 pominięty (#86)`, `PR z etykietą run-integration: etap 5 na żądanie (#86)`, `PR ze zmianą poza siecią, bez etykiety: bez etapu 5 (#86)`
 
 ### #97 — Hooki sesji badacza (pre/post-spawn): montaż, znacznik audytu, sprzątanie — inspiracja AppStream  ·  _otwarte_
 - `tests/acceptance.d/50-hooki-sesji.sh` — `Config hooka 80-wlb-session.py obecny i poprawny składniowo (#97)`, `Emiter sesji trafia do journala z tagiem wlb-session (#97)`, `Emiter sesji wykonywalny (#97)`, *Hooki cyklu życia sesji badacza + emiter SIEM (#97)*
