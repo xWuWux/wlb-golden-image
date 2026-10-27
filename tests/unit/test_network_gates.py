@@ -26,7 +26,7 @@ def sysctl_policy():
     content = next(
         t["ansible.builtin.copy"]["content"]
         for t in tasks
-        if t.get("ansible.builtin.copy", {}).get("dest") == "/etc/sysctl.d/60-wlb.conf"
+        if t.get("ansible.builtin.copy", {}).get("dest") == "/etc/sysctl.d/99-wlb.conf"
     )
     return dict(line.split(" = ") for line in content.splitlines() if line and not line.startswith("#"))
 
