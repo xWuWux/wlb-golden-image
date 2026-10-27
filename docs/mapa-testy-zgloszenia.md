@@ -45,9 +45,15 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-26). Odświ
 ### #18 — Dostęp: MFA (Keycloak / Entra ID) i HTTPS przez portal WLB lub bramkę VDI  ·  _otwarte_
 - `tests/unit/wlb-firstboot.bats` — *Uwierzytelnianie: native / OIDC (#18)*
 
+### #20 — Proces zatwierdzania eksportu przez Kontrolera Przesyłu Danych  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Manifest i integralność kopii w kolejce (#20)`
+- `tests/migration-remote.sh` — `Manifest i kopia przeżywają wymianę VM (#20)`
+- `tests/unit/test_wlb_export_snapshot.py` — *#20: integralność kopii, manifest, wyścigi i awarie*
+- `tests/unit/wlb-sluza-out-mover.bats` — `#20: niedozwolony element zatrzymuje cały katalog w kwarantannie`, `#20: suma katalogu odtwarzalna przez weryfikator po przeniesieniu pakietu`
+
 ### #29 — TOCTOU w śluzie wyjściowej: podmiana pliku na dowiązanie symboliczne przed przeniesieniem przez root  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Dowiązanie w /sluza-out odrzucone (#29)`, `Kolejka eksportu na dysku roboczym`, `Prawa /etc/passwd bez zmian (#29)`, `W kolejce nie ma dowiązań ani plików specjalnych (#29)`
-- `tests/unit/wlb-sluza-out-mover.bats` — `#29: dowiązania i pliki specjalne wewnątrz katalogu są usuwane, reszta eksportowana`, `#29: dwa wpisy o tej samej nazwie w tej samej sekundzie nie nadpisują się`, `#29: plik podmieniony na dowiązanie po sprawdzeniu — cel nietknięty, kolejka pusta`, `#29: plik z drugim dowiązaniem twardym jest odrzucany, oryginał badacza zostaje`, `#29: wpis usunięty przez badacza w trakcie przeglądu nie zatrzymuje usługi`, *#29: podmiana wpisu między sprawdzeniem a przeniesieniem (TOCTOU)*
+- `tests/unit/wlb-sluza-out-mover.bats` — `#29: dwa wpisy o tej samej nazwie w tej samej sekundzie nie nadpisują się`, `#29: plik podmieniony na dowiązanie po sprawdzeniu — cel nietknięty, kolejka pusta`, `#29: plik z drugim dowiązaniem twardym jest odrzucany, oryginał badacza zostaje`, `#29: wpis usunięty przez badacza w trakcie przeglądu nie zatrzymuje usługi`, *#29: podmiana wpisu między sprawdzeniem a przeniesieniem (TOCTOU)*
 
 ### #30 — Limity zasobów na badacza (pamięć, CPU, liczba procesów) i ochrona usług systemowych przed OOM  ·  _scalone_
 - `tests/acceptance-remote.sh` — *7b. Limity zasobów badaczy (#30)*
