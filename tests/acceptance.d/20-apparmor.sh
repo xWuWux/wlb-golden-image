@@ -11,6 +11,7 @@ expect_ok "apparmor-utils zainstalowany (aa-enforce, aa-status)" command -v aa-e
 # CIS 1.6.3: żaden profil nie może zostać w complain. Dystrybucyjne profile (m.in. transmission
 # z bazowego pakietu `apparmor`) Ubuntu ładuje w complain — rola base musi je przełączyć na enforce.
 expect_ok "Licznik profili w complain = 0" test "$(aa-status --complaining)" = 0
-expect_fail "Zaden profil nie jest w trybie complain (lista)" bash -c 'aa-status --verbose | grep -i "complain mode"'
+# Nagłówki „0 profiles/processes are in complain mode." są zawsze; liczy się tylko wpis pod nagłówkiem profili.
+expect_fail "Zaden profil nie jest w trybie complain (lista)" bash -c "aa-status --verbose | awk '/^[0-9]+ profiles are in complain mode/{f=1;next} /^[0-9]/{f=0} f' | grep -q ."
 expect_ok "Profil rsyslogd w trybie enforce (#6)" bash -c 'aa-status --json | grep -i rsyslogd | grep -qi enforce'
 expect_fail "Profil rsyslogd nie jest w trybie complain (#6)" bash -c 'aa-status --verbose | grep -i "rsyslogd.*complain mode"'
