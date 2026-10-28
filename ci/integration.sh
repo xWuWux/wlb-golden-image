@@ -80,6 +80,8 @@ collect_vm_logs() {
 }
 
 acceptance() {
+  # $1 obraz (domyślnie baza), $2 nazwa logu — reużywane dla flavora wlb-radiologia (#135)
+  local img=${1:-$IMAGE} logname=${2:-acceptance}
   local rc=0 sink ntp="" ntp_flag="" proxy=""
   # testowy SIEM: VM (sieć QEMU user) wysyła logi po TLS do hosta 10.0.2.2:5514 — tests/cloud-init/user-data.yaml
   rm -f "$LOGS/siem.log"
@@ -126,11 +128,11 @@ acceptance() {
     wait "$proxy" 2>/dev/null || true
     return 1
   fi
-  tests/run-local.sh "$IMAGE" || rc=$?
+  tests/run-local.sh "$img" || rc=$?
   if [[ $rc -eq 0 ]]; then
-    WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=1 tests/acceptance.sh | tee "$LOGS/acceptance.log" || rc=$?
+    WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=1 tests/acceptance.sh | tee "$LOGS/$logname.log" || rc=$?
     # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
-    grep -q '^Wynik:' "$LOGS/acceptance.log" || {
+    grep -q '^Wynik:' "$LOGS/$logname.log" || {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
       rc=1
     }
@@ -157,7 +159,7 @@ acceptance() {
     echo "### Kryteria akceptacji MVP"
     echo
     echo '```'
-    grep -E '^(==|  (PASS|FAIL|SKIP)|Wynik)' "$LOGS/acceptance.log" 2>/dev/null || echo "VM nie wystartowała — zob. artefakty ci-logs"
+    grep -E '^(==|  (PASS|FAIL|SKIP)|Wynik)' "$LOGS/$logname.log" 2>/dev/null || echo "VM nie wystartowała — zob. artefakty ci-logs"
     echo '```'
   } | summary >/dev/null
   return $rc
@@ -297,6 +299,30 @@ hardening_report() {
     tail -1 | sed 's/^/Lynis hardening index: /' || true
 }
 
+# Flavor wlb-radiologia (#135): opt-in (etykieta build-radiologia / zmiana plików flavora / nocny build —
+# workflow ustawia WLB_BUILD_RADIOLOGIA=1). Buduje warstwowo na obrazie bazowym i uruchamia tę samą
+# akceptację (adaptacyjne 70-radiologia + 40-pulpit wykryją flavor). Łapie błędy runtime (np. installer FSL).
+radiologia_flavor() {
+  [[ ${WLB_BUILD_RADIOLOGIA:-0} == 1 ]] || {
+    echo "pominięto: brak etykiety build-radiologia ani zmiany plików flavora (#135)"
+    return 0
+  }
+  local rad_full="wlb-radiologia-$IMAGE_VERSION-$IMAGE_DATE" rad_img
+  rad_img="$REPO_ROOT/output/$rad_full/$rad_full.qcow2"
+  rm -rf "output/$rad_full"
+  echo "== Build flavora wlb-radiologia (base_image=$IMAGE) =="
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-radiologia.log" packer build -color=false -only='wlb-radiologia.*' \
+    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
+    -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    echo "build flavora wlb-radiologia nieudany (packer-radiologia.log w artefaktach etapu 5)"
+    return 1
+  fi
+  echo "== Akceptacja wlb-radiologia =="
+  acceptance "$rad_img" acceptance-radiologia
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -320,4 +346,5 @@ run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 run_check "Jedno jądro w obrazie (#9)" kernel_single
 run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
+run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
 finish
