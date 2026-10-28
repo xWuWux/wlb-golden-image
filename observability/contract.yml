@@ -141,7 +141,7 @@ events:
     source: { journal_unit: traefik }
     trusted: { input: imuxsock, uid: "^0$" } # Traefik z TLJH działa jako root
     format: text
-    pattern: '^(?=.*"RouterName":"wlb-block-download@file")(?=.*"DownstreamStatus":403).*"RequestPath":"/user/(?P<user>[^/"]+)/'
+    pattern: '^(?=.*"RouterName":"(https-)?wlb-block-download@file")(?=.*"DownstreamStatus":403).*"RequestPath":"/user/(?P<user>[^/"]+)/'
     acceptance: true
 
   - name: session.start
