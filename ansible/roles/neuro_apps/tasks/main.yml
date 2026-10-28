@@ -14,10 +14,12 @@
   delay: 30
 
 # fslinstaller z -V <wersja> -d <katalog> działa nieinteraktywnie. Pierwsze budowanie bardzo długie
-# i pobiera dziesiątki GB. --miniconda do /tmp (usuwane po instalacji).
-- name: Instalacja FSL do {{ fsl_dir }} (długie, duże)
+# i pobiera dziesiątki GB (miniconda + FSL). Instalator SAM pobiera miniconda z manifestu — NIE podajemy
+# --miniconda: ta flaga oczekuje URL/pliku instalatora miniconda ALBO istniejącego katalogu conda
+# (op.isdir), a podana ścieżka temp była traktowana jak URL ("unknown url type") i wywracała build (#135).
+- name: Instalacja FSL (długie, duże) do {{ fsl_dir }}
   ansible.builtin.command: >-
-    python3 /tmp/fslinstaller.py -V {{ fsl_version }} -d {{ fsl_dir }} --miniconda /tmp/fsl-miniconda
+    python3 /tmp/fslinstaller.py -V {{ fsl_version }} -d {{ fsl_dir }}
   args:
     creates: "{{ fsl_dir }}/etc/fslversion"
   changed_when: true
@@ -40,7 +42,6 @@
     state: absent
   loop:
     - /tmp/fslinstaller.py
-    - /tmp/fsl-miniconda
 
 # --- 3DSlicer (tarball Linux; GUI — wymaga pulpitu z roli desktop) ------------------------
 - name: Pobierz 3DSlicer (tarball, weryfikacja SHA-512)
