@@ -182,8 +182,9 @@ if [[ $PKG_MODE == deny ]]; then
     grep -q '"PYTHONNOUSERSITE": "1"' /opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py
   expect_ok "deny: interpreter TLJH z pipem dostępny dla badacza" \
     as $R1 /opt/tljh/user/bin/python3 -m pip --version
+  # cowsay: realny pakiet SPOZA kuratorowanego env. tabulate jest w locku (environment.lock.yml) -> pip zwraca "already satisfied" exit 0, przez co expect_fail oblewa (#23).
   expect_fail "deny: pip nie ma skąd instalować (§24.c)" \
-    as $R1 timeout 60 /opt/tljh/user/bin/python3 -m pip install --disable-pip-version-check --retries 0 --timeout 5 tabulate
+    as $R1 timeout 60 /opt/tljh/user/bin/python3 -m pip install --disable-pip-version-check --retries 0 --timeout 5 cowsay
 else
   expect_ok "mirror: obraz wystawia kuratorowany index w /etc/pip.conf" \
     bash -c 'test -s /etc/pip.conf && grep -q "^index-url = https://" /etc/pip.conf'
