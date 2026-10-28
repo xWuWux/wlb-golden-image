@@ -50,6 +50,15 @@ storage_change() {
   grep -qE '^(ansible/roles/storage/|ansible/group_vars/all\.yml$|tests/(sluza_resources\.py|acceptance\.sh|acceptance\.d/80-sluza)|ci/changes\.sh$)' <<<"$changed"
 }
 
+# #135: zmiana flavora wlb-radiologia (neuro_apps/desktop, radiologia.yml/packer, testy flavora)
+# wymaga przebudowy i testu flavora na realnym jądrze — bug instalatora FSL łapie tylko build.
+radiologia_change() {
+  local changed
+  [[ -n $1 ]] || return 0
+  changed=$(git diff --name-only "$1" HEAD) || return 0
+  grep -qE '^(ansible/roles/(neuro_apps|desktop)/|ansible/radiologia\.yml$|packer/wlb-radiologia\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|70-radiologia)\.sh$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
@@ -73,6 +82,19 @@ case $EVENT in
     ;;
 esac
 
+# Radiologia (flavor neuro): opt-in etykietą build-radiologia albo zmiana plików flavora na PR; nocny
+# build też go obejmuje. Buduje się na obrazie bazowym, więc wymusza image=true (etap 5 zbuduje bazę). #135
+radiologia=false
+case $EVENT in
+  pull_request | merge_group)
+    { has_label build-radiologia || radiologia_change "$BASE"; } && radiologia=true
+    ;;
+  schedule)
+    [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && radiologia=true
+    ;;
+esac
+[[ $radiologia == true ]] && image=true
+
 perf=false
 { has_label perf || [[ ${IN_PERF:-false} == true ]]; } && perf=true
 # nocny build obejmuje też benchmarki wydajności (wczesne wykrycie regresji wydajności)
@@ -83,5 +105,6 @@ ephemeral=false
 [[ $image == true ]] || perf=false ephemeral=false
 
 echo "image=$image"
+echo "radiologia=$radiologia"
 echo "perf=$perf"
 echo "ephemeral=$ephemeral"
