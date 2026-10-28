@@ -67,8 +67,11 @@ write_files:
       HUB_ADMIN_USER=admin-klienta
       PROXY_URL=http://10.20.0.10:3128
       NO_PROXY=localhost,127.0.0.1,.wlb.local
-      PYPI_INDEX_URL=https://pypi-mirror.wlb.local/simple
-      CRAN_MIRROR_URL=https://cran-mirror.wlb.local
+      # IMG-004/#23: deny = zakaz instalacji przez badacza (§24.c). mirror = kuratorowany mirror,
+      # wtedy odkomentuj adresy mirrora poniżej.
+      RESEARCHER_PACKAGE_INSTALL=deny
+      #PYPI_INDEX_URL=https://pypi-mirror.wlb.local/simple
+      #CRAN_MIRROR_URL=https://cran-mirror.wlb.local
       EGRESS_ALLOW="10.20.0.10:3128 10.30.0.5:5432"
       ADMIN_SSH_CIDR=10.10.0.0/24
       HUB_ALLOWED_CIDR=10.10.1.0/24

@@ -36,6 +36,9 @@ write_files:
     content: |
       LAB_NAME=lab-test01
       HUB_ADMIN_USER=admin-klienta
+      # instalacja pakietów przez badacza: zakaz (§24.c, IMG-004); kuratorowany mirror (#16)
+      # włączyłby tryb mirror razem z PYPI_INDEX_URL/CRAN_MIRROR_URL
+      RESEARCHER_PACKAGE_INSTALL=deny
       PROXY_URL=http://10.0.2.2:3128
       EGRESS_ALLOW="10.0.2.2:3128"
       ADMIN_SSH_CIDR=10.0.2.0/24
