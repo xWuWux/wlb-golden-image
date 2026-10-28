@@ -128,8 +128,9 @@ expect_ok "Obejście przez wielkość liter (/FILES) odrzucone" bash -c "[ \"\$(
 # edycja i otwieranie plików działa dalej (JupyterLab korzysta z /api/contents)
 expect_ok "Otwieranie plików w JupyterLab działa (/api/contents)" \
   bash -c "curl -s -b /tmp/wlb-test-$R1.jar -c /tmp/wlb-test-$R1.jar -L '$HUB/user/$R1/api/contents/pobranie-test.csv?content=1' | grep -q '\"name\": *\"pobranie-test.csv\"'"
+# Przy HUB_TLS=1 traefik prefiksuje router na entrypoincie HTTPS: https-wlb-block-download@file.
 expect_ok "Odmowa pobrania w logu (Traefik access log)" \
-  bash -c "journalctl -u traefik -b | grep -q '\"RouterName\":\"wlb-block-download@file\"'"
+  bash -c "journalctl -u traefik -b | grep -qE '\"RouterName\":\"(https-)?wlb-block-download@file\"'"
 expect_ok "Przyciski pobierania ukryte w JupyterLab" \
   grep -q '"@jupyterlab/filebrowser-extension:download": true' /opt/tljh/user/etc/jupyter/labconfig/page_config.json
 
