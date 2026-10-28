@@ -115,10 +115,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 - `tests/unit/wlb-usage-record.bats` — `brak próbki szczytu -> zera, rekord nadal poprawny (#98)`, `niepoprawne wartości liczbowe sprowadzane do zera (#98)`, `rekord łączy czasy z hooka ze szczytem zasobów z próbki (#98)`
 
 ### #105 — Flavor „pod pamięć”: pulpit w przeglądarce + aplikacje GUI (arkusz, zamiennik Prism) i kafelek Leaf  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Metadane: WLB_IMAGE_NAME=wlb-memory (#105)`, `Regresja: obraz bazowy nie jest wlb-memory (#105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavor wlb-memory (#106) i regresja lekkości bazy (#105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
 
 ### #106 — Pulpit w przeglądarce: rola desktop + flavor wlb-memory (remote-desktop-proxy, kafelek „Pulpit”)  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Schowek VNC wyłączony — konfiguracja obecna (#106)`, *Pulpit / flavor wlb-memory (#106) i regresja lekkości bazy (#105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Schowek VNC wyłączony — konfiguracja obecna (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
 
 ### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
@@ -128,6 +128,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 - `tests/unit/test_conflict_markers.py` — *Bramka znacznikow konfliktu (#123)*
 
 ### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
 - `tests/acceptance.d/70-radiologia.sh` — *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 
 ### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
