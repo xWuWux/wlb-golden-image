@@ -279,8 +279,12 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
   `execve`). Kod wykonywany w komórkach notebooków nie jest osobno logowany.
 - DNS: procesy badaczy rozwiązują nazwy przez lokalny `systemd-resolved`. Filtrowanie DNS
   (ochrona przed tunelowaniem) trzeba zrobić na poziomie sieci Laboratorium.
-- `pip install --user` przez mirror PyPI jest technicznie możliwe. Trzeba zdecydować, czy mirror
-  ma być dostępny dla badaczy (§24.c), czy tylko dla budowania obrazu.
+- Instalacja pakietów przez badacza: decyzja IMG-004 (kuratorowany mirror z allowlistą pakietów
+  = zgoda Administratora IP_CMC z góry). W obrazie rozstrzyga ją jawny przełącznik
+  `RESEARCHER_PACKAGE_INSTALL=deny|mirror` w `lab.env` (domyślnie `deny`, §24.c). Tryb `deny`:
+  brak `/etc/pip.conf`, brak repozytoriów R, `PYTHONNOUSERSITE=1`; tryb `mirror`: instalacja tylko
+  z kuratorowanego mirrora (#16). Konfiguracja klienta nie jest kontrolą — instalację ogranicza
+  allowlista proxy i zawartość mirrora; test akceptacyjny sprawdza spójność obrazu z trybem.
 - Uwierzytelnianie: domyślnie Native Authenticator (`AUTH_MODE=native`). `AUTH_MODE=oidc` przełącza na
   SSO przez OpenID Connect (Entra ID / Keycloak, MFA po stronie IdP) — `wlb-firstboot` z `OIDC_*` w `lab.env`
   pisze `70-wlb-auth.py` z `GenericOAuthenticator`. Wymaga rejestracji aplikacji w IdP, HTTPS (#18) oraz

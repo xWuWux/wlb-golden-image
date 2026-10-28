@@ -23,6 +23,7 @@ EOF
 LAB_NAME=lab-unit01
 HUB_ADMIN_USER=admin-klienta
 PROXY_URL=http://10.20.0.10:3128
+RESEARCHER_PACKAGE_INSTALL=mirror
 PYPI_INDEX_URL=https://pypi.wlb.local/simple
 CRAN_MIRROR_URL=https://cran.wlb.local
 EGRESS_ALLOW="10.20.0.10:3128 10.30.0.0/24:5432"
@@ -83,6 +84,10 @@ EOF
   grep -qx 'no_proxy=localhost,127.0.0.1' "$SANDBOX/etc/environment"
   grep -qx 'index-url = https://pypi.wlb.local/simple' "$SANDBOX/etc/pip.conf"
   grep -q 'CRAN = "https://cran.wlb.local"' "$SANDBOX/etc/wlb/r-repos.R"
+  # tryb mirror (IMG-004): pakiety użytkownika ładowane, zasady w /docs/pakiety.md
+  refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/etc/environment"
+  refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"
+  grep -q 'kuratorowany mirror' "$SANDBOX/docs/pakiety.md"
 
   # środowisko serwerów notebooków to poprawny Python z proxy
   hubcfg="$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"
@@ -721,4 +726,82 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"AUTH_MODE musi być native albo oidc, jest 'ldap'"* ]]
+}
+
+# --- Instalacja pakietów przez badacza (#23, IMG-004) ---------------------------------------
+
+pkg_mode() { # pkg_mode deny|mirror|'' — ustawia (lub usuwa) przełącznik w lab.env
+  sed -i '/^RESEARCHER_PACKAGE_INSTALL=/d' "$SANDBOX/etc/wlb/lab.env"
+  [[ -n ${1:-} ]] && echo "RESEARCHER_PACKAGE_INSTALL=$1" >>"$SANDBOX/etc/wlb/lab.env"
+  return 0
+}
+hub_env() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"; }
+
+@test "RESEARCHER_PACKAGE_INSTALL: wartość inna niż deny/mirror jest odrzucana" {
+  pkg_mode zgoda
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"RESEARCHER_PACKAGE_INSTALL musi być deny albo mirror, jest 'zgoda' (IMG-004)"* ]]
+  [ ! -e "$SANDBOX/etc/pip.conf" ]
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "deny bez przełącznika (domyślnie): obraz realizuje zakaz z §24.c" {
+  pkg_mode ''
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/etc/pip.conf" ]
+  grep -q 'options(repos = character(0))' "$SANDBOX/etc/wlb/r-repos.R"
+  grep -qx 'PYTHONNOUSERSITE=1' "$SANDBOX/etc/environment"
+  hub_env | grep -q '"PYTHONNOUSERSITE": "1"'
+  grep -q 'Tryb: \*\*zakaz\*\*' "$SANDBOX/docs/pakiety.md"
+  [[ $output == *"instalacja pakietów przez badacza: deny (IMG-004)"* ]]
+}
+
+@test "deny sygnalizuje sprzeczności w lab.env: mirrory ustawione i proxy w EGRESS_ALLOW" {
+  pkg_mode deny
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [[ $output == *"deny, ale lab.env ustawia PYPI_INDEX_URL/CRAN_MIRROR_URL — mirrory będą zignorowane"* ]]
+  [[ $output == *"tryb deny, ale proxy pozostaje w EGRESS_ALLOW"* ]]
+}
+
+@test "mirror bez adresu mirrora przerywa konfigurację (fail-secure, IMG-004)" {
+  pkg_mode mirror
+  sed -i '/^PYPI_INDEX_URL=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"mirror wymaga kuratorowanego PYPI_INDEX_URL (IMG-004)"* ]]
+  [ ! -e "$SANDBOX/etc/pip.conf" ]
+  sed -i '/^CRAN_MIRROR_URL=/d' "$SANDBOX/etc/wlb/lab.env"
+  echo 'PYPI_INDEX_URL=https://pypi.wlb.local/simple' >>"$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"mirror wymaga kuratorowanego CRAN_MIRROR_URL (IMG-004)"* ]]
+  [ ! -e "$SANDBOX/etc/wlb/r-repos.R" ] || grep -q 'character(0)' "$SANDBOX/etc/wlb/r-repos.R"
+}
+
+@test "--force mirror -> deny sprząta po trybie lustrzanym" {
+  "$FIRSTBOOT" >/dev/null # mirror z setupu
+  [ -e "$SANDBOX/etc/pip.conf" ]
+  pkg_mode deny
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/etc/pip.conf" ]
+  grep -q 'options(repos = character(0))' "$SANDBOX/etc/wlb/r-repos.R"
+  grep -qx 'PYTHONNOUSERSITE=1' "$SANDBOX/etc/environment"
+  hub_env | grep -q '"PYTHONNOUSERSITE": "1"'
+}
+
+@test "--force deny -> mirror przywraca ładowanie ~/.local" {
+  pkg_mode deny
+  "$FIRSTBOOT" >/dev/null
+  grep -qx 'PYTHONNOUSERSITE=1' "$SANDBOX/etc/environment"
+  pkg_mode mirror
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  grep -qx 'index-url = https://pypi.wlb.local/simple' "$SANDBOX/etc/pip.conf"
+  refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/etc/environment"
+  hub_env | grep -q '"https_proxy"'
+  refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"
 }

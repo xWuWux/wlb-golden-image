@@ -54,6 +54,10 @@ PROXY_URL=${PROXY_URL:-}
 NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
 PYPI_INDEX_URL=${PYPI_INDEX_URL:-}
 CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
+# Instalacja pakietów przez badacza (IMG-004, #23): deny = zakaz (§24.c, domyślnie),
+# mirror = tylko z kuratorowanego mirrora Laboratorium. Brak przełącznika nie może
+# rozstrzygać kwestii regulaminowej — dlatego domyślnie deny, a nie „mirror, gdy URL ustawiony”.
+RESEARCHER_PACKAGE_INSTALL=${RESEARCHER_PACKAGE_INSTALL:-deny}
 EGRESS_ALLOW=${EGRESS_ALLOW:-}
 # Fail-secure (#18/IMG-005): wymagany jawny zakres źródłowy — brak domyślnego 0.0.0.0/0. Zakres jest
 # walidowany jako pojedyncza kanoniczna sieć IPv4 (prefiks 1–32); listy, zakresy, dodatkowe tokeny,
@@ -225,19 +229,97 @@ else
   log "uwaga: NTP_SERVERS nie ustawione — brak synchronizacji czasu, znaczniki audytu mogą się rozjeżdżać"
 fi
 
-# --- 3. Proxy i mirrory pakietów --------------------------------------------------
+# --- 3. Proxy, mirrory i instalacja pakietów przez badacza (IMG-004, #23) ----------
+# Uwaga o modelu zagrożeń: konfiguracja klienta (pip.conf, r-repos.R) NIE jest kontrolą —
+# badacz może ją ominąć (pip --index-url, install.packages(repos=)). O możliwości instalacji
+# decydują: osiągalność mirrora z UID badacza (nftables EGRESS_ALLOW + proxy, #16) i to, co
+# mirror udostępnia (allowlista pakietów = zgoda Administratora IP_CMC z góry, IMG-004).
+# Ten przełącznik sprawia, że obraz realizuje jawną decyzję zamiast wywnioskować ją z
+# samej obecności PYPI_INDEX_URL.
+case $RESEARCHER_PACKAGE_INSTALL in
+  deny | mirror) ;;
+  *) die "RESEARCHER_PACKAGE_INSTALL musi być deny albo mirror, jest '${RESEARCHER_PACKAGE_INSTALL}' (IMG-004)" ;;
+esac
 touch "$R/etc/environment"
-sed -i '/^\(http_proxy\|https_proxy\|no_proxy\|HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY\)=/d' "$R/etc/environment"
+sed -i '/^\(http_proxy\|https_proxy\|no_proxy\|HTTP_PROXY\|HTTPS_PROXY\|NO_PROXY\|PYTHONNOUSERSITE\)=/d' "$R/etc/environment"
 if [[ -n $PROXY_URL ]]; then
   for v in http_proxy https_proxy HTTP_PROXY HTTPS_PROXY; do echo "$v=$PROXY_URL"; done >>"$R/etc/environment"
   printf 'no_proxy=%s\nNO_PROXY=%s\n' "$NO_PROXY" "$NO_PROXY" >>"$R/etc/environment"
 fi
-if [[ -n $PYPI_INDEX_URL ]]; then
-  printf '# wlb-firstboot (%s)\n[global]\nindex-url = %s\n' "$LAB_NAME" "$PYPI_INDEX_URL" >"$R/etc/pip.conf"
-fi
-if [[ -n $CRAN_MIRROR_URL ]]; then
-  printf '# wlb-firstboot (%s)\noptions(repos = c(CRAN = "%s"))\n' "$LAB_NAME" "$CRAN_MIRROR_URL" >"$R/etc/wlb/r-repos.R"
-fi
+mkdir -p "$R/etc/wlb"
+case $RESEARCHER_PACKAGE_INSTALL in
+  deny)
+    # §24.c: brak zgody na instalacje po stronie badacza. Sprzątamy też po trybie mirror
+    # (--force na żywym dysku roboczym), żeby zmiana decyzji nie zostawiała starej konfiguracji.
+    rm -f "$R/etc/pip.conf"
+    # Profil R z obrazu (rola r_env) wskazuje snapshot PPM z budowania; w trybie deny
+    # usuwamy repozytoria, żeby install.packaged() kończyło się błędem bez sięgania do sieci,
+    # a nie przez proxy do publicznego snapshotu.
+    printf '# Wygenerowane przez wlb-firstboot (%s) — tryb deny (IMG-004): brak repozytoriów pakietów.\noptions(repos = character(0))\n' "$LAB_NAME" >"$R/etc/wlb/r-repos.R"
+    # Pakiety zostawione w ~/.local na dysku roboczym (wcześniejszy tryb mirror, Upload) nie
+    # mogą ładować się automatycznie — wynik analizy ma zależeć od obrazu, nie od tego katalogu.
+    # (Odpowiednik dla biblioteki użytkownika R i depotu Julii nie jest tu obsługiwany — #23.)
+    echo 'PYTHONNOUSERSITE=1' >>"$R/etc/environment"
+    export PYTHONNOUSERSITE=1 # dla configu serwerów notebooków poniżej
+    if [[ -n $PYPI_INDEX_URL || -n $CRAN_MIRROR_URL ]]; then
+      log "ostrzeżenie: RESEARCHER_PACKAGE_INSTALL=deny, ale lab.env ustawia PYPI_INDEX_URL/CRAN_MIRROR_URL — mirrory będą zignorowane (#23)"
+    fi
+    # porównanie best-effort: zapis host:port z PROXY_URL kontra wpisy EGRESS_ALLOW (bez resolvera)
+    proxy_hostport=${PROXY_URL#*://}
+    proxy_hostport=${proxy_hostport#*@}
+    proxy_hostport=${proxy_hostport%%/*}
+    if [[ -n $proxy_hostport && " $EGRESS_ALLOW " == *" $proxy_hostport "* ]]; then
+      log "ostrzeżenie: tryb deny, ale proxy pozostaje w EGRESS_ALLOW — instalacja jest technicznie możliwa (pip --index-url); zablokuj mirrory na proxy albo usuń proxy z allowlisty (#16)"
+    fi
+    ;;
+  mirror)
+    # Allowlista pakietów na mirrorze = zgoda z góry (IMG-004). Nie wolno zostawić pustego
+    # adresu mirrora: pip zostałby na publicznym PyPI, a R na snapshotcie PPM z budowania,
+    # czyli instalowałyby się poza allowlistą Administratora.
+    [[ -n $PYPI_INDEX_URL ]] || die "RESEARCHER_PACKAGE_INSTALL=mirror wymaga kuratorowanego PYPI_INDEX_URL (IMG-004)"
+    [[ -n $CRAN_MIRROR_URL ]] || die "RESEARCHER_PACKAGE_INSTALL=mirror wymaga kuratorowanego CRAN_MIRROR_URL (IMG-004)"
+    printf '# wlb-firstboot (%s)\n[global]\nindex-url = %s\n' "$LAB_NAME" "$PYPI_INDEX_URL" >"$R/etc/pip.conf"
+    printf '# wlb-firstboot (%s)\noptions(repos = c(CRAN = "%s"))\n' "$LAB_NAME" "$CRAN_MIRROR_URL" >"$R/etc/wlb/r-repos.R"
+    [[ -n $PROXY_URL || -n $EGRESS_ALLOW ]] ||
+      log "uwaga: tryb mirror, ale brak PROXY_URL i EGRESS_ALLOW — instalacje badacza zatrzyma zapora egress (#16)"
+    ;;
+esac
+
+# Zasady dla badacza w /docs muszą zgadzać się z trybem (statyczny /docs/README.md opisuje
+# je neutralnie). /docs w produkcji bywa przykryty udziałem sieciowym — log zamiast przerwania.
+mkdir -p "$R/docs"
+{
+  echo "# Instalacja pakietów — Laboratorium ${LAB_NAME}"
+  echo
+  echo "_Wygenerowane przez wlb-firstboot — decyzja IMG-004, tryb \`${RESEARCHER_PACKAGE_INSTALL}\`._"
+  echo
+  if [[ $RESEARCHER_PACKAGE_INSTALL == deny ]]; then
+    cat <<'MD'
+Tryb: **zakaz** (§24.c Regulaminu).
+
+- Nie instaluj pakietów (`pip install`, `install.packaged()`, `Pkg.add()`) — wymaga to
+  uprzedniej zgody Administratora IP_CMC.
+- Potrzebujesz pakietu: złóż wniosek do Administratora IP_CMC (§29.5); trafi do kolejnej
+  wersji obrazu.
+- Pakiety pozostawione w katalogu domowym (`~/.local`) nie są ładowane do sesji Pythona
+  (`PYTHONNOUSERSITE=1`) — wyniki zależą wyłącznie od oprogramowania w obrazie.
+- W R `install.packaged()` nie znajdzie repozytoriów i zakończy się błędem.
+MD
+  else
+    cat <<'MD'
+Tryb: **kuratorowany mirror** (decyzja IMG-004 — allowlista = zgoda Administratora IP_CMC z góry).
+
+- Wolno instalować **wyłącznie** pakiety z allowlisty Administratora IP_CMC:
+  `pip install` i `install.packaged()` korzystają z mirrora Laboratorium skonfigurowanego
+  przez Administratora; instalacja spoza allowlisty zakończy się brakiem pakietu na mirrorze.
+- `conda` i rejestr pakietów Julii (`Pkg.add()`) nie mają mirrora — ta zgoda ich nie obejmuje.
+- Potrzebujesz pakietu spoza listy: złóż wniosek do Administratora IP_CMC (§29.5).
+- Powtarzalność: pakiety z `~/.local` i `~/R` nie trafiają do locków obrazu — wpisz ich
+  wersje (`pip freeze`, `sessionInfo()`) do dokumentacji projektu.
+MD
+  fi
+} >"$R/docs/pakiety.md" 2>/dev/null || log "uwaga: nie można zapisać /docs/pakiety.md (udział tylko do odczytu? zasady w logu: tryb ${RESEARCHER_PACKAGE_INSTALL})"
+log "instalacja pakietów przez badacza: ${RESEARCHER_PACKAGE_INSTALL} (IMG-004)"
 
 # Serwery notebooków startuje systemd, więc /etc/environment ich nie dotyczy
 mkdir -p "$HUB_CONFIG_D"
@@ -248,6 +330,9 @@ if os.environ["PROXY_URL"]:
     for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
         env[k] = os.environ["PROXY_URL"]
     env["no_proxy"] = env["NO_PROXY"] = os.environ["NO_PROXY"]
+if os.environ.get("PYTHONNOUSERSITE") == "1":
+    # ~/.local nie może wnosić pakietów do sesji badacza w trybie zakazu (IMG-004)
+    env["PYTHONNOUSERSITE"] = "1"
 print("# Wygenerowane przez wlb-firstboot — nie edytować ręcznie.")
 print("c = get_config()  # noqa: F821")
 print(f"c.Spawner.environment = {json.dumps(env, indent=4)}")

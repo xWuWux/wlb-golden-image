@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -38,7 +38,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odświ
 - `tests/unit/wlb-hub-db-preupgrade.bats` — `brak image-release -> pre-unknown (#13)`, `druga próba tej samej wersji nie nadpisuje starej kopii (#13)`, `kopia pre-<wersja> powstaje, gdy baza istnieje (#13)`, `świeży dysk bez bazy -> brak kopii (#13)`
 
 ### #16 — Proxy z allowlistą, mirrory PyPI/CRAN, blokada zewnętrznych API (w tym LLM, §31.3)  ·  _scalone_
-- `tests/acceptance-remote.sh` — `Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)`, `CONNECT poza allowlistą: $target (403, #16, #63)`, `Reguły egress nftables załadowane`
+- `tests/acceptance-remote.sh` — `Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)`, `CONNECT poza allowlistą: $target (403, #16, #63)`, `Faktyczna instalacja z kuratorowanego mirrora — wymaga mirrora z allowlistą pakietów (#16)`, `Reguły egress nftables załadowane`
 - `tests/unit/changes.bats` — `PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)`
 - `tests/unit/test_network_gates.py` — `test_connect_denial_over_real_socket`, `test_connect_requires_explicit_proxy_denial`
 
@@ -51,6 +51,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odświ
 - `tests/migration-remote.sh` — `Manifest i kopia przeżywają wymianę VM (#20)`
 - `tests/unit/test_wlb_export_snapshot.py` — *#20: integralność kopii, manifest, wyścigi i awarie*
 - `tests/unit/wlb-sluza-out-mover.bats` — `#20: niedozwolony element zatrzymuje cały katalog w kwarantannie`, `#20: suma katalogu odtwarzalna przez weryfikator po przeniesieniu pakietu`
+
+### #23 — Decyzja regulaminowa: czy badacz może instalować pakiety z mirrora PyPI/CRAN (§24.c)  ·  _scalone_
+- `tests/acceptance-remote.sh` — `Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)`, `deny: interpreter TLJH z pipem dostępny dla badacza`
+- `tests/unit/wlb-firstboot.bats` — *Instalacja pakietów przez badacza (#23, IMG-004)*
 
 ### #29 — TOCTOU w śluzie wyjściowej: podmiana pliku na dowiązanie symboliczne przed przeniesieniem przez root  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Dowiązanie w /sluza-out odrzucone (#29)`, `Kolejka eksportu na dysku roboczym`, `Prawa /etc/passwd bez zmian (#29)`, `W kolejce nie ma dowiązań ani plików specjalnych (#29)`
@@ -124,6 +128,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-27). Odświ
 
 ### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
 - `tests/acceptance.d/70-radiologia.sh` — *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
+
+### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
+- `tests/unit/changes.bats` — `śluza: PR i merge_group wymagają integracji bez etykiety (#149)`
 
 ### #157 — Testy #65/AppArmor (20-apparmor.sh): expect_fail na complain oblewa POPRAWNY obraz  ·  _otwarte_
 - `tests/acceptance.d/20-apparmor.sh` — `apparmor-utils zainstalowany (aa-enforce, aa-status)`
