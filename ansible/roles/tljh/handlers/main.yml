@@ -6,3 +6,8 @@
 - name: Reload proxy
   ansible.builtin.command: /opt/tljh/hub/bin/tljh-config reload proxy
   changed_when: true
+
+# katalogi /run na tmpfs powstają przy każdym starcie; handler only reaguje na zmiane konfiguracji
+- name: Zastosuj tmpfiles
+  ansible.builtin.command: systemd-tmpfiles --create
+  changed_when: false
