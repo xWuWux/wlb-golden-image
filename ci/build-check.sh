@@ -81,10 +81,15 @@ PY
   # TLS do SIEM (#6): moduł rsyslog i CA z cloud-init jak w obrazie (openssl — atrapa)
   mkdir -p "$sb/root/usr/lib/x86_64-linux-gnu/rsyslog"
   touch "$sb/root/usr/lib/x86_64-linux-gnu/rsyslog/lmnsd_gtls.so" "$sb/root/etc/wlb/siem-ca.pem"
+  # TLS huba (#18): lab.env.example ma domyślnie HUB_TLS=1 — firstboot waliduje cert i klucz (klucz 0600)
+  touch "$sb/root/etc/wlb/hub-tls.crt" "$sb/root/etc/wlb/hub-tls.key"
+  chmod 0600 "$sb/root/etc/wlb/hub-tls.key"
   local cmd
-  for cmd in logger systemctl nft rsyslogd chown chmod curl groupadd useradd sleep tljh-config openssl; do
+  for cmd in logger systemctl nft rsyslogd chown chmod curl groupadd useradd sleep tljh-config; do
     printf '#!/bin/sh\nexit 0\n' >"$stubs/$cmd"
   done
+  # openssl: spójne niepuste wyjście, by kontrola pary klucz–cert huba przeszła happy-path (#18)
+  printf '#!/bin/sh\necho wlb-tls-pubkey-der-digest\nexit 0\n' >"$stubs/openssl"
   printf '#!/bin/sh\nexit 2\n' >"$stubs/getent"
   printf '#!/bin/sh\necho haslo-testowe-123\n' >"$stubs/wlb-hub-user"
   chmod +x "$stubs"/*

@@ -75,6 +75,11 @@ write_files:
       EGRESS_ALLOW="10.20.0.10:3128 10.30.0.5:5432"
       ADMIN_SSH_CIDR=10.10.0.0/24
       HUB_ALLOWED_CIDR=10.10.1.0/24
+      # TLS huba (#18/IMG-005, §20): HTTPS na 443 z certyfikatu wewnętrznego CA GUMed (Let's Encrypt
+      # odpada bez internetu). Cert i klucz z write_files niżej. HUB_TLS=0 tylko dev/izolowana sieć.
+      HUB_TLS=1
+      HUB_TLS_CERT=/etc/wlb/hub-tls.crt
+      HUB_TLS_KEY=/etc/wlb/hub-tls.key
       NTP_SERVERS="10.10.0.2 10.10.0.3"
       SIEM_HOST=10.40.0.20
       SIEM_PROTOCOL=tcp
@@ -89,6 +94,17 @@ write_files:
       -----BEGIN CERTIFICATE-----
       <certyfikat CA SIEM z PKI GUMed>
       -----END CERTIFICATE-----
+  # Certyfikat TLS huba (publiczny) wystawiony przez wewnętrzne CA GUMed na nazwę Laboratorium (#18)
+  - path: /etc/wlb/hub-tls.crt
+    permissions: "0644"
+    content: |
+      -----BEGIN CERTIFICATE-----
+      <certyfikat serwera huba z PKI GUMed, CN/SAN = nazwa dostępowa Laboratorium>
+      -----END CERTIFICATE-----
+  # Klucz prywatny huba — z menedżera sekretów, NIE z repozytorium (jak /etc/ceph/lab.secret)
+  - path: /etc/wlb/hub-tls.key
+    permissions: "0600"
+    content: "<klucz prywatny certyfikatu huba — z menedżera sekretów, nie z repozytorium>"
 
 runcmd:
   - [/usr/local/sbin/wlb-firstboot]
