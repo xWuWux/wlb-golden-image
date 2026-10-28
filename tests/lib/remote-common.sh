@@ -2,7 +2,15 @@
 # Wspólne funkcje skryptów wykonywanych w VM testowej jako root.
 # Dołączane przed właściwym skryptem: cat remote-common.sh skrypt.sh | ssh ... sudo bash -s
 
-HUB=http://127.0.0.1
+# Transport huba zależy od HUB_TLS w lab.env (#18, firstboot: domyślnie 1). HUB_TLS=0 → HTTP (dev);
+# inaczej HTTPS po nazwie z weryfikacją testowej CA (cert ma SAN localhost/127.0.0.1) — bez -k.
+# CURL_CA_BUNDLE sprawia, że KAŻDY curl do $HUB weryfikuje CA; hub-ca.pem wstrzyknięte przez cloud-init.
+if grep -qE '^[[:space:]]*HUB_TLS=0[[:space:]]*$' /etc/wlb/lab.env 2>/dev/null; then
+  HUB=http://127.0.0.1
+else
+  HUB=https://localhost
+  export CURL_CA_BUNDLE=/etc/wlb/hub-ca.pem
+fi
 PASS=0 FAIL=0 SKIP=0
 
 # median LICZBY... — wypisuje medianę liczb całkowitych (dolna przy parzystej liczbie próbek).

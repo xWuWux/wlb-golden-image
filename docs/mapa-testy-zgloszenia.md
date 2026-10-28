@@ -43,7 +43,8 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 - `tests/unit/test_network_gates.py` — `test_connect_denial_over_real_socket`, `test_connect_requires_explicit_proxy_denial`
 
 ### #18 — Dostęp: MFA (Keycloak / Entra ID) i HTTPS przez portal WLB lub bramkę VDI  ·  _otwarte_
-- `tests/unit/wlb-firstboot.bats` — *Uwierzytelnianie: native / OIDC (#18)*
+- `tests/acceptance.d/15-dostep-tls-cidr.sh` — `443 nie jest otwarte przy HUB_TLS=0 (#18)`, `HTTP na 80 przekierowuje na HTTPS (#18)`, `HTTPS bez zaufanej CA jest odrzucone (#18)`, `Hub odpowiada po HTTPS na 443 z zaufanym certem (#18)`, `Polityka wejścia: drop (#18)`, `nftables: SSH tylko z ADMIN_SSH_CIDR na porcie 22 (#18)`, `nftables: brak 0.0.0.0/0 w aktywnym rulesecie (#18)`, `nftables: hub z HUB_ALLOWED_CIDR na 80 i 443 (TLS, #18)`, `nftables: hub z HUB_ALLOWED_CIDR tylko na 80 (HUB_TLS=0, #18)`, *Dostęp: wymuszony CIDR + TLS huba (#18)*
+- `tests/unit/wlb-firstboot.bats` — `#18 CIDR: HUB_ALLOWED_CIDR=0.0.0.0/0 jest odrzucane (/0)`, `#18 CIDR: brak HUB_ALLOWED_CIDR przerywa konfigurację`, `#18 CIDR: końcowa spacja w HUB_ALLOWED_CIDR jest odrzucana`, `#18 CIDR: lista adresów w ADMIN_SSH_CIDR jest odrzucana`, `#18 CIDR: prefiks > 32 jest odrzucany`, `#18 TLS: certyfikat i klucz nie są parą — odrzucone`, `#18 TLS: klucz huba o zbyt szerokich prawach jest odrzucany`, `#18 dostęp: HUB_TLS domyślnie 1 — HTTPS włączone, cert i klucz ustawione`, `#18 dostęp: HUB_TLS=0 — hub tylko po HTTP (port 80, bez 443), z ostrzeżeniem`, `#18 fail-secure: błąd TLS huba nie otwiera portu huba ani nie kończy firstboot`, `SIEM TLS: nieczytelny certyfikat CA przerywa konfigurację`, `pełna konfiguracja Laboratorium`, *#18: dostęp (CIDR fail-secure, TLS huba)*, *Uwierzytelnianie: native / OIDC (#18)*
 
 ### #20 — Proces zatwierdzania eksportu przez Kontrolera Przesyłu Danych  ·  _otwarte_
 - `tests/acceptance-remote.sh` — `Manifest i integralność kopii w kolejce (#20)`
