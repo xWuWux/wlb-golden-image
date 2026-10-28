@@ -36,7 +36,7 @@ source "qemu" "wlb_memory" {
   disk_size    = var.memory_disk_size
 
   format           = "qcow2"
-  disk_compression = true
+  disk_compression = false # kompresja zstd w shell-local (#71)
   disk_interface   = "virtio"
   net_device       = "virtio-net"
   accelerator      = "kvm"
@@ -86,6 +86,18 @@ build {
   provisioner "shell" {
     execute_command = "sudo bash '{{ .Path }}'"
     script          = "${local.repo_root}/packer/scripts/cleanup.sh"
+  }
+
+  # Równoległa kompresja zstd zamiast disk_compression (zlib, 1 wątek) — #71. Przed manifestem/checksumą.
+  post-processor "shell-local" {
+    inline = [
+      "set -e",
+      "img=${local.repo_root}/output/${local.full_name_mem}/${local.full_name_mem}.qcow2",
+      "m=$(nproc); if [ \"$m\" -gt 16 ]; then m=16; fi",
+      "qemu-img convert -c -W -m \"$m\" -O qcow2 -o compression_type=zstd \"$img\" \"$img.zst\"",
+      "mv -f \"$img.zst\" \"$img\"",
+      "echo \"Kompresja zstd zakonczona (-m $m)\"",
+    ]
   }
 
   post-processor "manifest" {
