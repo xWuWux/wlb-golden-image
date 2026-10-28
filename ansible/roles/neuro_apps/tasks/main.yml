@@ -44,6 +44,23 @@
     - /tmp/fslinstaller.py
 
 # --- 3DSlicer (tarball Linux; GUI — wymaga pulpitu z roli desktop) ------------------------
+# Biblioteki systemowe platformy Qt "xcb". Tarball 3DSlicer wnosi własne Qt5 (w swoim lib/), ale
+# wtyczka platformy libqxcb.so linkuje do systemowych bibliotek XCB, których XFCE z roli desktop nie
+# wciąga. Bez nich Slicer NIE startuje: "libxcb-icccm.so.4: cannot open shared object file" (#135, #4).
+# Potwierdzone ldd wtyczki platforms/libqxcb.so na zbudowanym obrazie — to pełny komplet brakujących.
+- name: Biblioteki platformy Qt xcb wymagane przez 3DSlicer (#4)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - libxcb-icccm4
+      - libxcb-image0
+      - libxcb-keysyms1
+      - libxcb-render-util0
+      - libxcb-xinerama0
+      - libxcb-xkb1
+      - libxkbcommon-x11-0
+    state: present
+
 - name: Pobierz 3DSlicer (tarball, weryfikacja SHA-512)
   ansible.builtin.get_url:
     url: "{{ slicer_url }}"
