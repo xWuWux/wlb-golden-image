@@ -144,6 +144,14 @@
     - /etc/issue
     - /etc/issue.net
 
+# Współdzielony odczyt trybu profilu AppArmor (#6, #65): JSON zamiast grepa podciągów. Używany
+# przez post_task site.yml (wymuszenie enforce) i akceptację 20-apparmor.sh — jeden kontrakt, jeden test.
+- name: "Narzędzie odczytu trybu profilu AppArmor (#6, #65)"
+  ansible.builtin.copy:
+    src: wlb-apparmor-mode
+    dest: /usr/local/sbin/wlb-apparmor-mode
+    mode: "0755"
+
 # --- Ochrona usług systemowych przed OOM killerem (#30) ----------------------------------
 # Przy braku pamięci jądro zabija najpierw procesy badaczy (OOMScoreAdjust=500 w ich jednostkach,
 # rola tljh), a usługi audytu, logów, huba i dostępu — na końcu. Audyt nigdy (-1000), bo przerwa

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Wypisuje tryb AppArmor profilu pasującego do podanego podciągu nazwy (#6, #65).
+#
+# Źródło: `aa-status --json` — dokładne porównanie wartości klucza profilu, odporne na
+# formatowanie (jedna/wiele linii JSON) i na to, że INNY profil w tej samej linii ma
+# "enforce". NIE używać `aa-status | grep PODCIAG | grep enforce`: dla jednowierszowego
+# JSON z `{"/usr/sbin/rsyslogd": "unconfined", "/usr/bin/x": "enforce"}` zwraca kod 0,
+# choć pytany profil jest unconfined.
+#
+# Wyjście (stdout):
+#   enforce | complain | unconfined | kill | prompt   — jedyny tryb pasującego profilu
+#   (pusta linia)                                      — brak pasującego profilu (nieładowany)
+#   tryb1,tryb2                                        — kilka różnych trybów (niejednoznaczne; != enforce)
+# Kod wyjścia: 0 przy poprawnym odczycie; błąd aa-status lub niepoprawny JSON → != 0 (pipefail).
+set -euo pipefail
+substr=${1:?uzycie: wlb-apparmor-mode PODCIAG_NAZWY_PROFILU}
+aa-status --json | python3 -c '
+import json, sys
+
+substr = sys.argv[1]
+profiles = json.load(sys.stdin).get("profiles", {})
+modes = sorted({mode for name, mode in profiles.items() if substr in name})
+print(modes[0] if len(modes) == 1 else ",".join(modes))
+' "$substr"
