@@ -35,7 +35,12 @@ if [[ ${KEEP_WORKSPACE:-0} != 1 || ! -f $T/workspace.qcow2 ]]; then
   qemu-img create -q -f qcow2 "$T/workspace.qcow2" 20G
 fi
 
-qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$IMAGE")" "$T/system.qcow2" 40G
+# Overlay nie może być MNIEJSZY od obrazu bazowego — inaczej obcina tablicę partycji i root (initramfs
+# "UUID does not exist"). Baza wlb-general ~30 GiB (overlay rośnie do 40 GiB na zapas), ale flavor
+# wlb-radiologia ma ~80 GiB (FSL) — bierzemy max(40 GiB, rozmiar obrazu). (#135)
+backing_bytes=$(qemu-img info --output=json "$IMAGE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["virtual-size"])')
+overlay_bytes=$((backing_bytes > 40 * 1024 ** 3 ? backing_bytes : 40 * 1024 ** 3))
+qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$IMAGE")" "$T/system.qcow2" "$overlay_bytes"
 # CA testowego SIEM (odbiornik tylko po TLS, #6) — generowane przy teście, nie w repozytorium
 "$ROOT/tests/lib/test-pki.sh" "$T" >/dev/null
 sed -e "s|__SSH_PUBKEY__|$(cat "$T/id_ed25519.pub")|" -e "s|__SIEM_CA_B64__|$(base64 -w0 "$T/siem-ca.pem")|" \
