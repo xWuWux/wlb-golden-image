@@ -36,9 +36,13 @@ if [[ ${KEEP_WORKSPACE:-0} != 1 || ! -f $T/workspace.qcow2 ]]; then
 fi
 
 qemu-img create -q -f qcow2 -F qcow2 -b "$(realpath "$IMAGE")" "$T/system.qcow2" 40G
-# CA testowego SIEM (odbiornik tylko po TLS, #6) — generowane przy teście, nie w repozytorium
+# Testowe PKI (SIEM #6 + hub TLS #18) — generowane przy teście, nigdy w repozytorium. Jedna CA.
 "$ROOT/tests/lib/test-pki.sh" "$T" >/dev/null
-sed -e "s|__SSH_PUBKEY__|$(cat "$T/id_ed25519.pub")|" -e "s|__SIEM_CA_B64__|$(base64 -w0 "$T/siem-ca.pem")|" \
+sed -e "s|__SSH_PUBKEY__|$(cat "$T/id_ed25519.pub")|" \
+  -e "s|__SIEM_CA_B64__|$(base64 -w0 "$T/siem-ca.pem")|" \
+  -e "s|__HUB_CERT_B64__|$(base64 -w0 "$T/hub.pem")|" \
+  -e "s|__HUB_KEY_B64__|$(base64 -w0 "$T/hub.key")|" \
+  -e "s|__HUB_CA_B64__|$(base64 -w0 "$T/siem-ca.pem")|" \
   "$ROOT/tests/cloud-init/user-data.yaml" >"$T/user-data"
 cloud-localds "$T/seed.iso" "$T/user-data" "$ROOT/tests/cloud-init/meta-data.yaml"
 
