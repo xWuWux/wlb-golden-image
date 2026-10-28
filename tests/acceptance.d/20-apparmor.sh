@@ -14,4 +14,7 @@ expect_ok "apparmor-utils zainstalowany (aa-enforce, aa-status)" command -v aa-e
 # NIE grepować `aa-status --verbose | grep "complain mode"` — ten wzorzec trafia wiersz-licznik
 # „N profiles are in complain mode." także dla N=0, więc expect_fail oblewałby POPRAWNY obraz.
 expect_ok "Licznik profili w complain = 0" test "$(aa-status --complaining)" = 0
-expect_ok "Profil rsyslogd w trybie enforce (#6)" bash -c 'aa-status --json | grep -i rsyslogd | grep -qi enforce'
+# Dokładny tryb profilu (wlb-apparmor-mode), nie `grep rsyslogd | grep enforce`: ten drugi zalicza
+# jednowierszowy JSON, gdzie rsyslogd jest unconfined, a "enforce" ma INNY profil w tej samej linii (#65).
+# shellcheck disable=SC2016  # $() rozwija wewnętrzny bash (expect_ok uruchamia polecenie na VM)
+expect_ok "Profil rsyslogd w trybie enforce (#6)" bash -c '[[ $(wlb-apparmor-mode rsyslogd) == enforce ]]'

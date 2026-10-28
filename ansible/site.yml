@@ -22,19 +22,21 @@
     # to one ładują profil jako ostatnie, więc tylko tutaj widać jego końcowy tryb w jądrze.
     - name: Profil rsyslogd w trybie enforce (#6, CIS 1.6.3)
       ansible.builtin.shell: |
-        set -o pipefail
-        # aa-status 4.0.1 NIE przyjmuje sciezki ani nazwy profilu jako argumentu pozycyjnego (rc=1,
-        # komunikat uzycia), a aa-enforce po nazwie profilu nie robi nic i konczy sie rc=0 — sprawdzono
-        # na VM. Tryb czytamy zatem z `aa-status --json`, a aa-enforce dostaje PLIK profilu.
+        set -euo pipefail
+        # aa-status 4.0.1 NIE przyjmuje sciezki ani nazwy profilu jako argumentu pozycyjnego (rc=1),
+        # a aa-enforce po nazwie profilu nic nie robi i konczy sie rc=0 — aa-enforce dostaje PLIK profilu.
+        # Tryb czytamy wspoldzielonym parserem (wlb-apparmor-mode): dokladny klucz, nie grep podciagow.
         f=/etc/apparmor.d/usr.sbin.rsyslogd
-        tryb=$(aa-status --json | python3 -c 'import json,sys
-        P = json.load(sys.stdin)["profiles"]
-        print(",".join(sorted({m for n, m in P.items() if "rsyslogd" in n})))')
+        tryb=$(wlb-apparmor-mode rsyslogd)
         echo "profil rsyslogd: ${tryb:-nieladowany}"
-        if [[ $tryb == *complain* ]]; then
+        if [[ $tryb == complain ]]; then
           aa-enforce "$f"
-          echo "profil rsyslogd: przelaczono na enforce"
+          tryb=$(wlb-apparmor-mode rsyslogd)
+          echo "profil rsyslogd po aa-enforce: ${tryb:-nieladowany} (przelaczono na enforce)"
         fi
+        # Fail-secure (#65): sukces tylko gdy koncowy tryb to dokladnie enforce. Brak profilu,
+        # unconfined, nieskuteczny aa-enforce albo kilka trybow (niejednoznacznosc) blokuja build.
+        [[ $tryb == enforce ]] || { echo "BLAD: rsyslogd nie jest w trybie enforce (jest: ${tryb:-nieladowany})" >&2; exit 1; }
       args:
         executable: /bin/bash
       register: wlb_rsyslog_enforce
