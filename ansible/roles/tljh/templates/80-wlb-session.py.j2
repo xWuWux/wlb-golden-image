@@ -15,6 +15,7 @@ import json
 import os
 import pwd
 import subprocess
+import tempfile
 import time
 import uuid
 
@@ -61,19 +62,28 @@ def _wlb_run(spawner, args, what):
 
 def _wlb_write_state(spawner, unit, state):
     # raportowanie nie moze zablokowac sesji — awaria pliku stanu to ostrzeżenie, nie wyjatek.
-    # Stan zawiera session_id -> musi byc nieczytelny dla badacza: katalog 0700, plik 0600. tmpfiles
-    # tworzy katalog jako 0700, ale gdy go zabraknie (wyczyszczony /run, wyscig przed regula tmpfiles)
-    # tworzymy go JAWNYM trybem — bez mode= bylo domyslne 0755 z umaski, a open() dawal plik 0644,
-    # co przy nieobecnym katalogu wystawialo session_id badaczowi (#170 finding 4).
+    # Katalog i jego rodzice sa zarzadzane przez root (tmpfiles), nie przez badacza.
+    # Napraw tez istniejacy katalog; mode w makedirs dotyczy tylko nowego katalogu.
+    # Nowy, unikalny plik 0600 nie przejmuje praw ani symlinka po przerwanym zapisie.
+    tmp: str | None = None
     try:
         os.makedirs(_WLB_STATE_DIR, mode=0o700, exist_ok=True)
-        tmp = _wlb_state_path(unit) + ".tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        os.chmod(_WLB_STATE_DIR, 0o700)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=_WLB_STATE_DIR,
+                                         prefix=".wlb-session-", suffix=".tmp", delete=False) as fh:
+            tmp = fh.name
             json.dump(state, fh)
         os.replace(tmp, _wlb_state_path(unit))
     except OSError as exc:
         spawner.log.warning("wlb-session: stan sesji %s nie zapisany: %s", unit, exc)
+    finally:
+        if tmp is not None:
+            try:
+                os.remove(tmp)
+            except FileNotFoundError:
+                pass  # udany replace przeniosl plik
+            except OSError as exc:
+                spawner.log.warning("wlb-session: plik tymczasowy sesji %s nie usuniety: %s", unit, exc)
 
 
 def _wlb_read_state(unit):
@@ -114,6 +124,11 @@ def wlb_post_stop_hook(spawner):
     lab, lab_source = _wlb_lab(spawner)
     state = _wlb_read_state(unit) or {}
     sid = getattr(spawner, "_wlb_session", "") or state.get("session_id", "")
+    if sid and state.get("session_id") == sid:
+        # Atrybucja nalezy do sesji, nie do konfiguracji huba po restarcie.
+        # Stary format bez lab oznacza brak danych, tak jak w interrupted.
+        lab = state.get("lab", "")
+        lab_source = state.get("lab_source", "")
     start_wall = getattr(spawner, "_wlb_start_wall", None)
     start_mono = getattr(spawner, "_wlb_start", None)
     if start_wall is None and state.get("start_wall"):
