@@ -219,7 +219,6 @@ dependencies:
   - pybind11-abi=4
   - pycosat=0.6.6
   - pycparser=2.22
-  - pydantic=2.14.1
   - pydantic-core=2.50.1
   - pydicom=3.0.2
   - pyparsing=3.3.3
@@ -385,6 +384,8 @@ dependencies:
       - ptyprocess==0.7.0
       - pulp==3.3.2
       - pure-eval==0.2.4
+      # Pin także dla resolvera pip: zależności pip zastępowały wersję z conda (#179).
+      - pydantic==2.14.1
       - pygments==2.21.0
       - python-gdcm==3.2.6
       - python-json-logger==4.2.0

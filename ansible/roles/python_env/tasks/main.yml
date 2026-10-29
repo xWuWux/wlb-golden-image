@@ -29,6 +29,27 @@
   delay: 30
   changed_when: true
 
+# #179: TLJH/pip pozostawił dist-info 2.14.2 obok wersji 2.14.1 z conda.
+# Nie zmieniamy locka ani kodu pakietu. Niejednoznaczna własność zatrzymuje build.
+- name: Skopiuj narzędzie porządkowania metadanych pydantic
+  ansible.builtin.copy:
+    src: reconcile_pydantic.py
+    dest: /opt/wlb/envs/python/reconcile_pydantic.py
+    mode: "0644"
+
+- name: Odizoluj nieaktualne metadane pydantic przed eksportem
+  ansible.builtin.command:
+    argv:
+      - /opt/tljh/user/bin/python
+      - /opt/wlb/envs/python/reconcile_pydantic.py
+      - /opt/wlb/envs/python/stale-metadata
+  register: python_env_metadata
+  changed_when: (python_env_metadata.stdout | from_json).changed
+
+- name: Pokaż wynik porządkowania metadanych
+  ansible.builtin.debug:
+    var: python_env_metadata.stdout
+
 - name: Zamrożenie wersji (conda env export)
   ansible.builtin.shell: |
     set -o pipefail
