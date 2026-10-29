@@ -150,3 +150,27 @@ ponownego `verify` i uzgodnienia stanu publikacji z platformą.
   nie sesje/obliczenia; brak potwierdzenia loggera nie oznacza niedostępności samego SIEM.
 - E2E na docelowym storage, zabicie procesu/restart VM w punktach awarii, odtworzenie
   backupu i niezależny przegląd bezpieczeństwa. Testy jednostkowe nie dowodzą tych cech.
+
+## Walidacja metadanych v1 (#162)
+
+`validate_manifest(value: object) -> Manifest` sprawdza strukturę i typy w czasie
+wykonania; TypedDict sam nie waliduje JSON. `verify` wywołuje ją przed odczytem
+payloadu, a `create` przed zapisaniem gotowego manifestu. Błąd to
+`SnapshotError`, obsługiwany przez istniejące CLI kodem 1, bez logowania zawartości.
+
+Wymagane są dokładne zbiory pól Manifest/Requester/Entry, UUID v4 zapisany kanonicznie,
+czas ISO 8601 z offsetem UTC, niepuste nazwy, całkowity nieujemny UID/rozmiar
+(z wykluczeniem bool), obsługiwany algorytm i małe sumy hex SHA-256.
+Spis zawiera 1–MAX_ENTRIES pozycji. Katalog ma size=0 i pustą sumę.
+`valid_digest(value: object) -> bool` jest wspólną kontrolą składni sumy.
+Dokładne ścieżki, kolejność, rozmiary i treść nadal porównuje istniejące inventory.
+
+To zaostrzenie czytnika, bez zmiany formatu danych emitowanych przez mover.
+Nieznane pola wymagają jawnej aktualizacji kontraktu/czytnika; nie dodawać do v1
+ad hoc pól zatwierdzenia. Błędne historyczne manifesty pozostawić do wyjaśnienia,
+bez automatycznej naprawy lub dopisywania tożsamości. Wewnętrzne wywołania create
+muszą przekazywać UUID v4 (mover już pobiera go z jądra).
+
+Walidacja potwierdza strukturę, nie autentyczność tożsamości, poprawność zegara,
+zgodę na eksport ani odporność na modyfikację przez roota. Nie wdraża rejestru #102,
+limitu całej kolejki, automatycznego recovery ani procesu Kontrolera #20.
