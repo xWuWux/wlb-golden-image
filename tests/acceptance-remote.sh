@@ -102,6 +102,10 @@ expect_ok "Dowiązanie w /sluza-out odrzucone (#29)" \
   bash -c "journalctl -t wlb-sluza-out | grep -q 'rejected user=jupyter-$R1 entry=link-test reason=unsupported_type'"
 expect_ok "Prawa /etc/passwd bez zmian (#29)" test "$(stat -c %a /etc/passwd)" = "$passwd_mode"
 expect_fail "W kolejce nie ma dowiązań ani plików specjalnych (#29)" bash -c "find '$QUEUE' ! -type f ! -type d | grep -q ."
+# Zwrotny powód odrzucenia widoczny dla badacza — koniec pętli „wrzucam–znika–nie wiem" (#162/IMG-008)
+expect_ok "Badacz widzi katalog zwrotny /sluza-odrzucone" as $R1 ls /sluza-odrzucone
+expect_ok "Powód odrzucenia dowiązania czytelny dla badacza (#162)" \
+  as $R1 bash -c "grep -rq unsupported_type /sluza-odrzucone/*link-test*.powod.* 2>/dev/null"
 
 echo "== 5b. Identyfikacja IP_CMC i pomoc (#53, #54) =="
 expect_ok "Logo na stronie logowania wskazuje /hub/logo (#53)" bash -c "curl -s '$HUB/hub/login' | grep -qE \"src=['\\\"]/hub/logo['\\\"]\""

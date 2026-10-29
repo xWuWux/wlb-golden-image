@@ -37,6 +37,28 @@ i wznawianie**:
 Jeśli Twoje obliczenia regularnie przekraczają 12 h i trudno je checkpointować, **zgłoś to HelpDeskowi** —
 planowany jest tryb uruchamiania długich zadań odpięty od limitu sesji.
 
+## Eksport wyników — limity i odrzucenia
+
+Wyniki eksportujesz przez `/sluza-out`. Po skopiowaniu plik znika z widoku i trafia do kolejki
+zatwierdzenia — to **jeszcze nie jest eksport**: wniosek czeka na zgodę Kontrolera Przesyłu Danych.
+Obowiązują ograniczenia operacyjne (decyzje IMG-008, §14.7/§24 Regulaminu):
+
+- **Limit jednego wniosku: 100 GiB i 100 000 plików.** Większe transfery zgłoś operatorowi — idą
+  osobnym trybem, nie przez śluzę.
+- **Każdy plik/katalog to osobny wniosek.** Pliki należące do siebie spakuj w jedno archiwum przed
+  kopiowaniem (`tar -czf ~/wynik.tar.gz ~/wyniki/ && cp ~/wynik.tar.gz /sluza-out/`).
+- **Wniosek zostanie odrzucony**, jeśli zawiera dowiązania (symboliczne lub twarde), pliki specjalne
+  albo pliki o **różnych właścicielach** — np. plik skopiowany z `/data-mart` należy do `root`, a nie
+  do Ciebie. Skopiuj dane do siebie (`cp` tworzy kopię Twojej własności). Jeden niepasujący element
+  odrzuca **cały** wniosek.
+- **Powód odrzucenia** znajdziesz w katalogu **`/sluza-odrzucone`** (plik z wyjaśnieniem). Jeśli plik
+  zniknął ze śluzy, a nie dotarł do operatora — zajrzyj tam najpierw.
+- **Jeśli eksport w ogóle przestał działać** (nowe pliki nie znikają ze śluzy), wniosek mógł utknąć
+  i wstrzymać kolejkę — **zgłoś HelpDeskowi**; operator odblokuje.
+
+Zachowaj oryginał w katalogu domowym do czasu potwierdzenia eksportu. Automatyczny status wniosku,
+zgoda Lidera i publikacja pozostają do wdrożenia (#20).
+
 ## Zanim zgłosisz
 
 - Pełny Regulamin WLB: [`/docs/Regulamin_korzystania_z_WLB.pdf`](/docs/Regulamin_korzystania_z_WLB.pdf).
