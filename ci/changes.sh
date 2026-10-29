@@ -30,7 +30,7 @@ has_label() { python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.loa
 doc_only() {
   local base=$1
   [[ -z $base || $base == 0000000000000000000000000000000000000000 ]] && return 1
-  ! git diff --name-only "$base" HEAD | grep -qvE '^(README\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$)'
+  ! git diff --name-only "$base" HEAD | grep -qvE '^(README\.md|CHANGELOG\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$)'
 }
 
 # network_change BASE: kod 0 oznacza wymaganą integrację. Brak bazy/błąd git
