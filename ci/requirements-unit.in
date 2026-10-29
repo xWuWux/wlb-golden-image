@@ -2,10 +2,10 @@
 # wygenerowany lock z hashami ci/requirements-unit.txt (instalowany w CI z --require-hashes, IMG-008 5b).
 # Stage 4: testy jednostkowe i pokrycie.
 pytest==9.1.1
-coverage==7.16.2
+coverage==7.17.0
 PyYAML==6.0.3
 # wlb-hub-user testowany na tej samej głównej wersji JupyterHub co w TLJH 2.0 (jupyterhub<6)
-jupyterhub==5.5.3
+jupyterhub==5.5.4
 jupyterhub-nativeauthenticator==1.3.0
 opentelemetry-proto==1.45.1  # tylko testy: walidacja OTLP/JSON (#35); protobuf to jego zależność
 protobuf==7.36.2
