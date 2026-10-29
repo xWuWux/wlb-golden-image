@@ -88,7 +88,7 @@ make test-down
 
 Hub jest dostępny pod `http://localhost:8080`, a SSH przez
 `ssh -p 2222 -i build/test/id_ed25519 wlbadmin@127.0.0.1`.
-Hasło początkowe administratora huba (`admin-klienta`) wypisuje `make test-password`
+Hasło początkowe administratora huba (`a01`) wypisuje `make test-password`
 (w VM: `sudo cat /root/wlb-hub-admin-initial-password`).
 
 W teście nie ma udziałów sieciowych, proxy ani SIEM. Katalogi §10 są lokalne, a

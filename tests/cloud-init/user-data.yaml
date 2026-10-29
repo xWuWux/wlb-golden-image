@@ -35,7 +35,8 @@ write_files:
     permissions: "0600"
     content: |
       LAB_NAME=lab-test01
-      HUB_ADMIN_USER=admin-klienta
+      HUB_ADMIN_USER=a01
+      RESEARCHER_ACCOUNTS=2
       # instalacja pakietów przez badacza: zakaz (§24.c, IMG-004); kuratorowany mirror (#16)
       # włączyłby tryb mirror razem z PYPI_INDEX_URL/CRAN_MIRROR_URL
       RESEARCHER_PACKAGE_INSTALL=deny

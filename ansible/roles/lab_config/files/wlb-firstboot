@@ -139,8 +139,15 @@ SIEM_CA_CERT=${SIEM_CA_CERT:-/etc/wlb/siem-ca.pem}                       # CA, k
 SIEM_PORT=${SIEM_PORT:-$([[ $SIEM_TLS == 1 ]] && echo 6514 || echo 514)} # 6514: syslog po TLS (RFC 5425)
 LOCAL_TEST_MODE=${LOCAL_TEST_MODE:-0}
 # limity zasobów badaczy (#30) — puste = wyliczane z RAM i vCPU VM
-SYSTEM_MEM_RESERVE=${SYSTEM_MEM_RESERVE:-}         # rezerwa na usługi, np. 4G; domyślnie max(3G, 10% RAM)
-RESEARCHERS_PER_VM=${RESEARCHERS_PER_VM:-1}        # ilu badaczy równolegle na tej VM (IMG-001: domyślnie VM na badacza)
+SYSTEM_MEM_RESERVE=${SYSTEM_MEM_RESERVE:-}  # rezerwa na usługi, np. 4G; domyślnie max(3G, 10% RAM)
+RESEARCHERS_PER_VM=${RESEARCHERS_PER_VM:-1} # ilu badaczy równolegle na tej VM (IMG-001: domyślnie VM na badacza)
+# Liczba bezosobowych kont stanowiskowych uNN pre-provisionowanych przy pierwszym starcie (IMG-002/#102);
+# domyślnie tyle, ile równoległych badaczy. Konta u01..uNN + Administrator Klienta a01; mapowanie
+# osoba↔konto trzyma rejestr (poza nazwą konta). 0 = brak kont badaczy (laboratorium tylko z adminem).
+RESEARCHER_ACCOUNTS=${RESEARCHER_ACCOUNTS:-$RESEARCHERS_PER_VM}
+if [[ ! $RESEARCHER_ACCOUNTS =~ ^[0-9]+$ ]] || ((RESEARCHER_ACCOUNTS > 64)); then
+  die "RESEARCHER_ACCOUNTS musi być liczbą 0–64, jest '${RESEARCHER_ACCOUNTS}'"
+fi
 RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT:-}     # pamięć na badacza, np. 8G; domyślnie pula / RESEARCHERS_PER_VM
 RESEARCHER_CPU_LIMIT=${RESEARCHER_CPU_LIMIT:-}     # rdzenie na badacza, np. 2 albo 1.5; domyślnie vCPU / RESEARCHERS_PER_VM (min. 1)
 RESEARCHER_TASKS_MAX=${RESEARCHER_TASKS_MAX:-2048} # procesy i wątki na badacza (ochrona przed fork bomb)
@@ -622,33 +629,42 @@ hub_ready || die "JupyterHub nie odpowiada"
 # Do tego momentu z sieci dostępny był wyłącznie SSH administratora; błąd TLS/gotowości nie wystawia HTTP.
 write_nftables 1
 
-# Baza huba leży na dysku roboczym: po wymianie dysku systemowego konto już istnieje
-# i jego hasło zostaje bez zmian.
-if [[ ! -s $ADMIN_PASSWORD_FILE ]]; then
-  # Ponawiamy: przy działającym hubie baza bywa chwilowo zablokowana (#31). Bez tego błąd
-  # przerwałby firstboot po cichu (set -e) — nie powstałby firstboot.done, więc reguły audytu
-  # nie zostałyby zablokowane. Narzędzie samo czeka na blokadę (LOCK_TIMEOUT); tu łapiemy resztę.
-  created=0 password=""
+# Pre-provisioning kont huba (IMG-002/#102): Administrator Klienta a01 + stanowiskowe u01..uNN.
+# Konta BEZOSOBOWE; hasła początkowe w /root/wlb-hub-<login>-initial-password (0600) — Administrator
+# Klienta rozdaje je badaczom, a mapowanie osoba↔konto trzyma rejestr poza nazwą konta. Idempotentne:
+# baza huba leży na dysku roboczym, więc konto przeniesione z poprzedniego obrazu zostaje bez zmiany hasła.
+provision_hub_account() { # provision_hub_account LOGIN PLIK_HASŁA
+  local login=$1 pwfile=$2 created=0 password="" attempt
+  [[ -s $pwfile ]] && return 0
+  # Ponawiamy: przy działającym hubie baza bywa chwilowo zablokowana (#31). Bez tego błąd przerwałby
+  # firstboot po cichu (set -e) — nie powstałby firstboot.done, więc reguły audytu nie zostałyby
+  # zablokowane. Narzędzie samo czeka na blokadę (LOCK_TIMEOUT); tu łapiemy resztę.
   for attempt in 1 2 3; do
-    if password=$("$HUB_USER_TOOL" --if-missing "$HUB_ADMIN_USER"); then
+    if password=$("$HUB_USER_TOOL" --if-missing "$login"); then
       created=1
       break
     fi
-    log "konto huba ${HUB_ADMIN_USER}: próba ${attempt}/3 nieudana (baza huba zajęta?) — ponawiam"
+    log "konto huba ${login}: próba ${attempt}/3 nieudana (baza huba zajęta?) — ponawiam"
     sleep "$HUB_USER_RETRY_SLEEP"
   done
-  ((created == 1)) || die "nie udało się założyć konta huba ${HUB_ADMIN_USER} po 3 próbach (baza zajęta?)"
+  ((created == 1)) || die "nie udało się założyć konta huba ${login} po 3 próbach (baza zajęta?)"
   if [[ -n $password ]]; then
-    mkdir -p "$(dirname "$ADMIN_PASSWORD_FILE")"
+    mkdir -p "$(dirname "$pwfile")"
     (
       umask 077
-      printf '%s\n' "$password" >"$ADMIN_PASSWORD_FILE"
+      printf '%s\n' "$password" >"$pwfile"
     )
-    log "konto huba ${HUB_ADMIN_USER} utworzone; hasło początkowe: ${ADMIN_PASSWORD_FILE#"$R"}"
+    log "konto huba ${login} utworzone; hasło początkowe: ${pwfile#"$R"}"
   else
-    log "konto huba ${HUB_ADMIN_USER} już istnieje (dysk roboczy) — hasło bez zmian"
+    log "konto huba ${login} już istnieje (dysk roboczy) — hasło bez zmian"
   fi
-fi
+}
+
+provision_hub_account "$HUB_ADMIN_USER" "$ADMIN_PASSWORD_FILE"
+for ((i = 1; i <= RESEARCHER_ACCOUNTS; i++)); do
+  account=$(printf 'u%02d' "$i")
+  provision_hub_account "$account" "$R/root/wlb-hub-${account}-initial-password"
+done
 
 # --- 7. Dane przykładowe (wyłącznie lokalny test obrazu) ------------------------------
 if [[ $LOCAL_TEST_MODE == 1 ]]; then

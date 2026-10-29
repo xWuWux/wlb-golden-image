@@ -4,13 +4,26 @@
 # Numeracja odpowiada liście kryteriów w specyfikacji.
 set -uo pipefail
 
-R1=tester1
-R2=tester2
+# Konta bezosobowe stanowiskowe (IMG-002/#102): u01/u02 pre-provisionowane przez wlb-firstboot
+# (RESEARCHER_ACCOUNTS=2 w tests/cloud-init/user-data.yaml). Hasła początkowe czytamy z plików root.
+R1=u01
+R2=u02
 QUEUE=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
 
-echo "== Przygotowanie: konta testowe w hubie =="
+echo "== Przygotowanie: hasła kont stanowiskowych pre-provisionowanych przez firstboot =="
 declare -A PW
-for u in $R1 $R2; do PW[$u]=$(/usr/local/sbin/wlb-hub-user "$u"); done
+for u in $R1 $R2; do PW[$u]=$(cat "/root/wlb-hub-$u-initial-password"); done
+
+echo "== 0. Konta bezosobowe uNN/a01 pre-provisionowane; self-signup wyłączony (IMG-002/#102) =="
+# shellcheck disable=SC2016  # $(stat) celowo rozwijane w uruchamianym bash (na VM), nie tu
+expect_ok "Administrator Klienta a01 pre-provisionowany (plik hasła 0600)" \
+  bash -c 'test -s /root/wlb-hub-admin-initial-password && [ "$(stat -c %a /root/wlb-hub-admin-initial-password)" = 600 ]'
+# shellcheck disable=SC2016  # jw.
+expect_ok "Konto stanowiskowe u01 pre-provisionowane (plik hasła 0600)" \
+  bash -c 'test -s /root/wlb-hub-u01-initial-password && [ "$(stat -c %a /root/wlb-hub-u01-initial-password)" = 600 ]'
+expect_ok "Konto stanowiskowe u02 pre-provisionowane" test -s /root/wlb-hub-u02-initial-password
+expect_ok "Self-signup wyłączony w konfiguracji huba (IMG-002)" \
+  grep -q 'enable_signup = False' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
 
 echo "== 1. Logowanie do TLJH i izolacja katalogów domowych =="
 expect_ok "Hub odpowiada" curl -sf "$HUB/hub/api"
@@ -84,10 +97,10 @@ expect_ok "Zapis do /sluza-out" as $R1 sh -c 'echo "wynik" > /sluza-out/wynik-te
 sleep 5
 expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
 expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
-expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-tester1_wynik-test.csv\$'"
+expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-${R1}_wynik-test.csv\$'"
 # shellcheck disable=SC2016  # argumenty rozwija wewnętrzny bash
 expect_ok "Manifest i integralność kopii w kolejce (#20)" \
-  bash -c 'for bundle in "$1"/*_jupyter-tester1_wynik-test.csv; do /usr/local/sbin/wlb-export-snapshot verify "$bundle" || exit 1; done' _ "$QUEUE"
+  bash -c 'for bundle in "$1"/*_jupyter-"$2"_wynik-test.csv; do /usr/local/sbin/wlb-export-snapshot verify "$bundle" || exit 1; done' _ "$QUEUE" "$R1"
 expect_fail "Badacz nie ma dostępu do kolejki" as $R1 ls "$QUEUE"
 # kolejka na dysku roboczym (przeżywa wymianę dysku systemowego, #4)
 expect_ok "Kolejka eksportu na dysku roboczym" test "$(findmnt -no TARGET --target "$QUEUE")" = /workspace

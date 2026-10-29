@@ -196,7 +196,7 @@ krok_8() {
     "Proxy w teście celowo nie istnieje — każde wyjście badacza do internetu musi się nie udać."
 
   polecenie "Start VM testowej (czeka na cloud-init i wlb-firstboot)" "make test-up"
-  polecenie "Hasło początkowe Administratora Klienta (login: admin-klienta)" \
+  polecenie "Hasło początkowe Administratora Klienta (login: a01)" \
     "ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i build/test/id_ed25519 -p 2222 wlbadmin@127.0.0.1 sudo cat /root/wlb-hub-admin-initial-password"
   opis "JupyterHub: http://localhost:8080 (działa też z przeglądarki w Windows)."
   opis "Logi VM testowej idą do testowego SIEM na hoście (10.0.2.2:5514). Żeby je zobaczyć, uruchom" \

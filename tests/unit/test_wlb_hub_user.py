@@ -58,11 +58,11 @@ def test_ponowne_wywolanie_zatwierdza_wniosek_o_konto(hub_user, hub_db, capsys):
 
 
 def test_if_missing_nie_zmienia_istniejacego_konta(hub_user, hub_db, capsys):
-    hub_user.main(["admin-klienta"])
+    hub_user.main(["a01"])
     original = capsys.readouterr().out.strip()
-    hub_user.main(["admin-klienta", "--if-missing"])
+    hub_user.main(["a01", "--if-missing"])
     assert capsys.readouterr().out == ""
-    assert bcrypt.checkpw(original.encode(), user_info(hub_db, "admin-klienta").password)
+    assert bcrypt.checkpw(original.encode(), user_info(hub_db, "a01").password)
 
 
 def test_if_missing_zaklada_brakujace_konto(hub_user, hub_db, capsys):

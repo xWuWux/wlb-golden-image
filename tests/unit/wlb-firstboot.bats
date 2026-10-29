@@ -21,7 +21,7 @@ EOF
 EOF
   cat >"$SANDBOX/etc/wlb/lab.env" <<'EOF'
 LAB_NAME=lab-unit01
-HUB_ADMIN_USER=admin-klienta
+HUB_ADMIN_USER=a01
 PROXY_URL=http://10.20.0.10:3128
 RESEARCHER_PACKAGE_INSTALL=mirror
 PYPI_INDEX_URL=https://pypi.wlb.local/simple
@@ -76,6 +76,33 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -ne 0 ]
   [[ $output == *"HUB_ADMIN_USER ma nieprawidłowy format"* ]]
+}
+
+@test "pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)" {
+  lab_env RESEARCHER_ACCOUNTS=3
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  for n in u01 u02 u03; do
+    calls | grep -qx "wlb-hub-user --if-missing $n"
+    [ -s "$SANDBOX/root/wlb-hub-$n-initial-password" ]
+    [ "$(stat -c %a "$SANDBOX/root/wlb-hub-$n-initial-password")" = 600 ]
+  done
+  [ ! -e "$SANDBOX/root/wlb-hub-u04-initial-password" ]  # nie tworzymy ponad limit
+}
+
+@test "RESEARCHER_ACCOUNTS=0: tylko admin, zero kont badaczy (IMG-002)" {
+  lab_env RESEARCHER_ACCOUNTS=0
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password" ]
+  refute called 'wlb-hub-user --if-missing u01'
+}
+
+@test "RESEARCHER_ACCOUNTS spoza zakresu 0–64 jest odrzucane (IMG-002)" {
+  lab_env RESEARCHER_ACCOUNTS=65
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"RESEARCHER_ACCOUNTS musi być liczbą 0–64"* ]]
 }
 
 @test "pełna konfiguracja Laboratorium" {
@@ -134,13 +161,17 @@ EOF
   calls | grep -qx 'systemctl restart wlb-sluza-out.service'
 
   # hub: rola OGRANICZONA zamiast pełnego admina (IMG-003/#51), brak sudo, hasło tylko dla roota
-  ! calls | grep -q 'add-item users.admin'
+  refute called 'add-item users.admin'
   grep -q 'wlb-admin-klienta' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
-  grep -q '"admin-klienta"' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
+  grep -q '"a01"' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
   calls | grep -qx 'tljh-config reload hub'
   [ ! -e "$SANDBOX/etc/sudoers.d/jupyterhub-admins" ]
   [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = haslo-poczatkowe-123 ]
   [ "$(stat -c %a "$SANDBOX/root/wlb-hub-admin-initial-password")" = 600 ]
+  # pre-provisioning kont stanowiskowych uNN (IMG-002/#102); RESEARCHER_ACCOUNTS domyślnie = RESEARCHERS_PER_VM (1)
+  calls | grep -qx 'wlb-hub-user --if-missing u01'
+  [ "$(cat "$SANDBOX/root/wlb-hub-u01-initial-password")" = haslo-poczatkowe-123 ]
+  [ "$(stat -c %a "$SANDBOX/root/wlb-hub-u01-initial-password")" = 600 ]
 
   # koniec: znacznik i reguły audytu
   [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
@@ -257,14 +288,14 @@ OS
 
 @test "--force nie dubluje admina i nie nadpisuje hasła" {
   "$FIRSTBOOT" >/dev/null
-  stub tljh-config 0 $'users:\n  admin:\n  - admin-klienta'
+  stub tljh-config 0 $'users:\n  admin:\n  - a01'
   stub wlb-hub-user 0 "inne-haslo-456789"
   : >"$CALLS"
   run "$FIRSTBOOT" --force
   [ "$status" -eq 0 ]
   refute called add-item
   # konto było wcześniej pełnym adminem (stub users.admin) -> firstboot je degraduje (IMG-003/#51)
-  calls | grep -q 'remove-item users.admin admin-klienta'
+  calls | grep -q 'remove-item users.admin a01'
   [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = haslo-poczatkowe-123 ]
 }
 
@@ -367,9 +398,9 @@ OS
   stub wlb-hub-user 0 ""
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
-  calls | grep -qx 'wlb-hub-user --if-missing admin-klienta'
+  calls | grep -qx 'wlb-hub-user --if-missing a01'
   [ ! -e "$SANDBOX/root/wlb-hub-admin-initial-password" ]
-  [[ $output == *"admin-klienta już istnieje (dysk roboczy)"* ]]
+  [[ $output == *"a01 już istnieje (dysk roboczy)"* ]]
 }
 
 @test "WLB_TLJH_ADMIN_SUDO=1 zostawia sudo adminom huba" {

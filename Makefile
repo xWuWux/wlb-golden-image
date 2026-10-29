@@ -70,7 +70,7 @@ test-up: doctor ## Uruchamia najnowszy obraz lokalnie jako Laboratorium testowe
 test: ## Kryteria akceptacji MVP na uruchomionej VM testowej
 	tests/acceptance.sh
 
-test-password: ## Hasło początkowe Administratora Klienta (admin-klienta) z działającej VM testowej
+test-password: ## Hasło początkowe Administratora Klienta (a01) z działającej VM testowej
 	@ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 \
 	  -i $(BUILD_DIR)/test/id_ed25519 -p 2222 wlbadmin@127.0.0.1 sudo cat /root/wlb-hub-admin-initial-password \
 	  || { echo "VM testowa nie działa albo hasło zostało już zmienione (make test-up)"; exit 1; }
