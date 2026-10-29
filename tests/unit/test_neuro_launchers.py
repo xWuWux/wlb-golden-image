@@ -9,13 +9,9 @@ from pathlib import Path
 class NeuroLauncherAcceptanceTests(unittest.TestCase):
     def run_checks(self, wrapper: str, overrides: dict[str, str] | None = None) -> int:
         """Run the real acceptance commands against temporary launcher fixtures."""
-        source = (
-            Path(__file__).resolve().parents[1] / "acceptance.d/70-radiologia.sh"
-        ).read_text()
+        source = (Path(__file__).resolve().parents[1] / "acceptance.d/70-radiologia.sh").read_text()
         # Only the launcher contract block; GUI runtime needs a real image.
-        block = source.split("  # Kafelek musi", 1)[1].split(
-            "  # desktop-file-validate", 1
-        )[0]
+        block = source.split("  # Kafelek musi", 1)[1].split("  # desktop-file-validate", 1)[0]
         block = "  # Kafelek musi" + block
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -30,21 +26,18 @@ class NeuroLauncherAcceptanceTests(unittest.TestCase):
             }
             entries.update(overrides or {})
             for name, entry in entries.items():
-                (apps / (name + ".desktop")).write_text(
-                    entry.replace("/usr/local/bin", str(binaries)) + "\n"
-                )
+                (apps / (name + ".desktop")).write_text(entry.replace("/usr/local/bin", str(binaries)) + "\n")
             for name, body in (("wlb-fsleyes", wrapper), ("wlb-fsl", "exit 0")):
                 executable = binaries / name
                 executable.write_text("#!/bin/sh\n" + body + "\n")
                 executable.chmod(0o755)
-            block = block.replace("/usr/share/applications", str(apps)).replace(
-                "/usr/local/bin", str(binaries)
-            )
+            block = block.replace("/usr/share/applications", str(apps)).replace("/usr/local/bin", str(binaries))
             # Keep the timeout path real but make the hanging-fixture test fast.
             block = block.replace("--kill-after=5s 60s", "--kill-after=0.1s 0.2s")
             harness = 'expect_ok() { shift; "$@" || exit 1; }\n'
-            return subprocess.run(
-                ["bash", "-c", harness + block],
+            # Only repository-controlled code and fixtures are executed.
+            return subprocess.run(  # noqa: S603
+                ["/bin/bash", "-c", harness + block],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -66,9 +59,7 @@ class NeuroLauncherAcceptanceTests(unittest.TestCase):
         self.assertNotEqual(self.run_checks("exit 17"), 0)
 
     def test_version_marker_does_not_hide_nonzero_exit(self) -> None:
-        self.assertNotEqual(
-            self.run_checks('echo "FSLeyes version 1.18.0"; exit 17'), 0
-        )
+        self.assertNotEqual(self.run_checks('echo "FSLeyes version 1.18.0"; exit 17'), 0)
 
     def test_missing_version_marker_fails(self) -> None:
         self.assertNotEqual(self.run_checks("exit 0"), 0)
@@ -83,6 +74,4 @@ class NeuroLauncherAcceptanceTests(unittest.TestCase):
             ("wlb-fsl", "Exec=missing-fsl"),
         ):
             with self.subTest(app=app):
-                self.assertNotEqual(
-                    self.run_checks('echo "FSLeyes version 1.18.0"', {app: entry}), 0
-                )
+                self.assertNotEqual(self.run_checks('echo "FSLeyes version 1.18.0"', {app: entry}), 0)
