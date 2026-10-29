@@ -36,4 +36,25 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
     # Na flavorze radiologia pulpit (rola desktop) zawsze daje Xtigervnc — jego brak to regresja.
     expect_ok "Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)" false
   fi
+
+  # Kafelki menu XFCE (#135): badacz uruchamia aplikacje z menu, nie z terminala.
+  echo "== Kafelki pulpitu stosu neuro (#135) =="
+  expect_ok "Kafelek FSLeyes w menu" test -f /usr/share/applications/wlb-fsleyes.desktop
+  expect_ok "Kafelek FSL w menu" test -f /usr/share/applications/wlb-fsl.desktop
+  expect_ok "Kafelek 3DSlicer w menu" test -f /usr/share/applications/wlb-slicer.desktop
+  expect_ok "Ikona 3DSlicer zainstalowana" test -f /usr/share/pixmaps/slicer.png
+  # Kafelek musi faktycznie wskazywać działający program (Exec), nie być pustym wpisem.
+  expect_ok "Kafelek 3DSlicer wskazuje Slicer (Exec)" grep -q '^Exec=.*Slicer' /usr/share/applications/wlb-slicer.desktop
+  expect_ok "Kafelek FSLeyes wskazuje wrapper (Exec)" grep -q '^Exec=wlb-fsleyes' /usr/share/applications/wlb-fsleyes.desktop
+  expect_ok "Wrapper FSLeyes wykonywalny" test -x /usr/local/bin/wlb-fsleyes
+  expect_ok "Wrapper FSL wykonywalny" test -x /usr/local/bin/wlb-fsl
+  # Wrapper z CZYSTEGO środowiska (jak z menu, bez FSLDIR) musi odnaleźć fsleyes.
+  # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w uruchamianym env, nie tu
+  expect_ok "Wrapper FSLeyes źródłuje FSLDIR i znajduje fsleyes (menu)" \
+    env -i HOME=/tmp PATH=/usr/bin:/bin sh -c '. /etc/profile.d/fsl.sh; command -v fsleyes >/dev/null'
+  # desktop-file-validate (jeśli dostępny) — poprawność składni wpisów.
+  if command -v desktop-file-validate >/dev/null 2>&1; then
+    expect_ok "Kafelki przechodzą desktop-file-validate" \
+      desktop-file-validate /usr/share/applications/wlb-fsleyes.desktop /usr/share/applications/wlb-fsl.desktop /usr/share/applications/wlb-slicer.desktop
+  fi
 fi
