@@ -1,19 +1,77 @@
 #!/bin/sh
-# Sampler szczytu zasobów sesji badaczy do raportu użycia/pojemności (#98). Uruchamiany cyklicznie
-# przez wlb-usage-sampler.timer. Dla każdego aktywnego serwera (jednostka jupyter-<user>-singleuser)
-# zapisuje bieżący MemoryPeak/CPUUsageNSec z księgowania systemd (wlb-badacze.slice ma
-# MemoryAccounting/CPUAccounting, #30). MemoryPeak jest monotoniczny — ostatnia próbka przed stopem
-# ~ prawdziwy szczyt sesji. Dane do /run (tmpfs, ulotne); rekord trwały składa wlb-usage-record.
+# Sampler zasobów sesji badaczy do raportu użycia/pojemności (#98), wywolywany przez timer.
+#
+# Tozsamość próbki (fix #98, wg przeglądu): plik .kv nosi nazwe JEDNOSTKI takej, jaka
+# faktycznie istnieje (bez sklejania z loginu), plus BOOT_ID, InvocationID i znaczniki czasu.
+# Writer odrzuca próbke z innego bootu/spozza okna sesji — druga sesja tego samego badacza
+# nie odziedziczy metryk pierwszej.
+#
+# Nazwa jednostki serwera TLJH to `jupyter-<login>.service` (unit_name_prefix z TLJH),
+# NIE `jupyter-<login>-singleuser.service` — starý glob nie łowił niczego i wszystkie
+# rekordy wychodziły wyzerowane. Wzorzec `jupyter-*` nie łowi `jupyterhub.service` (brak łącznika).
+#
+# Brak wartosći NIE jest zapisywany jako zero — zero znaczy „zmierzono zero"; brak wiersza
+# klucz oznaczą dla writera „brak pomiaru" (null + powód). Wartość UINT64_MAX (18446744073709551615)
+# to w systemd konwencja „nie ustawiono" i tez nie jest liczbą.
+#
+# MemoryPeak/CPUUsageNSec z księgowania cgroup (wlb-badacze.slice, #30). CPUUsageNSec to
+# czas skumulowany — szczyt „procentowy" liczymy jako maksimum średnich międzypróbkowych
+# (CPU_ITV_MAX), nie jako pik chwilowy; próbka co ~2 min nie widzi pików miedzy próbkami.
 set -eu
 
 run_dir=${WLB_USAGE_RUN_DIR:-/run/wlb/usage}
 mkdir -p "$run_dir"
+UINT64_MAX=18446744073709551615
 
-units=$(systemctl list-units --type=service --state=active --no-legend 'jupyter-*-singleuser.service' 2>/dev/null | awk '{print $1}')
-for unit in $units; do
+is_num() { # tylko nieujemna liczba całkowita różna od konwencji „nie ustawiono"
+  case ${1:-} in
+    '' | *[!0-9]*) return 1 ;;
+    "$UINT64_MAX") return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+boot_id_file=${WLB_BOOT_ID_FILE:-/proc/sys/kernel/random/boot_id}
+boot_id=$(cat "$boot_id_file" 2>/dev/null || echo "")
+
+for unit in $(systemctl list-units --type=service --state=active --no-legend 'jupyter-*.service' 2>/dev/null |
+  awk '{print $1}'); do
+  kv="$run_dir/$unit.kv"
+  tmp="$kv.tmp.$$"
+  prev_inv=""
+  prev_mono=""
+  prev_cpu=""
+  prev_itv=""
+  if [ -r "$kv" ]; then
+    prev_inv=$(sed -n 's/^InvocationID=//p' "$kv")
+    prev_mono=$(sed -n 's/^MONO=//p' "$kv")
+    prev_cpu=$(sed -n 's/^CPUUsageNSec=//p' "$kv")
+    prev_itv=$(sed -n 's/^CPUIntervalMax=//p' "$kv")
+  fi
+  inv=$(systemctl show "$unit" -p InvocationID --value 2>/dev/null || echo "")
   mem=$(systemctl show "$unit" -p MemoryPeak --value 2>/dev/null || echo "")
   cpu=$(systemctl show "$unit" -p CPUUsageNSec --value 2>/dev/null || echo "")
-  case "$mem" in '' | *[!0-9]*) mem=0 ;; esac
-  case "$cpu" in '' | *[!0-9]*) cpu=0 ;; esac
-  printf 'MemoryPeak=%s\nCPUUsageNSec=%s\n' "$mem" "$cpu" >"$run_dir/$unit.kv"
+  mono=$(awk '{print int($1)}' "${WLB_UPTIME_FILE:-/proc/uptime}" 2>/dev/null || echo "")
+  ts=$(date -u +%s)
+
+  {
+    printf 'Unit=%s\nBootID=%s\nInvocationID=%s\nSampledAtEpoch=%s\nMONO=%s\n' \
+      "$unit" "${boot_id:-}" "$inv" "$ts" "$mono"
+    is_num "$mem" && printf 'MemoryPeak=%s\n' "$mem"
+    is_num "$cpu" && printf 'CPUUsageNSec=%s\n' "$cpu"
+    # Szczyt miedzypróbkowy (rdzenie) tylko dla tej samej instancji jednostki: po restarcie
+    # jednostki skumulowany CPU zeruje sie i delta z poprzedniej instancji bylaby smieciem.
+    itv=""
+    if is_num "$cpu" && is_num "$prev_cpu" && is_num "$mono" && is_num "$prev_mono" &&
+      [ -n "$inv" ] && [ "$inv" = "$prev_inv" ]; then
+      itv=$(awk -v c="$cpu" -v pc="$prev_cpu" -v m="$mono" -v pm="$prev_mono" -v pi="$prev_itv" \
+        'BEGIN { d=m-pm; if (d <= 0) d=0;
+          a=(c>=pc ? (c-pc)/(1000000000*d) : 0);
+          b=pi; if (b !~ /^[0-9.]+$/) b=a;
+          printf "%.6f\n", (a>b+0 ? a : b) }')
+    fi
+    [ -n "$itv" ] && printf 'CPUIntervalMax=%s\n' "$itv"
+  } >"$tmp"
+  chmod 0640 "$tmp"
+  mv -f "$tmp" "$kv" # atomowo: writer nigdy nie zobaczy polowy pliku
 done
