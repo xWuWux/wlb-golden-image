@@ -17,6 +17,15 @@
       - novnc
     state: present
 
+# Pakiety pulpitu (XFCE jako zależność) wciągają z powrotem apport, który usunęła rola base — a apport
+# przy starcie ustawia fs.suid_dumpable=2, niwecząc nasz sysctl=0 (#63). Usuwamy go ponownie w warstwie
+# pulpitu (dotyczy obu flavorów z pulpitem: wlb-memory i wlb-radiologia).
+- name: Ponowne usunięcie apport wciągniętego przez pakiety pulpitu (#63)
+  ansible.builtin.apt:
+    name: apport
+    state: absent
+    purge: true
+
 # server-proxy żyje w środowisku użytkowników TLJH (tam, gdzie kernele i rsession-proxy) — kafelek
 # "Desktop" pojawia się w Launcherze automatycznie po instalacji pakietu (entry point server-proxy).
 # Pulpit startuje JAKO proces potomny serwera badacza → jego cgroup i OOMScoreAdjust (#30).
