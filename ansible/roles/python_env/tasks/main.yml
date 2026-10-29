@@ -29,46 +29,26 @@
   delay: 30
   changed_when: true
 
-# #179: pip raportował 2.14.1, a natychmiastowy eksport conda 2.14.2.
-# Zapisujemy oba źródła metadanych przed eksportem, bez modyfikowania środowiska.
-- name: Diagnostyka metadanych pydantic przed eksportem
+# #179: TLJH/pip pozostawił dist-info 2.14.2 obok wersji 2.14.1 z conda.
+# Nie zmieniamy locka ani kodu pakietu. Niejednoznaczna własność zatrzymuje build.
+- name: Skopiuj narzędzie porządkowania metadanych pydantic
+  ansible.builtin.copy:
+    src: reconcile_pydantic.py
+    dest: /opt/wlb/envs/python/reconcile_pydantic.py
+    mode: "0644"
+
+- name: Odizoluj nieaktualne metadane pydantic przed eksportem
   ansible.builtin.command:
     argv:
       - /opt/tljh/user/bin/python
-      - -c
-      - |
-        import importlib
-        import importlib.metadata as metadata
-        import json
-        from pathlib import Path
-        import sys
-
-        names = {"pydantic", "pydantic-core"}
-        def normalize(name):
-            return name.lower().replace("_", "-").replace(".", "-")
-
-        for dist in metadata.distributions():
-            if normalize(dist.metadata.get("Name", "")) in names:
-                print("DIST", dist.metadata["Name"], dist.version,
-                      [str(dist.locate_file(f)) for f in (dist.files or [])
-                       if str(f).endswith((".dist-info/METADATA", ".egg-info/PKG-INFO"))])
-        for name in ("pydantic", "pydantic_core"):
-            try:
-                module = importlib.import_module(name)
-                print("IMPORT", name, module.__version__, module.__file__)
-            except Exception as exc:
-                print("IMPORT_ERROR", name, repr(exc))
-        for path in sorted((Path(sys.prefix) / "conda-meta").glob("*.json")):
-            record = json.loads(path.read_text())
-            if normalize(record.get("name", "")) in names:
-                print("CONDA", path, record.get("name"), record.get("version"),
-                      record.get("build"))
+      - /opt/wlb/envs/python/reconcile_pydantic.py
+      - /opt/wlb/envs/python/stale-metadata
   register: python_env_metadata
-  changed_when: false
+  changed_when: (python_env_metadata.stdout | from_json).changed
 
-- name: Pokaż metadane pydantic w logu budowania
+- name: Pokaż wynik porządkowania metadanych
   ansible.builtin.debug:
-    var: python_env_metadata.stdout_lines
+    var: python_env_metadata.stdout
 
 - name: Zamrożenie wersji (conda env export)
   ansible.builtin.shell: |
