@@ -85,6 +85,13 @@ repo_with_base() {
   has_line "image=false"
 }
 
+@test "push tylko z CHANGELOG.md: etap 5 pominięty (#84)" {
+  repo_with_base CHANGELOG.md
+  run env EVENT=push bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=false"
+}
+
 @test "push z pustą/zerową bazą: buduj dla bezpieczeństwa" {
   repo_with_base README.md
   run env EVENT=push BASE=0000000000000000000000000000000000000000 bash "$CHANGES"

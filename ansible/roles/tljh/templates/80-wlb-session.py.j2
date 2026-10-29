@@ -109,12 +109,21 @@ def wlb_post_stop_hook(spawner):
     start_mono = getattr(spawner, "_wlb_start", None)
     if start_wall is None and state.get("start_wall"):
         start_wall = state["start_wall"]  # atrybuty zginely z restartem huba — stan ratuje czas
-    duration = int(time.monotonic() - start_mono) if start_mono is not None else 0
-    _wlb_run(spawner, [_WLB_SESSION_LOG, "stop", user, uid, sid, lab, str(duration)],
+    # Czas trwania: najpierw zegar monotoniczny (odporny na skoki zegara sciennego); gdy zginal z
+    # restartem huba, licz z zegara sciennego na podstawie odzyskanego start_wall. NIGDY 0 udajace
+    # sesje zerowej dlugosci — to byloby to samo klamstwo, ktoremu zapobiega pusty argument -> null.
+    # Brak obu zrodel -> pusty argument (null + "duration_unavailable" w rekordzie).
+    if start_mono is not None:
+        duration = str(int(time.monotonic() - start_mono))
+    elif start_wall is not None:
+        duration = str(int(time.time() - start_wall))
+    else:
+        duration = ""
+    _wlb_run(spawner, [_WLB_SESSION_LOG, "stop", user, uid, sid, lab, duration],
              "session_stop")
     if start_wall is not None:
         _wlb_run(spawner, [_WLB_USAGE_RECORD, unit, sid, lab,
-                           str(int(start_wall)), str(int(time.time())), str(duration), lab_source],
+                           str(int(start_wall)), str(int(time.time())), duration, lab_source],
                  "rekord_użycia")
     try:
         os.remove(_wlb_state_path(unit))
