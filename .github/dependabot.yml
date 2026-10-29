@@ -7,6 +7,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+  # Piny top-level w ci/requirements-*.in; zahashowane locki ci/requirements-*.txt generuje
+  # ci/lock-requirements.sh i instaluje je CI z --require-hashes (IMG-008 5b). Po bumpie, który
+  # zmienia domknięcie zależności, lock trzeba zregenerować skryptem; niespójny lock padnie w CI
+  # na --require-hashes (fail-closed), nie przejdzie po cichu.
   - package-ecosystem: pip
     directory: /ci
     schedule:
