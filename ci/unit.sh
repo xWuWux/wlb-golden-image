@@ -46,7 +46,7 @@ PY
 
 python_tests() {
   coverage run --branch --data-file="$COV/.coverage" \
-    --include='ci/*.py,ansible/roles/tljh/files/*,ansible/roles/storage/files/wlb-export-snapshot' -m pytest -q -p no:cacheprovider tests/unit
+    --include='ci/*.py,ansible/roles/tljh/files/*,ansible/roles/tljh/templates/80-wlb-session.py.j2,ansible/roles/storage/files/wlb-export-snapshot' -m pytest -q -p no:cacheprovider tests/unit
 }
 
 python_coverage_gate() {
