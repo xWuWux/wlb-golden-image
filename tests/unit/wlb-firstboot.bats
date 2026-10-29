@@ -134,7 +134,7 @@ EOF
   calls | grep -qx 'systemctl restart wlb-sluza-out.service'
 
   # hub: rola OGRANICZONA zamiast pełnego admina (IMG-003/#51), brak sudo, hasło tylko dla roota
-  ! calls | grep -q 'add-item users.admin'
+  refute called 'add-item users.admin'
   grep -q 'wlb-admin-klienta' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
   grep -q '"admin-klienta"' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
   calls | grep -qx 'tljh-config reload hub'
