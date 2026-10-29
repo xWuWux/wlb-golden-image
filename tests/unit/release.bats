@@ -3,6 +3,20 @@
 
 load helpers
 
+# Bez argumentów; RELEASE_REPO to ścieżka do czystego repozytorium fixture.
+# Kopiujemy prawdziwe skrypty, aby zachować bramki produkcyjnego wydania.
+setup_release_repo() {
+  RELEASE_REPO="$BATS_TEST_TMPDIR/release-repo"
+  mkdir -p "$RELEASE_REPO/ci"
+  cp "$REPO_ROOT/ci/"{release.sh,common.sh,image_identity.py} "$RELEASE_REPO/ci/"
+  git -C "$RELEASE_REPO" init -q
+  git -C "$RELEASE_REPO" config user.email t@example.com
+  git -C "$RELEASE_REPO" config user.name tester
+  git -C "$RELEASE_REPO" add ci
+  git -C "$RELEASE_REPO" -c commit.gpgsign=false commit -qm fixture
+  git -C "$RELEASE_REPO" tag v9.9.9
+}
+
 @test "image_provenance: commit, flaga dirty, build_run (#12)" {
   source "$REPO_ROOT/ci/image-meta.sh"
   local r="$BATS_TEST_TMPDIR/repo"
@@ -44,27 +58,27 @@ load helpers
 }
 
 @test "release.sh: brak dpkg-status zatrzymuje wydanie przed kopiowaniem (#129)" {
+  setup_release_repo
   local art="$BATS_TEST_TMPDIR/art"
   mkdir -p "$art"
   printf 'WLB_IMAGE_VERSION=9.9.9\nWLB_GIT_COMMIT=%s\nWLB_GIT_DIRTY=0\n' \
-    "$(git rev-parse HEAD)" >"$art/image-release"
-  git tag -f v9.9.9 >/dev/null
-  run bash "$REPO_ROOT/ci/release.sh" v9.9.9 "$art"
-  git tag -d v9.9.9 >/dev/null
+    "$(git -C "$RELEASE_REPO" rev-parse HEAD)" >"$art/image-release"
+  run bash "$RELEASE_REPO/ci/release.sh" v9.9.9 "$art"
   [ "$status" -ne 0 ]
   [[ $output == *"bez inwentarza systemowego (#129)"* ]]
+  [ ! -e "$RELEASE_REPO/build/release" ]
 }
 
 @test "release.sh: niezgodna para tozsamosci OS zatrzymuje wydanie (#129)" {
+  setup_release_repo
   local art="$BATS_TEST_TMPDIR/art2"
   mkdir -p "$art"
   printf 'WLB_IMAGE_VERSION=9.9.9\nWLB_GIT_COMMIT=%s\nWLB_GIT_DIRTY=0\n' \
-    "$(git rev-parse HEAD)" >"$art/image-release"
+    "$(git -C "$RELEASE_REPO" rev-parse HEAD)" >"$art/image-release"
   printf 'Package: acl\nVersion: 2.3.1\n\n' >"$art/dpkg-status"
   printf 'ID=debian\nVERSION_ID=12\n' >"$art/os-release"
-  git tag -f v9.9.9 >/dev/null
-  run bash "$REPO_ROOT/ci/release.sh" v9.9.9 "$art"
-  git tag -d v9.9.9 >/dev/null
+  run bash "$RELEASE_REPO/ci/release.sh" v9.9.9 "$art"
   [ "$status" -ne 0 ]
   [[ $output == *"niezweryfikowana lub niezgodna (#129)"* ]]
+  [ ! -e "$RELEASE_REPO/build/release" ]
 }
