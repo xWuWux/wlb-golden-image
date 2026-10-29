@@ -30,11 +30,14 @@ reject_notice() { # reject_notice UID RAW_NAME REASON
   ts=$(date -u +%Y%m%dT%H%M%SZ) || return 0
   case $reason in
     unsupported_type)
-      hint="Dowiązanie symboliczne, nazwany potok lub plik specjalny nie są dozwolone do eksportu. Wyeksportuj zwykły plik albo katalog z kopią danych (nie dowiązanie)." ;;
+      hint="Dowiązanie symboliczne, nazwany potok lub plik specjalny nie są dozwolone do eksportu. Wyeksportuj zwykły plik albo katalog z kopią danych (nie dowiązanie)."
+      ;;
     snapshot_error)
-      hint="Nie udało się przygotować wniosku. Najczęstsze przyczyny: przekroczony limit wniosku (maks. 100 GiB albo 100 000 plików), dowiązanie twarde, albo pliki o różnych właścicielach w jednym wniosku (np. plik skopiowany z /data-mart należący do root). Usuń niepasujący element i spróbuj ponownie; w razie wątpliwości zgłoś operatorowi." ;;
+      hint="Nie udało się przygotować wniosku. Najczęstsze przyczyny: przekroczony limit wniosku (maks. 100 GiB albo 100 000 plików), dowiązanie twarde, albo pliki o różnych właścicielach w jednym wniosku (np. plik skopiowany z /data-mart należący do root). Usuń niepasujący element i spróbuj ponownie; w razie wątpliwości zgłoś operatorowi."
+      ;;
     *)
-      hint="Wniosek odrzucony przez śluzę wyjściową." ;;
+      hint="Wniosek odrzucony przez śluzę wyjściową."
+      ;;
   esac
   f=$(mktemp "$REJECTED/${ts}_${name}.powod.XXXXXX" 2>/dev/null) || return 0
   {
@@ -43,7 +46,10 @@ reject_notice() { # reject_notice UID RAW_NAME REASON
     printf 'Czas (UTC): %s\n' "$ts"
     printf 'Powód:      %s\n\n' "$reason"
     printf '%s\n' "$hint"
-  } >"$f" 2>/dev/null || { rm -f -- "$f" 2>/dev/null || true; return 0; }
+  } >"$f" 2>/dev/null || {
+    rm -f -- "$f" 2>/dev/null || true
+    return 0
+  }
   chmod 0640 -- "$f" 2>/dev/null || true
   chown "$uid" -- "$f" 2>/dev/null || true
 }
