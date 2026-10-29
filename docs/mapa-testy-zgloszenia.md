@@ -97,7 +97,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 - `tests/unit/changes.bats` — `PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)`, `PR: brak albo błędna baza nie omija integracji (#63)`
 - `tests/unit/test_network_gates.py` — `test_connect_requires_explicit_proxy_denial`
 
-### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _otwarte_
+### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _scalone_
 - `tests/acceptance.d/20-apparmor.sh` — `Licznik profili w complain = 0`, `apparmor-utils zainstalowany (aa-enforce, aa-status)`, `security=apparmor w parametrach jądra (GRUB)`, *AppArmor (CIS 1.6, #65)*
 - `tests/unit/wlb-apparmor-mode.bats` — `rsyslogd unconfined + inny profil enforce w tej samej linii -> unconfined (#65 regresja)`
 
@@ -111,8 +111,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 - `tests/acceptance.d/50-hooki-sesji.sh` — `Config hooka 80-wlb-session.py obecny i poprawny składniowo (#97)`, `Emiter sesji trafia do journala z tagiem wlb-session (#97)`, `Emiter sesji wykonywalny (#97)`, *Hooki cyklu życia sesji badacza + emiter SIEM (#97)*
 
 ### #98 — Raporty użycia sesji do planowania pojemności — inspiracja AppStream  ·  _otwarte_
-- `tests/acceptance.d/60-raport-uzycia.sh` — `Badacz nie czyta raportów użycia (#98)`, `Katalog raportów 0750, nie dla badaczy (#98)`, `Rekord użycia wykonywalny (#98)`, `Rekord użycia zapisany do JSONL (#98)`, `Sampler użycia wykonywalny (#98)`, `Timer samplera włączony (#98)`, *Raport użycia/pojemności sesji (#98)*
-- `tests/unit/wlb-usage-record.bats` — `brak próbki szczytu -> zera, rekord nadal poprawny (#98)`, `niepoprawne wartości liczbowe sprowadzane do zera (#98)`, `rekord łączy czasy z hooka ze szczytem zasobów z próbki (#98)`
+- `tests/acceptance.d/60-raport-uzycia.sh` — `Badacz nie czyta raportów użycia (#98)`, `Katalog raportów 0750, nie dla badaczy (#98)`, `Probka niesie BootID i InvocationID (#98)`, `Probka z obcego bootu -> no_samples i null, nie zero udajace pomiar (#98)`, `Rekord complete: tozsama probka w oknie sesji, pelne wartosci (#98)`, `Rekord użycia wykonywalny (#98)`, `Sampler użycia wykonywalny (#98)`, `Sampler łowi rzeczywista jednostke serwera badacza (#98)`, `Samplera na zywej jednostce — serwer $R1 nieaktywny w tym punkcie akceptacji`, `Timer samplera włączony (#98)`, *Raport użycia/pojemności sesji (#98)*
+- `tests/unit/wlb-usage-record.bats` — `UINT64_MAX i [not set] to brak pomiaru, nie rozmiar (#98)`, `brak próbki -> no_samples i null, nigdy zero udające pomiar (#98)`, `cudzolow i polskie znaki w lab nie psuja JSON — rekord caly sie parsuje (#98)`, `niepoprawny czas trwania -> duration null, status partial (#98)`, `próbka spoza okna sesji -> odrzucona z powodem (dziedzictwo po poprzedniej sesji) (#98)`, `próbka z innego bootu jest odrzucana (nie przezywa reboota jako 'nasza') (#98)`, `spójna próbka tej samej sesji -> rekord complete z pelnymi danymi (#98)`, `zle uzycie (za malo argumentow) konczy sie 2 bez zapisu (#98)`
+- `tests/unit/wlb-usage-sampler.bats` — `aktywna jednostka: pelna tozsamosc probki i pomiar zapisane (#98)`, `brak aktywnych jednostek: zadnych plikow i zadnego awaryjnego tmp (#98)`, `konwencje systemd ([not set], UINT64_MAX) to brak klucza, nie zero (#98)`, `ta sama instancja: CPUIntervalMax z delty; nowa instancja interval resetuje (#98)`
 
 ### #105 — Flavor „pod pamięć”: pulpit w przeglądarce + aplikacje GUI (arkusz, zamiennik Prism) i kafelek Leaf  ·  _otwarte_
 - `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
@@ -130,11 +131,12 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 ### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
 - `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
 - `tests/acceptance.d/70-radiologia.sh` — *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
+- `tests/unit/changes.bats` — `radiologia: etykieta build-radiologia wyzwala flavor na żądanie (#135)`, `radiologia: zmiana plików flavora wyzwala build+test radiologii (#135)`, `radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)`
 
 ### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
 - `tests/unit/changes.bats` — `śluza: PR i merge_group wymagają integracji bez etykiety (#149)`
 
-### #157 — Testy #65/AppArmor (20-apparmor.sh): expect_fail na complain oblewa POPRAWNY obraz  ·  _otwarte_
+### #157 — Testy #65/AppArmor (20-apparmor.sh): expect_fail na complain oblewa POPRAWNY obraz  ·  _scalone_
 - `tests/acceptance.d/20-apparmor.sh` — `apparmor-utils zainstalowany (aa-enforce, aa-status)`
 
 ## Uwagi

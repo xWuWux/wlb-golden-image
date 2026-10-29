@@ -58,6 +58,15 @@ Zaloguj się do huba, kafelek **„Desktop"** w Launcherze → pulpit XFCE → u
 | `No space left` w buildzie | podbij `radiologia_disk_size` |
 | timeout/sieć przy FSL/Kitware | build wymaga internetu; sprawdź proxy/mirror |
 
+## 5a. Bramka CI (opt-in, #135)
+
+Flavor jest też budowany i testowany w CI (etap 5), ale **tylko na żądanie** — bez kosztu na każdym PR:
+- etykieta **`build-radiologia`** na PR, **albo**
+- zmiana plików flavora (`ansible/roles/neuro_apps`, `ansible/roles/desktop`, `ansible/radiologia.yml`, `packer/wlb-radiologia.pkr.hcl`, `tests/acceptance.d/{40-pulpit,70-radiologia}.sh`) — wykrywa `ci/changes.sh` (`radiologia_change`), **albo**
+- nocny pełny build.
+
+Wtedy po bazie `ci/integration.sh` buduje radiologię (`radiologia_flavor`) i uruchamia tę samą akceptację. Łapie błędy runtime (np. instalator FSL), których lint nie wykryje. Ręczny build z tego runbooka pozostaje zawsze dostępny.
+
 ## 6. Uwagi
 
 - **Rozmiar qcow2** będzie bardzo duży (FSL) — uwzględnij w storage/wydaniach (#71).

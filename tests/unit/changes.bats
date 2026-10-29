@@ -133,6 +133,32 @@ repo_with_base() {
   done
 }
 
+@test "radiologia: zmiana plików flavora wyzwala build+test radiologii (#135)" {
+  for file in ansible/roles/neuro_apps/tasks/main.yml ansible/radiologia.yml \
+    packer/wlb-radiologia.pkr.hcl tests/acceptance.d/70-radiologia.sh; do
+    repo_with_base "$file"
+    run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+    [ "$status" -eq 0 ]
+    has_line "radiologia=true"
+    has_line "image=true" # radiologia layered na bazie — baza musi się zbudować
+  done
+}
+
+@test "radiologia: etykieta build-radiologia wyzwala flavor na żądanie (#135)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='["build-radiologia"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "radiologia=true"
+  has_line "image=true"
+}
+
+@test "radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)" {
+  repo_with_base envs/r/renv.lock
+  run env EVENT=pull_request LABELS='["dokumentacja"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "radiologia=false"
+}
+
 @test "PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)" {
   for file in ansible/roles/base/tasks/main.yml ansible/roles/lab_config/files/wlb-firstboot \
     ansible/roles/tljh/templates/config.j2 cloud-init/lab.env.example tests/proxy_sink.py \

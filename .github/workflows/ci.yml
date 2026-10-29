@@ -58,6 +58,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       image: ${{ steps.changes.outputs.image }}
+      radiologia: ${{ steps.changes.outputs.radiologia }}
       perf: ${{ steps.changes.outputs.perf }}
       ephemeral: ${{ steps.changes.outputs.ephemeral }}
     steps:
@@ -197,6 +198,9 @@ jobs:
       - run: ci/guard.sh --name "5. Integracja i migracja" --timeout 150m --memory auto -- ci/integration.sh
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+          # Flavor wlb-radiologia budowany+testowany tylko na żądanie (etykieta build-radiologia / zmiana
+          # plików flavora / nocny build) — opt-in, bez kosztu na każdym PR (#135).
+          WLB_BUILD_RADIOLOGIA: ${{ needs.lint.outputs.radiologia == 'true' && '1' || '0' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

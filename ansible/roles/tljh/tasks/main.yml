@@ -101,6 +101,17 @@
     - wlb-usage-sampler
     - wlb-usage-record
 
+- name: "Uprawnienia stanu korelacji w /run przetrwają restart (tmpfiles, #98)"
+  ansible.builtin.copy:
+    src: wlb-usage-tmpfiles.conf
+    dest: /etc/tmpfiles.d/wlb-usage.conf
+    mode: "0644"
+  notify: Zastosuj tmpfiles
+
+- name: Utwórz katalogi stanu użycia natychmiast (start huba nie czeka na tmpfiles)
+  ansible.builtin.command: systemd-tmpfiles --create /etc/tmpfiles.d/wlb-usage.conf
+  changed_when: false
+
 - name: Katalog raportów użycia (tylko root; nie dla badaczy)
   ansible.builtin.file:
     path: /var/log/wlb/sessions
