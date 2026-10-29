@@ -13,11 +13,13 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   # pod wirtualnym X (Xtigervnc z roli desktop) + marker wersji z rdzenia aplikacji i Pythona Slicera.
   echo "== Uruchamialność GUI stosu neuro (#4) =="
   # FSLeyes: --version działa headless (bez DISPLAY), potwierdza że pakiet się ładuje. UWAGA: fsleyes
-  # --version zamyka deskryptor stdout i zwraca rc!=0, gdy stdout jest zwykłym PLIKIEM (tak loguje
-  # harness) — dlatego czytamy przez podstawienie polecenia (potok) i sprawdzamy marker wersji, nie rc.
+  # --version ma WYŚCIG w zamykaniu deskryptorów przy NIE-tty stdout (nieinteraktywny SSH akceptacji):
+  # niedeterministycznie rc=120 i pusty wynik ("Bad file descriptor"). Podstawienie polecenia tego NIE
+  # usuwa — wyścig jest w fsleyes, nie w potoku. Uruchamiamy pod pseudoterminalem (script), tak samo jak
+  # test wrappera niżej; FSLDIR/PATH ze źródłowanego profilu dziedziczy proces script. Marker bez kotwicy.
   # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w wewnętrznym bash -c, nie tu
   expect_ok "FSLeyes uruchamia się (--version, #4)" \
-    bash -c '. /etc/profile.d/fsl.sh >/dev/null 2>&1; out=$(fsleyes --version 2>&1); echo "$out" | grep -q "FSLeyes version"'
+    bash -c '. /etc/profile.d/fsl.sh >/dev/null 2>&1; out=$(timeout --kill-after=5s 60s script -qec "fsleyes --version" /dev/null </dev/null 2>&1); printf "%s" "$out" | grep -q "FSLeyes version"'
   # 3DSlicer: wymaga serwera X — startujemy jednorazowy Xtigervnc i sprawdzamy marker wersji.
   if command -v Xtigervnc >/dev/null 2>&1; then
     # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w wewnętrznym bash -c, nie tu
@@ -44,14 +46,26 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   expect_ok "Kafelek 3DSlicer w menu" test -f /usr/share/applications/wlb-slicer.desktop
   expect_ok "Ikona 3DSlicer zainstalowana" test -f /usr/share/pixmaps/slicer.png
   # Kafelek musi faktycznie wskazywać działający program (Exec), nie być pustym wpisem.
-  expect_ok "Kafelek 3DSlicer wskazuje Slicer (Exec)" grep -q '^Exec=.*Slicer' /usr/share/applications/wlb-slicer.desktop
-  expect_ok "Kafelek FSLeyes wskazuje wrapper (Exec)" grep -q '^Exec=wlb-fsleyes' /usr/share/applications/wlb-fsleyes.desktop
+  expect_ok "Kafelek 3DSlicer wskazuje Slicer (Exec)" grep -Fxq 'Exec=/usr/local/bin/Slicer %F' /usr/share/applications/wlb-slicer.desktop
+  expect_ok "Kafelek FSLeyes wskazuje wrapper (Exec)" grep -Fxq 'Exec=wlb-fsleyes %F' /usr/share/applications/wlb-fsleyes.desktop
+  expect_ok "Kafelek FSL wskazuje wrapper (Exec)" grep -Fxq 'Exec=wlb-fsl' /usr/share/applications/wlb-fsl.desktop
   expect_ok "Wrapper FSLeyes wykonywalny" test -x /usr/local/bin/wlb-fsleyes
   expect_ok "Wrapper FSL wykonywalny" test -x /usr/local/bin/wlb-fsl
-  # Wrapper z CZYSTEGO środowiska (jak z menu, bez FSLDIR) musi odnaleźć fsleyes.
+  # Test komponentowy wrappera bez odziedziczonego FSLDIR/PATH stosu neuro (nie test menu/XFCE).
+  # fsleyes --version ma wyścig w zamykaniu deskryptorów przy NIE-tty stdout (nieinteraktywny SSH
+  # akceptacji): niedeterministycznie rc=120 i pusty wynik. Uruchamiamy pod pseudoterminalem (script),
+  # więc fsleyes widzi tty i kończy się czysto (rc=0, wersja wypisana). Marker BEZ kotwicy ^: realny
+  # fsleyes wypisuje "fsleyes/FSLeyes version 1.18.0" (atrapa w teście komponentowym — bez prefiksu).
   # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w uruchamianym env, nie tu
-  expect_ok "Wrapper FSLeyes źródłuje FSLDIR i znajduje fsleyes (menu)" \
-    env -i HOME=/tmp PATH=/usr/bin:/bin sh -c '. /etc/profile.d/fsl.sh; command -v fsleyes >/dev/null'
+  expect_ok "Wrapper FSLeyes uruchamia aplikację bez odziedziczonego FSLDIR" \
+    bash -c '
+      out=$(env -i HOME=/tmp PATH=/usr/bin:/bin timeout --kill-after=5s 60s \
+        script -qec "/usr/local/bin/wlb-fsleyes --version" /dev/null </dev/null 2>&1) || {
+        printf "%s\n" "$out"
+        exit 1
+      }
+      printf "%s\n" "$out" | grep -q "FSLeyes version"
+    '
   # desktop-file-validate (jeśli dostępny) — poprawność składni wpisów.
   if command -v desktop-file-validate >/dev/null 2>&1; then
     expect_ok "Kafelki przechodzą desktop-file-validate" \
