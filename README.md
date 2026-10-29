@@ -9,6 +9,13 @@ Wszystko, co zależy od konkretnego Laboratorium (hostname, klucz SSH, udziały,
 administrator huba), przychodzi przy starcie przez cloud-init. Na żywej VM nic nie
 zmieniamy ręcznie.
 
+## Dokumentacja
+
+- [CHANGELOG.md](CHANGELOG.md) — stan obecny projektu i historia istotnych zmian.
+- [docs/przewodnik-administratora.md](docs/przewodnik-administratora.md) — konta badaczy i administracja obrazem.
+- [docs/pierwsze-uruchomienie.md](docs/pierwsze-uruchomienie.md) — budowa i pierwszy test obrazu (WSL2/KVM).
+- [docs/adr/](docs/adr/) — decyzje architektoniczne (IMG-001…007); [docs/runbooks/](docs/runbooks/) — procedury operacyjne.
+
 ## Struktura
 
 ```
