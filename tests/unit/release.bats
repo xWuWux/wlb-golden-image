@@ -42,3 +42,29 @@ load helpers
   [ "$status" -ne 0 ]
   [[ $output == *"podaj tag"* ]]
 }
+
+@test "release.sh: brak dpkg-status zatrzymuje wydanie przed kopiowaniem (#129)" {
+  local art="$BATS_TEST_TMPDIR/art"
+  mkdir -p "$art"
+  printf 'WLB_IMAGE_VERSION=9.9.9\nWLB_GIT_COMMIT=%s\nWLB_GIT_DIRTY=0\n' \
+    "$(git rev-parse HEAD)" >"$art/image-release"
+  git tag -f v9.9.9 >/dev/null
+  run bash "$REPO_ROOT/ci/release.sh" v9.9.9 "$art"
+  git tag -d v9.9.9 >/dev/null
+  [ "$status" -ne 0 ]
+  [[ $output == *"bez inwentarza systemowego (#129)"* ]]
+}
+
+@test "release.sh: niezgodna para tozsamosci OS zatrzymuje wydanie (#129)" {
+  local art="$BATS_TEST_TMPDIR/art2"
+  mkdir -p "$art"
+  printf 'WLB_IMAGE_VERSION=9.9.9\nWLB_GIT_COMMIT=%s\nWLB_GIT_DIRTY=0\n' \
+    "$(git rev-parse HEAD)" >"$art/image-release"
+  printf 'Package: acl\nVersion: 2.3.1\n\n' >"$art/dpkg-status"
+  printf 'ID=debian\nVERSION_ID=12\n' >"$art/os-release"
+  git tag -f v9.9.9 >/dev/null
+  run bash "$REPO_ROOT/ci/release.sh" v9.9.9 "$art"
+  git tag -d v9.9.9 >/dev/null
+  [ "$status" -ne 0 ]
+  [[ $output == *"niezweryfikowana lub niezgodna (#129)"* ]]
+}

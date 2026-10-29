@@ -26,6 +26,8 @@ ARTIFACTS=${2:-$(find . -type d -path '*/build/artifacts/wlb-general-*' 2>/dev/n
 [[ -s $ARTIFACTS/image-release ]] || die "brak image-release w ${ARTIFACTS}"
 # #129: tożsamość OS broni release przed kopiowaniem — pozna awaria w sbom.sh
 # zastalaby katalog wydania częściowo wypełniony.
+[[ -s $ARTIFACTS/dpkg-status ]] ||
+  die "release: brak dpkg-status — pakiet wydania bez inwentarza systemowego (#129)"
 python3 ci/image_identity.py "$ARTIFACTS" ||
   die "release: tożsamość OS artefaktów niezweryfikowana lub niezgodna (#129)"
 # manifest i suma qcow2 leżą obok (output/<full>/) — szukamy po nazwie, niezależnie od układu

@@ -98,7 +98,8 @@ def validate_scan_identity(target: OsIdentity, scanner: OsIdentity) -> None:
         supported = ", ".join(sorted(" ".join(pair) for pair in SUPPORTED))
         raise IdentityError(
             f"obraz {target.label()} poza wspieranym zestawem ({supported}, skaner: {scanner.label()}); nowe wydanie "
-            "wymaga swiadomej decyzji i testow, nie cichego skanowania"
+            "wymaga swiadomej decyzji i testow, nie cichego skanowania; jesli skanuje sie z innej "
+            "maszyny niz wydanie obrazu — uruchom ja w srodowisku obrazu, nie rozszerzaj SUPPORTED"
         )
     if target != scanner:
         raise IdentityError(
