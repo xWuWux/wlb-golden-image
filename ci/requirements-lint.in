@@ -1,0 +1,7 @@
+# ŹRÓDŁO pinów top-level (edytuj tutaj). Po zmianie uruchom ci/lock-requirements.sh i zacommituj
+# wygenerowany lock z hashami ci/requirements-lint.txt (instalowany w CI z --require-hashes, IMG-008 5b).
+# Stage 1–2: lint, format, walidacja. Aktualizacje: Dependabot (pip).
+ansible-lint==26.10.1
+yamllint==1.38.0
+ruff==0.17.1
+PyYAML==6.0.3
