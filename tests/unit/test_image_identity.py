@@ -48,7 +48,10 @@ def test_wiersz_bez_rownanosci_i_smieciowa_nazwa_klucza(ident, tmp_path):
 
 def test_tekst_przypominajacy_polecenie_nie_jest_wykonywany(ident, tmp_path):
     marker = tmp_path / "PWNED"
-    ident.read_os_identity(osr(tmp_path, f"ID=$(touch {marker})\nVERSION_ID=24.04\n"))
+    body = f"ID=$(touch {marker})\nVERSION_ID=24.04\n"
+    got = ident.read_os_identity(osr(tmp_path, body))
+    # nie tylko "marker nie powstal" -- takze wartosc jest doslownym literalem
+    assert got.id == f"$(touch {marker})".casefold()
     assert not marker.exists()
 
 
@@ -83,7 +86,7 @@ def test_niezgodnosc_wydania_odrzucona_przed_skanem(ident):
 
 
 def test_main_za_malo_argumentow(ident):
-    assert ident.main(["image_identity.py"]) == 2
+    assert ident.main([]) == 2
 
 
 def test_main_sciezka_szczesliwa_przez_monkeypatch_scanera(ident, tmp_path, monkeypatch):
@@ -93,8 +96,8 @@ def test_main_sciezka_szczesliwa_przez_monkeypatch_scanera(ident, tmp_path, monk
     art = tmp_path / "art"
     art.mkdir()
     osr(art, "ID=ubuntu\nVERSION_ID=24.04\n")
-    assert ident.main(["image_identity.py", str(art)]) == 0
-    assert ident.main(["image_identity.py", str(art) + "/"]) == 0  # kosmiczny ukośnik
+    assert ident.main([str(art)]) == 0
+    assert ident.main([str(art) + "/"]) == 0  # kosmiczny ukośnik
 
 
 def test_main_niezgodnosc_wychodzi_2_kodem(ident, tmp_path, monkeypatch, capsys):
@@ -104,5 +107,27 @@ def test_main_niezgodnosc_wychodzi_2_kodem(ident, tmp_path, monkeypatch, capsys)
     art = tmp_path / "art2"
     art.mkdir()
     osr(art, "ID=ubuntu\nVERSION_ID=24.04\n")
-    assert ident.main(["image_identity.py", str(art)]) == 2
+    assert ident.main([str(art)]) == 2
     assert "#129" in capsys.readouterr().err
+
+
+# --- kontrakt podzbioru skladni (recenzja #179) --------------------------------
+
+
+def test_wartosc_z_rownaniem_wewnatrz_pozostaje_intaktna(ident, tmp_path):
+    f = osr(tmp_path, 'ID=ubuntu\nVERSION_ID=24.04\nHOME_URL="https://x/?a=b"\n')
+    got = ident.read_os_identity(f)
+    assert (got.id, got.version_id) == ("ubuntu", "24.04")
+
+
+def test_crlf_nie_wchodzi_w_wartosc(ident, tmp_path):
+    f = osr(tmp_path, "ID=ubuntu\r\nVERSION_ID=24.04\r\n")
+    got = ident.read_os_identity(f)
+    assert (got.id, got.version_id) == ("ubuntu", "24.04")
+
+
+def test_escape_w_cudzyslowie_pozostaje_literalem(ident, tmp_path):
+    # PRETTY_NAME nieistotny dla tozsamosci; istotne: brak cichego obciecia
+    f = osr(tmp_path, 'ID=ubuntu\nVERSION_ID=24.04\nPRETTY_NAME="Ubuntu \\"24.04\\""\n')
+    got = ident.read_os_identity(f)
+    assert (got.id, got.version_id) == ("ubuntu", "24.04")

@@ -1,12 +1,19 @@
-#!/usr/bin/env python3
-"""Walidacja tozsamosci systemu skanowanego obrazu (#129).
-
-Uwaga jezykowa: komentarze w tym pliku sa celowo bez diekrytykow -- kompilator tekstu
-generator tekstu je gubi; plik z blednymi diekrytykami bylby gorszy niz ASCII.
+"""Walidacja tożsamości systemu skanowanego obrazu (#129).
 
 osv-scanner wnosi ekosystem pakietow deb z /etc/os-release PROCESU skanujacego, nie z
 obrazu, ktorego dotyczy dpkg-status. Bez pary tozsamosci raport SCA/SBOM moze opisywac
 pakiety wydania, ktorego nikt nie budowal -- i robic to po cichu.
+
+Parser os-release — podzbić składni, świadomie wąski:
+  OBSŁUGUJE: KEY=VALUE, opcjonalne cudzysłowy '...' lub "...", komentarze (#),
+             puste wiersze, CRLF (pad na strip), '=' wewnątrz wartości.
+  NIE OBSŁUGUJE (os-release Ubuntu tego nie używa): escape'ów wewnątrz
+             cudzysłowów, kontynuacji '\' (backslash na końcu wiersza), wartości
+             wieloliniowych. Taka wartość pozostaje literałem z backslashem —
+             nigdy cichego obcięcia; ID/VERSION_ID nie przybierają takich form,
+             a ich literalna niezgodność i tak zablokuje skan.
+Duplikat: ID/VERSION_ID = błąd (tożsamość niejednoznaczna); pozostałe klucze
+nadpisywane (irrelewantne dla tożsamości).
 
 Stad dwie twarde zasady:
   1. tozsamosc obrazu pochodzi z os-release zebranego z TEJ SAMEJ VM co dpkg-status;
@@ -90,7 +97,7 @@ def validate_scan_identity(target: OsIdentity, scanner: OsIdentity) -> None:
     if not target.is_supported:
         supported = ", ".join(sorted(" ".join(pair) for pair in SUPPORTED))
         raise IdentityError(
-            f"obraz {target.label()} poza wspieranym zestawem ({supported}); nowe wydanie "
+            f"obraz {target.label()} poza wspieranym zestawem ({supported}, skaner: {scanner.label()}); nowe wydanie "
             "wymaga swiadomej decyzji i testow, nie cichego skanowania"
         )
     if target != scanner:
@@ -101,11 +108,12 @@ def validate_scan_identity(target: OsIdentity, scanner: OsIdentity) -> None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
+    """argv bez nazwy programu (sys.argv[1:])."""
+    if len(argv) != 1:
         print("uzycie: image_identity.py <katalog-artefaktow>", file=sys.stderr)
         return 2
     try:
-        target = read_os_identity(f"{argv[1].rstrip('/')}/os-release")
+        target = read_os_identity(f"{argv[0].rstrip('/')}/os-release")
         scanner = read_os_identity(HOST_OS_RELEASE)
         validate_scan_identity(target, scanner)
     except IdentityError as exc:
@@ -116,4 +124,4 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv))
+    raise SystemExit(main(sys.argv[1:]))

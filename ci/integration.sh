@@ -246,6 +246,14 @@ kernel_single() {
 }
 
 image_sca() {
+  # #129 (recenzja #179): raport bez pakietów systemowych jest niekompletny, a bez
+  # tożsamości OS — niedowiarygodny. Oba warunki zatrzymują skan PRZED ścieżką
+  # "pomijam" dla locków, żeby żadna wcześniejsza asymetria wejść nie ominęła bramki.
+  [[ -s $ARTIFACTS/dpkg-status ]] || {
+    echo "Brak dpkg-status z VM — skan pakietow systemowych niemożliwy (#129)" >&2
+    return 1
+  }
+  python3 ci/image_identity.py "$ARTIFACTS" || return 1
   [[ -s $ARTIFACTS/renv.lock && -s $ARTIFACTS/environment.lock.yml ]] || {
     echo "Brak locków z obrazu — pomijam"
     return 0
@@ -254,14 +262,7 @@ image_sca() {
   local inputs=(-L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt)
   # pakiety systemowe (dpkg-status z VM testowej) — bez pakietu źródłowego "linux", który wywołuje
   # nieograniczone zużycie pamięci w osv-scanner (ci/osv-scanner-image.toml, issue #2)
-  if [[ -s $ARTIFACTS/dpkg-status ]]; then
-    # Tozsamosc OS to walidacja WEJSC, nie polityka podatnosci: przy niezgodnej parze
-    # kazdy wpis raportu dotyczylby zlego ekosystemu, wiec "raport, nie bramka" nie moze
-    # dotyczyc tego kroku -- skan niedowierzalny zatrzymujemy (decyzja administracji
-    # o doradczym charakterze samych CVE zostaje nietknięta) (#129).
-    python3 ci/image_identity.py "$ARTIFACTS" || return 1
-    inputs+=(-L "dpkg-status:$ARTIFACTS/dpkg-status")
-  fi
+  inputs+=(-L "dpkg-status:$ARTIFACTS/dpkg-status")
   # Raport, nie bramka: pakiety systemowe Ubuntu mają zwykle CVE bez poprawki w dystrybucji;
   # poprawki wchodzą przez nową wersję obrazu. Strażnik pilnuje pamięci (pomiar: ~1,3 GB) i czasu.
   ci/guard.sh --name "osv-scanner (obraz)" --optional --ok-codes 0,1 --timeout 10m --memory 2500M -- \
