@@ -1,9 +1,17 @@
 # Zarządzane przez Ansible (rola tljh) — hooki cyklu życia sesji badacza (#97) + rekord użycia (#98).
 # Korelacja "jedna sesja badacza" dla SIEM (§21): pre_spawn emituje session_start, post_stop —
-# session_stop z czasem trwania. Emisja przez /opt/wlb/bin/wlb-session-log (root → pola zaufane
-# imuxsock/uid=0, #44). Po stopie dodatkowo zapisywany jest rekord użycia/pojemności (#98) przez
-# wlb-usage-record — OSOBNO od SIEM; szczyt zasobów bierze z próbek wlb-usage-sampler (hub_session
-# jako klucz). Odczyt cgroup w post_stop jest niemożliwy (jednostka transient już zniknęła).
+# session_stop z czasem trwania. Emisja przez /opt/wlb/bin/wlb-session-log (root → pola zaufne
+# imuxsock/uid=0, #44). Po stopie dodatkowo rekord użycia/pojemności (#98) przez wlb-usage-record.
+#
+# Stan sesji przeżywa RESTART HUBA (nie reboot maszyny): atrybuty spawnera istnieją tylko w
+# pamięci procesu huba, więc start/stop korylowany jest plikiem /run/wlb/usage/sessions/<unit>.json.
+# Osierocony plik (hub przeładował sie w srodku sesji) zostaje domkniety statusem "interrupted"
+# przy nastepnym spawnie tej samej jednostki — zamiast znikac bez sladu albo udawac czas "0".
+# Lab bierzemy ze Spawner.environment (WLB_LAB_NAME pisany przez wlb-firstboot) — to sciezka
+# gwarantowana; zmienna srodowiska procesu huba jest tylko rezerwa i to jest odnotowane w rekordzie.
+# Hook woła wyłącznie lokalne zapisy (bez sieci), z krotkim timeoutem; awaria raportowania nie moze
+# zablokowac spawna/stopu — logujemy niezerowy kod wyjscia (limitowany komunikat, #98).
+import json
 import os
 import pwd
 import subprocess
@@ -14,43 +22,104 @@ c = get_config()  # noqa: F821
 
 _WLB_SESSION_LOG = "/opt/wlb/bin/wlb-session-log"
 _WLB_USAGE_RECORD = "/opt/wlb/bin/wlb-usage-record"
+_WLB_STATE_DIR = os.environ.get("WLB_USAGE_STATE_DIR", "/run/wlb/usage/sessions")
+_WLB_TIMEOUT_S = 2  # tylko lokalny zapis — dluzszy czas oznacza awarie, nie prace
+
+
+def _wlb_lab(spawner):
+    env = getattr(spawner, "environment", None) or {}
+    lab = env.get("WLB_LAB_NAME") or os.environ.get("LAB_NAME", "")
+    source = "spawner_env" if env.get("WLB_LAB_NAME") else ("hub_env" if lab else "missing")
+    return lab, source
 
 
 def _wlb_ident(spawner):
     user = "jupyter-" + spawner.user.name
+    unit = getattr(spawner, "unit_name", None) or (user + ".service")
     try:
         uid = str(pwd.getpwnam(user).pw_uid)
     except KeyError:
         uid = ""
     sid = getattr(spawner, "_wlb_session", "")
-    lab = os.environ.get("LAB_NAME", "")
-    return user, uid, sid, lab
+    return user, uid, unit, sid
 
 
-def _wlb_run(spawner, args):
+def _wlb_state_path(unit):
+    safe = unit.replace("/", "_").replace("..", "_")  # defensywnie: unit nie powinien zawierac ścieżek
+    return _WLB_STATE_DIR + "/" + safe + ".json"
+
+
+def _wlb_run(spawner, args, what):
     try:
-        subprocess.run(args, check=False, timeout=5)  # noqa: S603
-    except Exception as exc:  # noqa: BLE001 — hook nie może wywrócić spawnu/stopu
-        spawner.log.warning("wlb-session: nie wykonano %s: %s", args[0], exc)
+        rc = subprocess.run(args, check=False, timeout=_WLB_TIMEOUT_S).returncode
+    except Exception as exc:  # noqa: BLE001 — hook nie moze wywrócic spawnu/stopu
+        spawner.log.warning("wlb-session: %s nie wykonano (%s): %s", what, args[0], exc)
+        return
+    if rc != 0:
+        spawner.log.warning("wlb-session: %s zakonczylo sie kodym %s", what, rc)
+
+
+def _wlb_write_state(spawner, unit, state):
+    # raportowanie nie moze zablokowac sesji — awaria pliku stanu to ostrzeżenie, nie wyjatek
+    try:
+        os.makedirs(_WLB_STATE_DIR, exist_ok=True)
+        tmp = _wlb_state_path(unit) + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+        os.replace(tmp, _wlb_state_path(unit))
+    except OSError as exc:
+        spawner.log.warning("wlb-session: stan sesji %s nie zapisany: %s", unit, exc)
+
+
+def _wlb_read_state(unit):
+    try:
+        with open(_wlb_state_path(unit), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
 
 
 def wlb_pre_spawn_hook(spawner):
+    user, uid, unit, _ = _wlb_ident(spawner)
+    lab, lab_source = _wlb_lab(spawner)
+    stale = _wlb_read_state(unit)
+    if stale and stale.get("session_id"):
+        # osierocona sesja (restart huba / zgubiony post_stop): domknij jawnie. Brak stopu to
+        # pusty argument -> null w rekordzie, nie epocha 0 udajaca 1970 rok.
+        _wlb_run(spawner, [_WLB_USAGE_RECORD, unit, stale["session_id"], lab,
+                           str(stale.get("start_wall", "")), "", "",
+                           "interrupted:" + lab_source],
+                 "rekord_użycia_interrupted")
     spawner._wlb_session = uuid.uuid4().hex
     spawner._wlb_start = time.monotonic()
     spawner._wlb_start_wall = time.time()
-    user, uid, sid, lab = _wlb_ident(spawner)
-    _wlb_run(spawner, [_WLB_SESSION_LOG, "start", user, uid, sid, lab])
+    _wlb_write_state(spawner, unit, {"session_id": spawner._wlb_session,
+                                     "start_wall": int(spawner._wlb_start_wall),
+                                     "lab_source": lab_source})
+    _wlb_run(spawner, [_WLB_SESSION_LOG, "start", user, uid, spawner._wlb_session, lab],
+             "session_start")
 
 
 def wlb_post_stop_hook(spawner):
-    start = getattr(spawner, "_wlb_start", None)
-    duration = int(time.monotonic() - start) if start is not None else 0
-    user, uid, sid, lab = _wlb_ident(spawner)
-    _wlb_run(spawner, [_WLB_SESSION_LOG, "stop", user, uid, sid, lab, str(duration)])
+    user, uid, unit, sid = _wlb_ident(spawner)
+    lab, lab_source = _wlb_lab(spawner)
+    state = _wlb_read_state(unit) or {}
+    sid = getattr(spawner, "_wlb_session", "") or state.get("session_id", "")
     start_wall = getattr(spawner, "_wlb_start_wall", None)
+    start_mono = getattr(spawner, "_wlb_start", None)
+    if start_wall is None and state.get("start_wall"):
+        start_wall = state["start_wall"]  # atrybuty zginely z restartem huba — stan ratuje czas
+    duration = int(time.monotonic() - start_mono) if start_mono is not None else 0
+    _wlb_run(spawner, [_WLB_SESSION_LOG, "stop", user, uid, sid, lab, str(duration)],
+             "session_stop")
     if start_wall is not None:
-        _wlb_run(spawner, [_WLB_USAGE_RECORD, user, sid, lab,
-                           str(int(start_wall)), str(int(time.time())), str(duration)])
+        _wlb_run(spawner, [_WLB_USAGE_RECORD, unit, sid, lab,
+                           str(int(start_wall)), str(int(time.time())), str(duration), lab_source],
+                 "rekord_użycia")
+    try:
+        os.remove(_wlb_state_path(unit))
+    except OSError:
+        pass
 
 
 c.Spawner.pre_spawn_hook = wlb_pre_spawn_hook
