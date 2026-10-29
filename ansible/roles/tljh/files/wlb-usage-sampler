@@ -65,8 +65,8 @@ for unit in $(systemctl list-units --type=service --state=active --no-legend 'ju
     if is_num "$cpu" && is_num "$prev_cpu" && is_num "$mono" && is_num "$prev_mono" &&
       [ -n "$inv" ] && [ "$inv" = "$prev_inv" ]; then
       itv=$(awk -v c="$cpu" -v pc="$prev_cpu" -v m="$mono" -v pm="$prev_mono" -v pi="$prev_itv" \
-        'BEGIN { d=m-pm; if (d <= 0) d=0;
-          a=(c>=pc ? (c-pc)/(1000000000*d) : 0);
+        'BEGIN { d=m-pm;
+          a=(d > 0 && c>=pc ? (c-pc)/(1000000000*d) : 0);
           b=pi; if (b !~ /^[0-9.]+$/) b=a;
           printf "%.6f\n", (a>b+0 ? a : b) }')
     fi

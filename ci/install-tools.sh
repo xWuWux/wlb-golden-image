@@ -58,7 +58,9 @@ venv() { # venv NAZWA PLIK_WYMAGAŃ
     python3 -m venv "$TOOLS_DIR/$1"
   fi
   pip_install "$1" --upgrade pip
-  pip_install "$1" -r "$2"
+  # --require-hashes: plik to zahashowany lock (ci/requirements-*.txt z ci/lock-requirements.sh);
+  # każda niezgodna suma pobranego pakietu = twardy błąd instalacji (kontrola supply-chain, IMG-008 5b).
+  pip_install "$1" --require-hashes -r "$2"
 }
 
 install_lint() {
