@@ -13,11 +13,13 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   # pod wirtualnym X (Xtigervnc z roli desktop) + marker wersji z rdzenia aplikacji i Pythona Slicera.
   echo "== Uruchamialność GUI stosu neuro (#4) =="
   # FSLeyes: --version działa headless (bez DISPLAY), potwierdza że pakiet się ładuje. UWAGA: fsleyes
-  # --version zamyka deskryptor stdout i zwraca rc!=0, gdy stdout jest zwykłym PLIKIEM (tak loguje
-  # harness) — dlatego czytamy przez podstawienie polecenia (potok) i sprawdzamy marker wersji, nie rc.
+  # --version ma WYŚCIG w zamykaniu deskryptorów przy NIE-tty stdout (nieinteraktywny SSH akceptacji):
+  # niedeterministycznie rc=120 i pusty wynik ("Bad file descriptor"). Podstawienie polecenia tego NIE
+  # usuwa — wyścig jest w fsleyes, nie w potoku. Uruchamiamy pod pseudoterminalem (script), tak samo jak
+  # test wrappera niżej; FSLDIR/PATH ze źródłowanego profilu dziedziczy proces script. Marker bez kotwicy.
   # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w wewnętrznym bash -c, nie tu
   expect_ok "FSLeyes uruchamia się (--version, #4)" \
-    bash -c '. /etc/profile.d/fsl.sh >/dev/null 2>&1; out=$(fsleyes --version 2>&1); echo "$out" | grep -q "FSLeyes version"'
+    bash -c '. /etc/profile.d/fsl.sh >/dev/null 2>&1; out=$(timeout --kill-after=5s 60s script -qec "fsleyes --version" /dev/null </dev/null 2>&1); printf "%s" "$out" | grep -q "FSLeyes version"'
   # 3DSlicer: wymaga serwera X — startujemy jednorazowy Xtigervnc i sprawdzamy marker wersji.
   if command -v Xtigervnc >/dev/null 2>&1; then
     # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w wewnętrznym bash -c, nie tu
