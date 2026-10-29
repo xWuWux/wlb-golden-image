@@ -89,3 +89,116 @@
   ansible.builtin.file:
     path: /tmp/slicer.tar.gz
     state: absent
+
+# --- Kafelki pulpitu / menu XFCE (#135) --------------------------------------------------
+# Flavor radiologia ma pulpit (rola desktop). Badacz dostaje w menu Aplikacje klikalne kafelki
+# FSLeyes / FSL / 3DSlicer zamiast uruchamiania z terminala. Ikony kopiujemy do stabilnego
+# /usr/share/pixmaps (ścieżki w drzewie FSL/Slicer są wersjozależne). FSLeyes i FSL wymagają
+# FSLDIR — kafelek źródłuje /etc/profile.d/fsl.sh przed uruchomieniem; Slicer jest samowystarczalny.
+- name: Katalog na ikony kafelków
+  ansible.builtin.file:
+    path: /usr/share/pixmaps
+    state: directory
+    mode: "0755"
+
+- name: Ikona 3DSlicer do /usr/share/pixmaps
+  ansible.builtin.copy:
+    src: "{{ slicer_prefix }}/Slicer-{{ slicer_version }}-linux-amd64/Slicer.png"
+    dest: /usr/share/pixmaps/slicer.png
+    remote_src: true
+    mode: "0644"
+
+- name: Znajdź ikonę FSLeyes (ścieżka zależna od wersji Pythona w FSL)
+  ansible.builtin.find:
+    paths: "{{ fsl_dir }}/lib"
+    patterns: fsleyes.png
+    recurse: true
+    file_type: file
+  register: neuro_apps_fsleyes_icon
+
+- name: Ikona FSLeyes do /usr/share/pixmaps (stabilna ścieżka dla kafelka)
+  vars:
+    fsleyes_app_icon: "{{ neuro_apps_fsleyes_icon.files | map(attribute='path') | select('search', 'hicolor/48x48/apps/fsleyes.png') | list }}"
+  ansible.builtin.copy:
+    src: "{{ fsleyes_app_icon[0] }}"
+    dest: /usr/share/pixmaps/fsleyes.png
+    remote_src: true
+    mode: "0644"
+  when: fsleyes_app_icon | length > 0
+
+# FSLeyes/FSL wymagają FSLDIR — opakowujemy je skryptem, który źródłuje profile.d/fsl.sh i wywołuje
+# narzędzie. Dzięki temu Exec kafelka jest prosty (bez zagnieżdżonego "sh -c", którego nie przepuszcza
+# desktop-file-validate: ';', '$', apostrof to znaki zarezerwowane w kluczu Exec).
+- name: Skrypt opakowujący FSLeyes (źródłuje FSLDIR)
+  ansible.builtin.copy:
+    dest: /usr/local/bin/wlb-fsleyes
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Zarządzane przez Ansible (rola neuro_apps) — #135
+      . /etc/profile.d/fsl.sh
+      exec fsleyes "$@"
+
+- name: Skrypt opakowujący menu FSL (źródłuje FSLDIR)
+  ansible.builtin.copy:
+    dest: /usr/local/bin/wlb-fsl
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Zarządzane przez Ansible (rola neuro_apps) — #135
+      . /etc/profile.d/fsl.sh
+      exec fsl "$@"
+
+- name: Kafelek FSLeyes (menu XFCE)
+  ansible.builtin.copy:
+    dest: /usr/share/applications/wlb-fsleyes.desktop
+    mode: "0644"
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Version=1.0
+      Name=FSLeyes
+      GenericName=Przeglądarka obrazów neuro
+      Comment=Przeglądarka obrazów neuroobrazowych (FSL)
+      Exec=wlb-fsleyes %F
+      Icon=fsleyes
+      Terminal=false
+      StartupNotify=true
+      Categories=Science;MedicalSoftware;
+      Keywords=FSL;MRI;fMRI;NIfTI;neuro;
+
+- name: Kafelek FSL (menu XFCE)
+  ansible.builtin.copy:
+    dest: /usr/share/applications/wlb-fsl.desktop
+    mode: "0644"
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Version=1.0
+      Name=FSL
+      GenericName=Narzędzia neuroobrazowania
+      Comment=Menu narzędzi FSL (FLIRT, FEAT, BET, FSLeyes…)
+      Exec=wlb-fsl
+      Icon=fsleyes
+      Terminal=false
+      StartupNotify=true
+      Categories=Science;MedicalSoftware;
+      Keywords=FSL;MRI;fMRI;FLIRT;FEAT;BET;neuro;
+
+- name: Kafelek 3DSlicer (menu XFCE)
+  ansible.builtin.copy:
+    dest: /usr/share/applications/wlb-slicer.desktop
+    mode: "0644"
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Version=1.0
+      Name=3D Slicer
+      GenericName=Analiza i wizualizacja obrazów medycznych
+      Comment=Platforma do analizy i wizualizacji obrazów medycznych (3D Slicer)
+      Exec=/usr/local/bin/Slicer %F
+      Icon=slicer
+      Terminal=false
+      StartupNotify=true
+      Categories=Science;MedicalSoftware;
+      Keywords=Slicer;DICOM;MRI;CT;segmentacja;neuro;
