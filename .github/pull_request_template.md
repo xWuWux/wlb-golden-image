@@ -17,6 +17,8 @@ Zamyka #
       zmienia się zachowanie lub konfiguracja.
 - [ ] Kontrakt obserwowalności (`observability/contract.yml`) zaktualizowany, jeśli zmieniają
       się zdarzenia/pola telemetrii (etap 3.5 i tak zablokuje rozjazd).
+- [ ] Nowa zmienna wdrożeniowa dodana w trzech miejscach: `wlb-firstboot`, `cloud-init/lab.env.example`
+      i przykład `cloud-init/lab-user-data.example.yaml` (etap 3.5 i tak zablokuje rozjazd).
 - [ ] Zmiana wrażliwa (audyt, uwierzytelnianie, sieć, proces wydania, dane) — oznacz, bo wymaga
       przeglądu właściciela obszaru (CODEOWNERS, #59).
 

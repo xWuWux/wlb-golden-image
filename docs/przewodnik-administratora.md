@@ -125,7 +125,8 @@ radiologia jest opt-in (`WLB_BUILD_RADIOLOGIA=1`, #167).
 ## Konfiguracja wdrożenia (`/etc/wlb/lab.env`)
 
 Parametry Laboratorium dostarcza cloud-init (`write_files`); czyta je `wlb-firstboot`.
-Wzorzec z opisem każdej zmiennej: [`cloud-init/lab.env.example`](../cloud-init/lab.env.example).
+Wzorzec z opisem każdej zmiennej: [`cloud-init/lab.env.example`](../cloud-init/lab.env.example),
+gotowy do skopiowania przykład wdrożenia: [`cloud-init/lab-user-data.example.yaml`](../cloud-init/lab-user-data.example.yaml).
 Najważniejsze:
 
 | Zmienna | Rola |
@@ -143,6 +144,12 @@ Najważniejsze:
 
 Przy `HUB_TLS=1` firstboot **waliduje** certyfikat i klucz (para, ważność, prawa `0600`,
 brak hasła) **przed** otwarciem portu — błędna konfiguracja nie wystawi huba po HTTP.
+
+Obraz stawia się wiele razy, dlatego zgodność tych trzech miejsc (kod `wlb-firstboot`, wzorzec
+`lab.env.example`, przykład wdrożenia) jest bramką CI w etapie 3.5 (`ci/deployment_vars.py`).
+Nowy parametr bez pary dokumentacja + przykład, parametr opisany a nigdy nieczytany oraz rozjazd
+wartości domyślnej zatrzymują PR — zamiast ujawnić się dopiero na postawionej VM. Zmienne `WLB_*`
+z `/etc/wlb/image.conf` są własnością obrazu (nie parametrem Laboratorium) i kontrakt ich nie obejmuje.
 Rotacja certyfikatu / zmiana `lab.env`: podmień pliki i uruchom `sudo wlb-firstboot --force`
 (przed blokadą audytu).
 
