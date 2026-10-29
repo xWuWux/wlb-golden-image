@@ -49,16 +49,20 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   expect_ok "Kafelek FSL wskazuje wrapper (Exec)" grep -Fxq 'Exec=wlb-fsl' /usr/share/applications/wlb-fsl.desktop
   expect_ok "Wrapper FSLeyes wykonywalny" test -x /usr/local/bin/wlb-fsleyes
   expect_ok "Wrapper FSL wykonywalny" test -x /usr/local/bin/wlb-fsl
-  # Test komponentowy wrappera bez odziedziczonego FSLDIR/PATH stosu neuro.
-  # Nie jest to test menu ani sesji XFCE. Potok zapobiega znanemu problemowi stdout FSLeyes.
+  # Test komponentowy wrappera bez odziedziczonego FSLDIR/PATH stosu neuro (nie test menu/XFCE).
+  # fsleyes --version ma wyścig w zamykaniu deskryptorów przy NIE-tty stdout (nieinteraktywny SSH
+  # akceptacji): niedeterministycznie rc=120 i pusty wynik. Uruchamiamy pod pseudoterminalem (script),
+  # więc fsleyes widzi tty i kończy się czysto (rc=0, wersja wypisana). Marker BEZ kotwicy ^: realny
+  # fsleyes wypisuje "fsleyes/FSLeyes version 1.18.0" (atrapa w teście komponentowym — bez prefiksu).
   # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w uruchamianym env, nie tu
   expect_ok "Wrapper FSLeyes uruchamia aplikację bez odziedziczonego FSLDIR" \
     bash -c '
-      out=$(env -i HOME=/tmp PATH=/usr/bin:/bin timeout --kill-after=5s 60s /usr/local/bin/wlb-fsleyes --version 2>&1) || {
+      out=$(env -i HOME=/tmp PATH=/usr/bin:/bin timeout --kill-after=5s 60s \
+        script -qec "/usr/local/bin/wlb-fsleyes --version" /dev/null </dev/null 2>&1) || {
         printf "%s\n" "$out"
         exit 1
       }
-      printf "%s\n" "$out" | grep -q "^FSLeyes version"
+      printf "%s\n" "$out" | grep -q "FSLeyes version"
     '
   # desktop-file-validate (jeśli dostępny) — poprawność składni wpisów.
   if command -v desktop-file-validate >/dev/null 2>&1; then
