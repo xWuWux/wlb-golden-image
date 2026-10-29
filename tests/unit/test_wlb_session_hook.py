@@ -3,6 +3,7 @@ z zegara sciennego (odzyskany start_wall), NIGDY 0 udajace sesje zerowej dlugosc
 to samo klamstwo, ktoremu zapobiega konwencja pusty argument -> null."""
 
 import json
+import stat
 import types
 
 from conftest import REPO_ROOT
@@ -94,3 +95,38 @@ def test_brak_zrodel_czasu_duration_pusty_nie_zero(tmp_path, monkeypatch):
 
     assert _call(calls, "wlb-session-log", "stop")[-1] == ""  # null, nie "0"
     assert _call(calls, "wlb-usage-record") is None
+
+
+def test_pre_spawn_interrupted_uzywa_lab_ze_stanu(tmp_path, monkeypatch):
+    """Osierocona sesja domykana jest z lab/lab_source z ZAPISANEGO stanu, nie z biezacego
+    spawnu — inaczej rekord starej sesji trafialby pod Lab nowej (#170 finding 3)."""
+    (tmp_path / "jupyter-tester1.service.json").write_text(
+        json.dumps({"session_id": "sess-OLD", "start_wall": 1_000_000,
+                    "lab": "lab-OLD", "lab_source": "spawner_env"}),
+        encoding="utf-8",
+    )
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=2_000_000, monotonic=1234.0)
+    ns["wlb_pre_spawn_hook"](_spawner(environment={"WLB_LAB_NAME": "lab-NEW"}))  # INNY Lab niz stary
+
+    interrupted = _call(calls, "wlb-usage-record")
+    assert interrupted is not None
+    assert interrupted[2] == "sess-OLD"
+    assert interrupted[3] == "lab-OLD", "lab osieroconej sesji ze stanu, nie biezacej"
+    assert interrupted[7] == "interrupted:spawner_env"
+
+
+def test_write_state_katalog_0700_plik_0600_i_zapisuje_lab(tmp_path, monkeypatch):
+    """Gdy katalog stanu nie istnieje, hook tworzy go 0700 i plik 0600 (nie 0755/0644 z umaski),
+    a stan zawiera lab do poprawnej atrybucji po restarcie (#170 findings 3+4)."""
+    state_dir = tmp_path / "run" / "sessions"  # nie istnieje
+    ns, _ = load_hooks(state_dir, monkeypatch, now=1_000_000, monotonic=1.0)
+    assert not state_dir.exists()
+
+    ns["_wlb_write_state"](_spawner(), "jupyter-tester1.service",
+                           {"session_id": "s", "start_wall": 1, "lab": "lab-x", "lab_source": "spawner_env"})
+
+    path = state_dir / "jupyter-tester1.service.json"
+    assert path.exists()
+    assert stat.S_IMODE(state_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert json.loads(path.read_text(encoding="utf-8"))["lab"] == "lab-x"

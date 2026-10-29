@@ -60,11 +60,16 @@ def _wlb_run(spawner, args, what):
 
 
 def _wlb_write_state(spawner, unit, state):
-    # raportowanie nie moze zablokowac sesji — awaria pliku stanu to ostrzeżenie, nie wyjatek
+    # raportowanie nie moze zablokowac sesji — awaria pliku stanu to ostrzeżenie, nie wyjatek.
+    # Stan zawiera session_id -> musi byc nieczytelny dla badacza: katalog 0700, plik 0600. tmpfiles
+    # tworzy katalog jako 0700, ale gdy go zabraknie (wyczyszczony /run, wyscig przed regula tmpfiles)
+    # tworzymy go JAWNYM trybem — bez mode= bylo domyslne 0755 z umaski, a open() dawal plik 0644,
+    # co przy nieobecnym katalogu wystawialo session_id badaczowi (#170 finding 4).
     try:
-        os.makedirs(_WLB_STATE_DIR, exist_ok=True)
+        os.makedirs(_WLB_STATE_DIR, mode=0o700, exist_ok=True)
         tmp = _wlb_state_path(unit) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(state, fh)
         os.replace(tmp, _wlb_state_path(unit))
     except OSError as exc:
@@ -85,16 +90,20 @@ def wlb_pre_spawn_hook(spawner):
     stale = _wlb_read_state(unit)
     if stale and stale.get("session_id"):
         # osierocona sesja (restart huba / zgubiony post_stop): domknij jawnie. Brak stopu to
-        # pusty argument -> null w rekordzie, nie epocha 0 udajaca 1970 rok.
-        _wlb_run(spawner, [_WLB_USAGE_RECORD, unit, stale["session_id"], lab,
+        # pusty argument -> null w rekordzie, nie epocha 0 udajaca 1970 rok. Lab/lab_source bierzemy
+        # z ZAPISANEGO stanu osieroconej sesji, nie z biezacego spawnu — inaczej rekord pojemnosci
+        # starej sesji trafialby pod lab nowej (ten sam uzytkownik moze startowac w innym Lab).
+        # Stan sprzed tej poprawki nie ma klucza "lab" -> pusty (null, uczciwy brak), nie zly Lab.
+        _wlb_run(spawner, [_WLB_USAGE_RECORD, unit, stale["session_id"], stale.get("lab", ""),
                            str(stale.get("start_wall", "")), "", "",
-                           "interrupted:" + lab_source],
+                           "interrupted:" + stale.get("lab_source", "")],
                  "rekord_użycia_interrupted")
     spawner._wlb_session = uuid.uuid4().hex
     spawner._wlb_start = time.monotonic()
     spawner._wlb_start_wall = time.time()
     _wlb_write_state(spawner, unit, {"session_id": spawner._wlb_session,
                                      "start_wall": int(spawner._wlb_start_wall),
+                                     "lab": lab,
                                      "lab_source": lab_source})
     _wlb_run(spawner, [_WLB_SESSION_LOG, "start", user, uid, spawner._wlb_session, lab],
              "session_start")
