@@ -138,6 +138,10 @@ acceptance() {
     }
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
+    # tozsamosc systemu z TEJ SAMEJ VM co dpkg-status (#129): osv-scanner ekosystem pakietow
+    # deb wnosi z /etc/os-release WLASNEGO procesu, nie z obrazu; bez tej pary raport SCA/SBOM
+    # moze dotyczyc zlego wydania po cichu.
+    "${SSH[@]}" 'cat /etc/os-release' >"$ARTIFACTS/os-release" || true
     # skan utwardzenia (Lynis) na działającej VM — raport, nie bramka (#11); nigdy nie psuje akceptacji
     "${SSH[@]}" 'sudo lynis audit system --quick --no-colors' >"$LOGS/lynis.log" 2>&1 || true
     "${SSH[@]}" 'sudo cat /var/log/lynis-report.dat' >"$ARTIFACTS/lynis-report.dat" 2>/dev/null || true
@@ -250,7 +254,14 @@ image_sca() {
   local inputs=(-L "$ARTIFACTS/renv.lock" -L build/sca/image-requirements.txt)
   # pakiety systemowe (dpkg-status z VM testowej) — bez pakietu źródłowego "linux", który wywołuje
   # nieograniczone zużycie pamięci w osv-scanner (ci/osv-scanner-image.toml, issue #2)
-  [[ -s $ARTIFACTS/dpkg-status ]] && inputs+=(-L "dpkg-status:$ARTIFACTS/dpkg-status")
+  if [[ -s $ARTIFACTS/dpkg-status ]]; then
+    # Tozsamosc OS to walidacja WEJSC, nie polityka podatnosci: przy niezgodnej parze
+    # kazdy wpis raportu dotyczylby zlego ekosystemu, wiec "raport, nie bramka" nie moze
+    # dotyczyc tego kroku -- skan niedowierzalny zatrzymujemy (decyzja administracji
+    # o doradczym charakterze samych CVE zostaje nietknięta) (#129).
+    python3 ci/image_identity.py "$ARTIFACTS" || return 1
+    inputs+=(-L "dpkg-status:$ARTIFACTS/dpkg-status")
+  fi
   # Raport, nie bramka: pakiety systemowe Ubuntu mają zwykle CVE bez poprawki w dystrybucji;
   # poprawki wchodzą przez nową wersję obrazu. Strażnik pilnuje pamięci (pomiar: ~1,3 GB) i czasu.
   ci/guard.sh --name "osv-scanner (obraz)" --optional --ok-codes 0,1 --timeout 10m --memory 2500M -- \

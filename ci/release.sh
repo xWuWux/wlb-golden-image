@@ -42,7 +42,7 @@ mkdir -p "$OUT"
 # Metadane wydania (bez qcow2 — jego przechowywanie to #12b)
 cp "$ARTIFACTS/image-release" "$OUT/"
 [[ -n $MANIFEST && -s $MANIFEST ]] && cp "$MANIFEST" "$OUT/packer-manifest.json"
-for f in environment.lock.yml renv.lock dpkg-status; do
+for f in environment.lock.yml renv.lock dpkg-status os-release; do
   [[ -s $ARTIFACTS/$f ]] && cp "$ARTIFACTS/$f" "$OUT/"
 done
 # suma qcow2 policzona przy budowaniu (sam obraz jest poza wydaniem w 12a)
