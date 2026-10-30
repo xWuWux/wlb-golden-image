@@ -12,6 +12,13 @@ pierwszym Laboratorium na klastrze).
 
 ---
 
+## Niewydane
+
+- **SIEM / Wazuh (#17):** dekodery RFC 5424, reguły zdarzeń i audytu oraz testy
+  na menedżerze Wazuh dla próbki i logu integracyjnego. Instrukcja i ograniczenia:
+  [`observability/siem/wazuh/README.md`](observability/siem/wazuh/README.md).
+  Retencja oraz wdrożenie i weryfikacja w środowisku docelowym pozostają do uzgodnienia.
+
 ## Stan obecny (2026-10-29)
 
 **Czym jest obraz.** Niezmienne (immutable) qcow2 na bazie Ubuntu 24.04 z

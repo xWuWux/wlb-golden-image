@@ -19,6 +19,7 @@ import argparse
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import yaml
@@ -184,6 +185,57 @@ def check_static(root: Path, contract: dict) -> list[str]:
         errors.append(
             f"SIEM: rsyslog bez pól zaufanych nadawcy ({trusted_input.get('marker')!r} w {trusted_input.get('file')})"
         )
+    return errors + check_wazuh(root, contract)
+
+
+def wazuh_rules(path: Path) -> dict[int, set[str]]:
+    """Reguły z pliku Wazuh: id -> grupy (z <group> reguły i z otaczającego <group name=...>)."""
+    rules: dict[int, set[str]] = {}
+    # S314: parsujemy wyłącznie pliki z repozytorium (przegląd w PR), nie dane z zewnątrz
+    for block in ET.fromstring(f"<root>{path.read_text()}</root>").iter("group"):  # noqa: S314  # nosec B314
+        outer = {g for g in (block.get("name") or "").split(",") if g}
+        for rule in block.findall("rule"):
+            own = {g for el in rule.findall("group") for g in (el.text or "").split(",") if g}
+            rules[int(rule.get("id"))] = outer | own
+    return rules
+
+
+def check_wazuh(root: Path, contract: dict) -> list[str]:
+    """Każde zdarzenie wskazuje istniejącą regułę Wazuh z grupą wlb_ev_<nazwa> (#17)."""
+    wazuh = contract.get("wazuh")
+    if not wazuh:
+        return ["Wazuh: brak sekcji wazuh (dekodery i reguły dla SIEM, #17)"]
+    errors: list[str] = []
+    for key in ("decoders", "rules", "sample"):
+        if not (root / wazuh.get(key, "")).is_file():
+            errors.append(f"Wazuh: plik {key} {wazuh.get(key)!r} nie istnieje")
+    if errors:
+        return errors
+    try:
+        ET.fromstring(f"<root>{(root / wazuh['decoders']).read_text()}</root>")  # noqa: S314  # nosec B314
+        rules = wazuh_rules(root / wazuh["rules"])
+    except ET.ParseError as e:
+        return [f"Wazuh: niepoprawny XML ({e})"]
+    seen: dict[int, str] = {}
+    for ev in contract.get("events", []):
+        name, rid = ev["name"], ev.get("wazuh_rule")
+        if not isinstance(rid, int):
+            errors.append(f"zdarzenie {name}: brak wazuh_rule (id reguły Wazuh)")
+            continue
+        if rid in seen:
+            errors.append(f"zdarzenie {name}: wazuh_rule {rid} używa już {seen[rid]}")
+        seen[rid] = name
+        if rid not in rules:
+            errors.append(f"zdarzenie {name}: reguły {rid} nie ma w {wazuh['rules']}")
+        elif f"wlb_ev_{name}" not in rules[rid]:
+            errors.append(f"zdarzenie {name}: reguła {rid} nie ma grupy wlb_ev_{name}")
+    named = {f"wlb_ev_{ev['name']}" for ev in contract.get("events", [])}
+    for rid, groups in sorted(rules.items()):
+        stray = sorted(g for g in groups if g.startswith("wlb_ev_") and g not in named)
+        errors += [f"Wazuh: reguła {rid} ma grupę {g} zdarzenia spoza kontraktu" for g in stray]
+    audit_rid = contract.get("audit", {}).get("wazuh_rule")
+    if audit_rid not in rules:
+        errors.append(f"audyt: wazuh_rule {audit_rid!r} nie istnieje w {wazuh['rules']}")
     return errors
 
 
@@ -252,6 +304,10 @@ def event_matches(ev: dict, rec: dict, sd_id: str = "") -> tuple[bool, str, str]
     """(czy rekord ma treść tego zdarzenia, problem z wartościami, powód braku zaufania) — puste, gdy OK."""
     src, msg = ev["source"], rec["msg"]
     if "tag" in src and rec["app"] != src["tag"]:
+        return False, "", ""
+    # Zdarzenia usług bez własnego tagu (journal_unit): jednostki systemd nie ma w strumieniu, jest
+    # identyfikator programu (#17). Bez tego ten sam tekst od innego programu roota byłby zdarzeniem.
+    if "syslog_app" in src and rec["app"] != src["syslog_app"]:
         return False, "", ""
     values: dict[str, str] = {}
     problem = ""
