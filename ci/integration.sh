@@ -4,7 +4,8 @@
 #   2. VM z cloud-init Laboratorium testowego + kryteria akceptacji MVP
 #   3. migracja: nowa VM na istniejącym dysku roboczym (konta, UID, pliki, baza huba)
 #   4. obserwowalność: zdarzenia z observability/contract.yml docierają do logu centralnego
-#      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem)
+#      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem), a dekodery i reguły
+#      Wazuh parsują ten log na nazwane pola i rozpoznają podrobione wpisy (#17)
 #   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
 #   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
 #   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
@@ -176,6 +177,13 @@ siem_delivery() {
   }
   echo "Odebrano $(wc -l <"$LOGS/siem.log") zdarzeń"
   python3 ci/observability_contract.py verify-log "$LOGS/siem.log" --expect-untrusted sluza_out.export_request
+}
+
+# Ten sam log, który dotarł do testowego SIEM, przez prawdziwy menedżer Wazuh (#17). Próbka w etapie 3.5
+# sprawdza wszystkie zdarzenia; tu — że dekodery nadążają za tym, co obraz faktycznie wysyła.
+siem_wazuh() {
+  [[ -s $LOGS/siem.log ]] || return 1
+  ci/wazuh-logtest.sh "$LOGS/siem.log" --expect-untrusted sluza_out.export_request
 }
 
 migration() {
@@ -354,6 +362,7 @@ build_image
 endstep
 run_check "Kryteria akceptacji MVP" acceptance
 run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
+run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 run_check "Jedno jądro w obrazie (#9)" kernel_single
