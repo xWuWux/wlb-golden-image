@@ -2,12 +2,13 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-29). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
 ### #4 — Kolejka eksportu na jednorazowym dysku systemowym — utrata wniosków przy wymianie obrazu  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Badacz nie ma dostępu do kolejki`
+- `tests/acceptance.d/70-radiologia.sh` — `3DSlicer na PATH (Slicer)`, `3DSlicer startuje pod wirtualnym X — biblioteki xcb + Qt (#4)`, `FSLeyes uruchamia się (--version, #4)`, `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Uruchamialność GUI stosu neuro (#4)*
 - `tests/migration-remote.sh` — `Wniosek o eksport z poprzedniej VM jest w kolejce (#4)`
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`
 
@@ -81,6 +82,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-29). Odświ
 - `tests/acceptance-remote.sh` — `Reguły audytu zablokowane (-e 2)`, `Wpis podrobiony przez badacza ma w journald jego UID (#44)`, `rsyslog bez odmów AppArmor (#44, #6)`
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`
 
+### #51 — Decyzja: zakres uprawnień Administratora Klienta w hubie (dostęp do serwerów i kont badaczy)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Administrator Klienta NIE w users.admin (brak pełnego admina)`, `Uprzywilejowana akcja admina audytowana pod tagiem wlb-hub-audit (#51)`, *5c. Administrator Klienta: rola ograniczona, bez wglądu w dane badacza (IMG-003/#51)*
+- `tests/unit/wlb-firstboot.bats` — `--force nie dubluje admina i nie nadpisuje hasła`, `HUB_ADMIN_USER o nieprawidłowym formacie jest odrzucany (#51)`, `pełna konfiguracja Laboratorium`
+
 ### #53 — Logo IP_CMC na stronie logowania i w nagłówku huba  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Logo na stronie logowania wskazuje /hub/logo (#53)`, `Logo to przesłany plik PNG IP_CMC (#53)`, `Nazwa platformy na stronie logowania (#53)`, *5b. Identyfikacja IP_CMC i pomoc (#53, #54)*
 
@@ -104,16 +109,24 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-29). Odświ
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
 
+### #84 — CI: zmiany dokumentacji w obrazie nie powinny wyzwalać etapu 5 (allowlista changes.sh)  ·  _otwarte_
+- `tests/unit/changes.bats` — `push tylko z CHANGELOG.md: etap 5 pominięty (#84)`
+
 ### #86 — CI: etap 5/6a rzadziej lub lokalnie — bramkowanie weryfikacji ciężkiej (do czasu self-hosted #25)  ·  _otwarte_
 - `tests/unit/changes.bats` — `PR bez etykiet: etap 5/6 pominięty (#86)`, `PR z etykietą run-integration: etap 5 na żądanie (#86)`, `PR ze zmianą poza siecią, bez etykiety: bez etapu 5 (#86)`
 
 ### #97 — Hooki sesji badacza (pre/post-spawn): montaż, znacznik audytu, sprzątanie — inspiracja AppStream  ·  _otwarte_
 - `tests/acceptance.d/50-hooki-sesji.sh` — `Config hooka 80-wlb-session.py obecny i poprawny składniowo (#97)`, `Emiter sesji trafia do journala z tagiem wlb-session (#97)`, `Emiter sesji wykonywalny (#97)`, *Hooki cyklu życia sesji badacza + emiter SIEM (#97)*
 
-### #98 — Raporty użycia sesji do planowania pojemności — inspiracja AppStream  ·  _otwarte_
-- `tests/acceptance.d/60-raport-uzycia.sh` — `Badacz nie czyta raportów użycia (#98)`, `Katalog raportów 0750, nie dla badaczy (#98)`, `Probka niesie BootID i InvocationID (#98)`, `Probka z obcego bootu -> no_samples i null, nie zero udajace pomiar (#98)`, `Rekord complete: tozsama probka w oknie sesji, pelne wartosci (#98)`, `Rekord użycia wykonywalny (#98)`, `Sampler użycia wykonywalny (#98)`, `Sampler łowi rzeczywista jednostke serwera badacza (#98)`, `Samplera na zywej jednostce — serwer $R1 nieaktywny w tym punkcie akceptacji`, `Timer samplera włączony (#98)`, *Raport użycia/pojemności sesji (#98)*
+### #98 — Raporty użycia sesji do planowania pojemności — inspiracja AppStream  ·  _scalone_
+- `tests/acceptance.d/60-raport-uzycia.sh` — `Badacz nie czyta raportów użycia (#98)`, `Katalog raportów 0750, nie dla badaczy (#98)`, `Katalog stanu korelacji nie do odczytu przez badacza (#98)`, `Plik raportu 0640 od narodzin (#98)`, `Probka niesie BootID i InvocationID (#98)`, `Probka z obcego bootu -> no_samples i null, nie zero udajace pomiar (#98)`, `Reguła tmpfiles dla katalogu stanu (#98)`, `Rekord complete: tozsama probka w oknie sesji, pelne wartosci (#98)`, `Rekord użycia wykonywalny (#98)`, `Sampler użycia wykonywalny (#98)`, `Sampler łowi rzeczywista jednostke serwera badacza (#98)`, `Samplera na zywej jednostce — serwer $R1 nieaktywny w tym punkcie akceptacji`, `Timer samplera włączony (#98)`, *Raport użycia/pojemności sesji (#98)*
 - `tests/unit/wlb-usage-record.bats` — `UINT64_MAX i [not set] to brak pomiaru, nie rozmiar (#98)`, `brak próbki -> no_samples i null, nigdy zero udające pomiar (#98)`, `cudzolow i polskie znaki w lab nie psuja JSON — rekord caly sie parsuje (#98)`, `niepoprawny czas trwania -> duration null, status partial (#98)`, `próbka spoza okna sesji -> odrzucona z powodem (dziedzictwo po poprzedniej sesji) (#98)`, `próbka z innego bootu jest odrzucana (nie przezywa reboota jako 'nasza') (#98)`, `spójna próbka tej samej sesji -> rekord complete z pelnymi danymi (#98)`, `zle uzycie (za malo argumentow) konczy sie 2 bez zapisu (#98)`
 - `tests/unit/wlb-usage-sampler.bats` — `aktywna jednostka: pelna tozsamosc probki i pomiar zapisane (#98)`, `brak aktywnych jednostek: zadnych plikow i zadnego awaryjnego tmp (#98)`, `konwencje systemd ([not set], UINT64_MAX) to brak klucza, nie zero (#98)`, `ta sama instancja: CPUIntervalMax z delty; nowa instancja interval resetuje (#98)`
+
+### #102 — Weryfikacja architektury: model kont WLB (nazwane vs bezosobowe uNN) wg standardu  ·  _otwarte_
+- `tests/acceptance-remote.sh` — *0. Konta bezosobowe uNN/a01 pre-provisionowane; self-signup wyłączony (IMG-002/#102)*
+- `tests/unit/test_wlb_hub_user.py` — *Tryby odczytu dla bezpiecznego provisioningu w wlb-firstboot (#102)*
+- `tests/unit/wlb-firstboot.bats` — `HUB_ADMIN_USER nie może używać przestrzeni kont badaczy, nawet poza aktualną pulą (#102)`, `RESEARCHER_ACCOUNTS: błędny zapis i przepełnienie są odrzucane przed provisioningiem (#102)`, `pełna konfiguracja Laboratorium`, `plik hasła bez konta — konto nie jest odtwarzane, ostrzeżenie (#102)`, `plik oczekujący bez konta (przerwanie przed zapisem w bazie) — konto z hasłem z pliku (#102)`, `plik oczekujący, konto z dysku roboczego ma inne hasło — hasło bez zmian (#102)`, `pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)`, `przerwanie po zapisie konta, przed plikiem hasła — ponowienie odzyskuje hasło (#102)`, *Przerwanie provisioningu kont (#102)*
 
 ### #105 — Flavor „pod pamięć”: pulpit w przeglądarce + aplikacje GUI (arkusz, zamiennik Prism) i kafelek Leaf  ·  _otwarte_
 - `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
@@ -128,9 +141,14 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-29). Odświ
 ### #123 — Bramka etapu 1: nierozwiązane znaczniki konfliktu gita w plikach nielintowanych  ·  _scalone_
 - `tests/unit/test_conflict_markers.py` — *Bramka znacznikow konfliktu (#123)*
 
+### #129 — osv-scanner/image-SCA: ekosystem Ubuntu czytany z hosta, nie z VM — asercja VERSION_ID  ·  _scalone_
+- `tests/unit/release.bats` — `release.sh: brak dpkg-status zatrzymuje wydanie przed kopiowaniem (#129)`, `release.sh: niezgodna para tozsamosci OS zatrzymuje wydanie (#129)`
+- `tests/unit/test_image_identity.py` — `test_main_niezgodnosc_wychodzi_2_kodem`
+- `tests/unit/wlb-sbom-gate.bats` — `SBOM bez dpkg-status pada, nie ostrzega (#129)`, `nieznane wydanie obrazu blokuje SBOM niezaleznie od hosta (#129)`, `obca dystrybucja z tym samym VERSION_ID odrzucona (#129)`, `pelna zgodna para tozsamosci przechodzi do skanu (#129)`
+
 ### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
 - `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
-- `tests/acceptance.d/70-radiologia.sh` — *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
+- `tests/acceptance.d/70-radiologia.sh` — `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Kafelki pulpitu stosu neuro (#135)*, *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 - `tests/unit/changes.bats` — `radiologia: etykieta build-radiologia wyzwala flavor na żądanie (#135)`, `radiologia: zmiana plików flavora wyzwala build+test radiologii (#135)`, `radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)`
 
 ### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
@@ -139,7 +157,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-29). Odświ
 ### #157 — Testy #65/AppArmor (20-apparmor.sh): expect_fail na complain oblewa POPRAWNY obraz  ·  _scalone_
 - `tests/acceptance.d/20-apparmor.sh` — `apparmor-utils zainstalowany (aa-enforce, aa-status)`
 
-### #180 — CI: kontrakt zmiennych wdrożeniowych (lab.env ↔ wlb-firstboot ↔ przykłady cloud-init)  ·  _otwarte_
+### #162 — Decyzje operacyjne eksportu/śluzy przed produkcją (akceptacja warunkowa #147)  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Powód odrzucenia dowiązania czytelny dla badacza (#162)`, `W kolejce nie ma dowiązań ani plików specjalnych (#29)`
+- `tests/unit/wlb-sluza-out-mover.bats` — `dowiązanie symboliczne jest odrzucane i usuwane`, `odrzucenie zostawia badaczowi czytelny plik z powodem (#162/IMG-008)`
+
+### #180 — CI: kontrakt zmiennych wdrożeniowych (lab.env ↔ wlb-firstboot ↔ przykłady cloud-init)  ·  _scalone_
 - `tests/unit/test_deployment_vars.py` — *kontrakt zmiennych wdrożeniowych (#180)*
 
 ## Uwagi

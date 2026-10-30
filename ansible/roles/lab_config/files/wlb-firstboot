@@ -638,31 +638,69 @@ write_nftables 1
 # znajdują się w /root (0600), do którego Administrator Klienta nie ma dostępu. Operator platformy
 # odpowiada za kontrolowane przekazanie poświadczeń i rejestr przypisań osoba↔konto. Istniejące konto
 # na dysku roboczym pozostaje bez zmiany hasła; przekazanie stanowiska wymaga osobnej procedury.
-provision_hub_account() { # provision_hub_account LOGIN PLIK_HASŁA
-  local login=$1 pwfile=$2 created=0 password="" attempt
-  [[ -s $pwfile ]] && return 0
-  # Ponawiamy: przy działającym hubie baza bywa chwilowo zablokowana (#31). Bez tego błąd przerwałby
-  # firstboot po cichu (set -e) — nie powstałby firstboot.done, więc reguły audytu nie zostałyby
-  # zablokowane. Narzędzie samo czeka na blokadę (LOCK_TIMEOUT); tu łapiemy resztę.
+HUB_USER_MISSING=3  # wlb-hub-user --check/--verify: brak konta
+HUB_USER_MISMATCH=4 # wlb-hub-user --verify: konto istnieje z innym hasłem
+# hub_user_call HASŁO ARGUMENTY... — narzędzie kont z hasłem na stdin (puste dla --check). Kody 0/3/4
+# to odpowiedzi; inne oznaczają błąd (zwykle chwilowo zablokowana baza huba, #31) i są ponawiane.
+# Trwały błąd przerywa firstboot przed firstboot.done — reguły audytu nie zostaną cicho pominięte.
+hub_user_call() {
+  local password=$1 attempt rc
+  shift
   for attempt in 1 2 3; do
-    if password=$("$HUB_USER_TOOL" --if-missing "$login"); then
-      created=1
-      break
-    fi
-    log "konto huba ${login}: próba ${attempt}/3 nieudana (baza huba zajęta?) — ponawiam"
+    rc=0
+    printf '%s\n' "$password" | "$HUB_USER_TOOL" "$@" || rc=$?
+    case $rc in
+      0 | "$HUB_USER_MISSING" | "$HUB_USER_MISMATCH") return "$rc" ;;
+    esac
+    log "konto huba (${*}): próba ${attempt}/3 nieudana (kod ${rc}, baza huba zajęta?) — ponawiam"
     sleep "$HUB_USER_RETRY_SLEEP"
   done
-  ((created == 1)) || die "nie udało się założyć konta huba ${login} po 3 próbach (baza zajęta?)"
-  if [[ -n $password ]]; then
-    mkdir -p "$(dirname "$pwfile")"
+  die "nie udało się założyć konta huba (${*}) po 3 próbach (baza zajęta?)"
+}
+
+# Hasło początkowe przechodzi przez plik oczekujący: zapis przed bazą, zmiana nazwy dopiero po
+# potwierdzeniu hasła w bazie (--verify). Przerwanie w dowolnym miejscu zostawia stan rozpoznawalny
+# przy ponowieniu — konto nie zostaje z hasłem, którego nikt nie zna (#102). Plik hasła bez konta
+# nie odtwarza konta: mogło zostać celowo odebrane, więc decyzja należy do operatora platformy.
+provision_hub_account() { # provision_hub_account LOGIN PLIK_HASŁA
+  local login=$1 pwfile=$2 pending=$2.pending password rc
+  if [[ -s $pwfile ]]; then
+    rc=0
+    hub_user_call "" --check "$login" || rc=$?
+    ((rc != HUB_USER_MISSING)) ||
+      log "uwaga: brak konta huba ${login} mimo pliku hasła ${pwfile#"$R"} — nie odtwarzam (konto mogło zostać odebrane); decyzja operatora platformy"
+    return 0
+  fi
+  if [[ ! -s $pending ]]; then
+    rc=0
+    hub_user_call "" --check "$login" || rc=$?
+    if ((rc == 0)); then
+      log "konto huba ${login} już istnieje (dysk roboczy) — hasło bez zmian"
+      return 0
+    fi
+    mkdir -p "$(dirname "$pending")"
+    password=$(head -c 18 /dev/urandom | base64 | tr '+/' '-_')
     (
       umask 077
-      printf '%s\n' "$password" >"$pwfile"
+      printf '%s\n' "$password" >"$pending.tmp"
     )
-    log "konto huba ${login} utworzone; hasło początkowe: ${pwfile#"$R"}"
-  else
-    log "konto huba ${login} już istnieje (dysk roboczy) — hasło bez zmian"
+    mv -f "$pending.tmp" "$pending"
   fi
+  password=$(<"$pending")
+  hub_user_call "$password" --if-missing --password-stdin "$login"
+  rc=0
+  hub_user_call "$password" --verify "$login" || rc=$?
+  case $rc in
+    0)
+      mv -f "$pending" "$pwfile"
+      log "konto huba ${login} utworzone; hasło początkowe: ${pwfile#"$R"}"
+      ;;
+    "$HUB_USER_MISMATCH")
+      rm -f "$pending"
+      log "konto huba ${login} już istnieje (dysk roboczy) — hasło bez zmian"
+      ;;
+    *) die "konto huba ${login} nie powstało mimo wywołania narzędzia (kod ${rc})" ;;
+  esac
 }
 
 provision_hub_account "$HUB_ADMIN_USER" "$ADMIN_PASSWORD_FILE"

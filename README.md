@@ -243,9 +243,10 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
 - **TLJH 2.0.0** (JupyterHub 5) zamiast 1.x. To aktualne wydanie, wersja przypięta w `group_vars/all.yml`.
 - **Admini huba bez sudo.** TLJH domyślnie daje administratorom huba pełne sudo. Wyłączyliśmy to, bo
   Administrator Klienta nie powinien móc zmieniać logów (§21) ani instalować oprogramowania (§24.c).
-- **Konta badaczy** zakłada Administrator Klienta, zatwierdzając wniosek w `/hub/authorize`,
-  albo administrator platformy przez `wlb-hub-user <login>`. Samodzielna rejestracja
-  (`open_signup`) jest wyłączona.
+- **Konta badaczy** to stanowiska `u01`…`uNN` tworzone przez `wlb-firstboot`
+  (`RESEARCHER_ACCOUNTS`, IMG-002); Administrator Klienta to `a01`. Samodzielna rejestracja
+  jest wyłączona. Hasła początkowe wydaje operator platformy; rejestr przypisań i przekazanie
+  stanowiska są jeszcze otwarte (#102). Szczegóły: [przewodnik administratora](docs/przewodnik-administratora.md).
 - **UID badaczy od 10000.** Reguły audytu i zapory odróżniają w ten sposób badaczy od
   administratorów platformy (w user-data `uid: 1001`).
 - **RStudio** działa przez JupyterLab (`jupyter-rsession-proxy`), a nie na osobnym porcie. Konta
