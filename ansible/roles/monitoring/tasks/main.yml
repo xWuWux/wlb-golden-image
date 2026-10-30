@@ -13,12 +13,12 @@
     content: |
       [Service]
       ExecStart=
-      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb/node-exporter
+      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter
   notify: Restart node exporter
 
 - name: Katalog metryk textfile
   ansible.builtin.file:
-    path: /var/lib/wlb/node-exporter
+    path: /var/lib/wlb-node-exporter
     state: directory
     owner: root
     group: root
@@ -37,3 +37,30 @@
     daemon_reload: true
     enabled: true
     state: started
+
+- name: Kolektor zagregowanego stanu WLB (#22)
+  ansible.builtin.copy:
+    src: wlb-health
+    dest: /usr/local/sbin/wlb-health
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Jednostki kolektora stanu WLB
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - wlb-health.service
+    - wlb-health.timer
+  notify: Restart wlb health timer
+
+- name: Uruchom cykliczny kolektor stanu WLB
+  ansible.builtin.systemd:
+    name: wlb-health.timer
+    enabled: true
+    state: started
+    daemon_reload: true

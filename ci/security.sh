@@ -13,7 +13,7 @@ sast_semgrep() {
 }
 
 sast_bandit() {
-  bandit -q -ll ci/*.py ansible/roles/tljh/files/wlb-hub-user
+  bandit -q -ll ci/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/monitoring/files/wlb-health
 }
 
 iac_checkov() {

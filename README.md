@@ -195,6 +195,9 @@ Wyniki trafiają do artefaktu `ci-telemetry` i podsumowania. Po ustawieniu zmien
 do kolektora OTLP/HTTP. Działa to dopiero po scaleniu do `main`, bo GitHub uruchamia `workflow_run`
 tylko z gałęzi domyślnej.
 
+Lokalny timer `wlb-health` udostępnia zagregowane metryki stanu i poprawności pomiarów przez
+node_exportera; semantykę, diagnostykę i ograniczenia opisuje [runbook](docs/runbooks/RB-wlb-health.md).
+
 **Czego celowo nie ma:**
 - **śladów rozproszonych w VM,** bo nie ma tam usług wywołujących się nawzajem (zdarzenia koreluje się
   po `user`, `uid` i `session`),

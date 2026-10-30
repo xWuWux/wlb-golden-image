@@ -1,0 +1,16 @@
+[Unit]
+Description=Zagregowane metryki stanu WLB
+After=local-fs.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/wlb/image.conf
+ExecStart=/usr/local/sbin/wlb-health
+TimeoutStartSec=45s
+MemoryMax=256M
+TasksMax=32
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/wlb-node-exporter

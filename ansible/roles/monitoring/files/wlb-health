@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Zbierz wyłącznie zagregowane metryki WLB dla lokalnego node_exportera."""
+
+import json
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+OUTPUT = Path("/var/lib/wlb-node-exporter/wlb-health.prom")
+QUEUE = Path(os.environ.get("WLB_EXPORT_QUEUE", "/workspace/.wlb-export-queue"))
+MAX_MANIFEST = 64 * 1024 * 1024
+MAX_BUNDLES = 100000
+MAX_TOTAL_MANIFEST_BYTES = 128 * 1024 * 1024
+MAX_TOTAL_ENTRIES = 1000000
+
+
+def workspace_mounted() -> bool:
+    # mountinfo rozpoznaje także bind-mount, dla którego os.path.ismount bywa fałszywe.
+    with open("/proc/self/mountinfo", encoding="utf-8") as mounts:
+        return any(len(fields) > 4 and fields[4] == "/workspace" for fields in map(str.split, mounts))
+
+
+def queue_metrics(path: Path) -> tuple[int, int, int]:
+    """Policz kompletne pakiety i bajty logiczne z manifestów; kwarantanna osobno.
+
+    Brak dostępu lub błędny manifest jest błędem, a nie pustą kolejką. Nie czytamy
+    payloadu ani kontrolowanych przez badaczy katalogów .incoming.
+    """
+    if path.is_relative_to(Path("/workspace")) and not workspace_mounted():
+        raise ValueError("brak zamontowanego workspace")
+    count = size = incoming = total_bytes = total_entries = 0
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        with os.scandir(fd) as entries:
+            for index, entry in enumerate(entries):
+                if index >= MAX_BUNDLES:
+                    raise ValueError("limit wpisów kolejki")
+                if entry.name == ".mover.lock":
+                    continue
+                if entry.name.startswith(".incoming."):
+                    if not entry.is_dir(follow_symlinks=False):
+                        raise ValueError("nieprawidłowa kwarantanna")
+                    incoming += 1
+                    continue
+                if entry.name.startswith(".") or not entry.is_dir(follow_symlinks=False):
+                    raise ValueError("nieznany wpis kolejki")
+                bundle = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                try:
+                    manifest = os.open("manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=bundle)
+                    try:
+                        info = os.fstat(manifest)
+                        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_MANIFEST:
+                            raise ValueError("nieprawidłowy manifest")
+                        with os.fdopen(manifest, "rb", closefd=False) as f:
+                            data = f.read(MAX_MANIFEST + 1)
+                        total_bytes += len(data)
+                        if len(data) > MAX_MANIFEST or total_bytes > MAX_TOTAL_MANIFEST_BYTES:
+                            raise ValueError("limit rozmiaru manifestów")
+                        obj = json.loads(data)
+                        if obj.get("schema_version") != 1 or obj.get("state") != "pending_review":
+                            raise ValueError("nieznany format manifestu")
+                        if not isinstance(obj["entries"], list) or len(obj["entries"]) > MAX_BUNDLES:
+                            raise ValueError("nieprawidłowy spis")
+                        total_entries += len(obj["entries"])
+                        if total_entries > MAX_TOTAL_ENTRIES:
+                            raise ValueError("limit wpisów manifestów")
+                        for item in obj["entries"]:
+                            value = item["size"]
+                            if type(value) is not int or value < 0 or item["type"] not in ("file", "directory"):
+                                raise ValueError("nieprawidłowy rozmiar")
+                            if item["type"] == "file":
+                                size += value
+                        count += 1
+                    finally:
+                        os.close(manifest)
+                finally:
+                    os.close(bundle)
+    finally:
+        os.close(fd)
+    return count, size, incoming
+
+
+def siem_spool_bytes(path: Path) -> int:
+    """Rozmiar plików kolejki na dysku, nie wielkość kolejki w pamięci."""
+    total = 0
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        with os.scandir(fd) as entries:
+            for index, entry in enumerate(entries):
+                if index >= MAX_BUNDLES:
+                    raise ValueError("limit wpisów spool")
+                if entry.name == "wlb_siem.qi" or entry.name.startswith("wlb_siem."):
+                    info = entry.stat(follow_symlinks=False)
+                    if not stat.S_ISREG(info.st_mode):
+                        raise ValueError("nieprawidłowy plik spool")
+                    total += info.st_size
+    finally:
+        os.close(fd)
+    return total
+
+
+def service_active(name: str) -> int:
+    # Stałe argv bez powłoki; nazwa jednostki pochodzi z kodu.
+    result = subprocess.run(  # noqa: S603  # nosec B603
+        ["/usr/bin/systemctl", "is-active", "--quiet", name], check=False, timeout=5
+    )
+    if result.returncode not in (0, 3):
+        raise ValueError("nieznany stan usługi")
+    return int(result.returncode == 0)
+
+
+def sample(queue: Path) -> str:
+    metrics = [
+        "# WLB: brak wartości oznacza nieudany pomiar, nie zero.",
+        f"wlb_health_timestamp_seconds {int(time.time())}",
+    ]
+    try:
+        count, size, incoming = queue_metrics(queue)
+        metrics.extend(
+            [
+                "wlb_health_queue_collect_success 1",
+                f"wlb_export_queue_bundles {count}",
+                f"wlb_export_queue_payload_bytes {size}",
+                f"wlb_export_queue_incoming {incoming}",
+            ]
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        metrics.append("wlb_health_queue_collect_success 0")
+    try:
+        size = siem_spool_bytes(Path("/var/spool/rsyslog"))
+        metrics.extend(["wlb_health_siem_spool_collect_success 1", f"wlb_siem_spool_file_bytes {size}"])
+    except (OSError, ValueError):
+        metrics.append("wlb_health_siem_spool_collect_success 0")
+    for label, path in (("root", "/"), ("audit", "/var/log/audit")):
+        try:
+            info = os.statvfs(path)
+            metrics.extend(
+                [
+                    f'wlb_health_filesystem_collect_success{{scope="{label}"}} 1',
+                    f'wlb_health_filesystem_available_bytes{{scope="{label}"}} {info.f_bavail * info.f_frsize}',
+                ]
+            )
+        except OSError:
+            metrics.append(f'wlb_health_filesystem_collect_success{{scope="{label}"}} 0')
+    try:
+        metrics.extend(
+            ["wlb_health_auditd_collect_success 1", f"wlb_health_auditd_active {service_active('auditd.service')}"]
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        metrics.append("wlb_health_auditd_collect_success 0")
+    try:
+        # Stałe polecenie bez powłoki.
+        tracking = subprocess.run(  # nosec B603
+            ["/usr/bin/chronyc", "-c", "tracking"], capture_output=True, text=True, check=True, timeout=5
+        )
+        leap = tracking.stdout.strip().split(",")[-1].strip()
+        if leap not in ("Normal", "Insert second", "Delete second", "Not synchronised"):
+            raise ValueError("nieznany stan chrony")
+        metrics.extend(
+            ["wlb_health_chrony_collect_success 1", f"wlb_health_chrony_synchronised {int(leap != 'Not synchronised')}"]
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        metrics.append("wlb_health_chrony_collect_success 0")
+    return "\n".join(metrics) + "\n"
+
+
+def publish(output: Path, content: str) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=".wlb-health-", dir=output.parent)
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, output)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def main() -> int:
+    try:
+        publish(OUTPUT, sample(QUEUE))
+        print("wlb-health: próbka opublikowana; stan poszczególnych pomiarów w metrykach")
+        return 0
+    except OSError:
+        print("wlb-health: nie udało się opublikować próbki", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

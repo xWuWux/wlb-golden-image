@@ -1,0 +1,10 @@
+[Unit]
+Description=Okresowy pomiar stanu WLB
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Unit=wlb-health.service
+
+[Install]
+WantedBy=timers.target
