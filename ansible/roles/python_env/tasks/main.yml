@@ -89,16 +89,15 @@
   when: wlb_prepare_versioned_python | default(false) | bool
   block:
     - name: Sprawdź status huba przed migracją podczas budowy
-      ansible.builtin.command: systemctl is-active --quiet jupyterhub.service
-      register: python_env_hub_active
-      changed_when: false
-      failed_when: python_env_hub_active.rc not in [0, 3, 4]
+      ansible.builtin.systemd:
+        name: jupyterhub.service
+      register: python_env_hub_status
 
     - name: Zatrzymaj hub podczas przygotowania prefiksu obrazu
       ansible.builtin.systemd:
         name: jupyterhub.service
         state: stopped
-      when: python_env_hub_active.rc == 0
+      when: python_env_hub_status.status.ActiveState == 'active'
 
     - name: Klonuj środowisko i przygotuj dowiązanie
       block:
@@ -126,4 +125,4 @@
           ansible.builtin.systemd:
             name: jupyterhub.service
             state: started
-          when: python_env_hub_active.rc == 0
+          when: python_env_hub_status.status.ActiveState == 'active'
