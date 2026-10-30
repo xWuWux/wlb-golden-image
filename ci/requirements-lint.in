@@ -3,5 +3,5 @@
 # Stage 1–2: lint, format, walidacja. Aktualizacje: Dependabot (pip).
 ansible-lint==26.10.1
 yamllint==1.38.0
-ruff==0.17.1
+ruff==0.17.2
 PyYAML==6.0.3
