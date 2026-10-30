@@ -70,6 +70,15 @@
     mode: "0644"
   notify: Reload hub
 
+# Audyt uprzywilejowanych akcji Administratora Klienta do SIEM (IMG-003/#51). Rola ograniczona
+# (15-wlb-admin-role.py) powstaje dynamicznie w wlb-firstboot z HUB_ADMIN_USER; audyt jest statyczny.
+- name: Audyt akcji Administratora Klienta dla roli ograniczonej (IMG-003/#51)
+  ansible.builtin.copy:
+    src: 16-wlb-admin-audit.py
+    dest: /opt/tljh/config/jupyterhub_config.d/16-wlb-admin-audit.py
+    mode: "0644"
+  notify: Reload hub
+
 # Hooki cyklu życia sesji badacza (#97): korelacja sesji Huba dla SIEM (§21), fundament raportu #98.
 - name: Katalog narzędzi WLB
   ansible.builtin.file:
