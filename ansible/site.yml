@@ -14,6 +14,7 @@
       when: wlb_desktop_enabled | bool
     - audit
     - logging
+    - monitoring
     - lab_config
 
   post_tasks:

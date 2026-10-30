@@ -1,0 +1,39 @@
+# Pakiet domyślnie nasłuchuje na wszystkich interfejsach. Drop-in powstaje przed instalacją,
+# a policy_rc_d blokuje automatyczny start podczas instalacji.
+- name: Katalog konfiguracji node_exporter
+  ansible.builtin.file:
+    path: /etc/systemd/system/prometheus-node-exporter.service.d
+    state: directory
+    mode: "0755"
+
+- name: Lokalny nasłuch node_exporter (#22)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/prometheus-node-exporter.service.d/10-wlb.conf
+    mode: "0644"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb/node-exporter
+  notify: Restart node exporter
+
+- name: Katalog metryk textfile
+  ansible.builtin.file:
+    path: /var/lib/wlb/node-exporter
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Instalacja node_exporter bez automatycznego startu
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    install_recommends: false
+    policy_rc_d: 101
+
+- name: Uruchomienie node_exporter
+  ansible.builtin.systemd:
+    name: prometheus-node-exporter.service
+    daemon_reload: true
+    enabled: true
+    state: started
