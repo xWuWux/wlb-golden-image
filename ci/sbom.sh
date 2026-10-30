@@ -12,10 +12,13 @@ ARTIFACTS=${1:?podaj katalog artefaktów obrazu}
 OUT=${2:?podaj plik wyjściowy SBOM}
 require osv-scanner python3
 
-# distro w PURL pakietów deb bierze się z /etc/os-release hosta skanującego — wydanie buduje
-# runner ubuntu-24.04 (noble). Na innym hoście PURL byłby błędny (zob. #3).
-grep -q 'VERSION_CODENAME=noble' /etc/os-release 2>/dev/null ||
-  echo "::warning title=SBOM::host skanujący nie jest noble — distro w PURL pakietów deb może być błędne"
+# Distro w PURL pakietów deb bierze się z /etc/os-release PROCESU skanującego (#129/#3).
+# SBOM bez dpkg-status byłby niekompletny (brak pakietów deb) — to błąd, nie ostrzeżenie:
+# fail-secure, brak wejścia = brak SBOM = brak publikacji (release.sh nie eskaluje warningów).
+[[ -s $ARTIFACTS/dpkg-status ]] ||
+  die "brak dpkg-status — SBOM obrazu bez pakietów systemowych jest niekompletny (#129)"
+python3 ci/image_identity.py "$ARTIFACTS" ||
+  die "walidacja tożsamości OS dla SBOM nieudana (#129) — publikacja zablokowana"
 
 mkdir -p "$(dirname "$OUT")" build/sca
 inputs=()

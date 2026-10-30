@@ -24,6 +24,12 @@ COMMIT=$(git rev-parse HEAD)
 ARTIFACTS=${2:-$(find . -type d -path '*/build/artifacts/wlb-general-*' 2>/dev/null | sort | tail -1)}
 [[ -n $ARTIFACTS && -d $ARTIFACTS ]] || die "nie znaleziono katalogu artefaktów obrazu (build/artifacts/wlb-general-*)"
 [[ -s $ARTIFACTS/image-release ]] || die "brak image-release w ${ARTIFACTS}"
+# #129: tożsamość OS broni release przed kopiowaniem — pozna awaria w sbom.sh
+# zastalaby katalog wydania częściowo wypełniony.
+[[ -s $ARTIFACTS/dpkg-status ]] ||
+  die "release: brak dpkg-status — pakiet wydania bez inwentarza systemowego (#129)"
+python3 ci/image_identity.py "$ARTIFACTS" ||
+  die "release: tożsamość OS artefaktów niezweryfikowana lub niezgodna (#129)"
 # manifest i suma qcow2 leżą obok (output/<full>/) — szukamy po nazwie, niezależnie od układu
 MANIFEST=$(find . -name 'packer-manifest.json' 2>/dev/null | head -1)
 
@@ -42,7 +48,7 @@ mkdir -p "$OUT"
 # Metadane wydania (bez qcow2 — jego przechowywanie to #12b)
 cp "$ARTIFACTS/image-release" "$OUT/"
 [[ -n $MANIFEST && -s $MANIFEST ]] && cp "$MANIFEST" "$OUT/packer-manifest.json"
-for f in environment.lock.yml renv.lock dpkg-status; do
+for f in environment.lock.yml renv.lock dpkg-status os-release; do
   [[ -s $ARTIFACTS/$f ]] && cp "$ARTIFACTS/$f" "$OUT/"
 done
 # suma qcow2 policzona przy budowaniu (sam obraz jest poza wydaniem w 12a)

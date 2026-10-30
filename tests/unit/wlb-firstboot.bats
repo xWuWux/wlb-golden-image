@@ -69,6 +69,15 @@ EOF
   [[ $output == *"LAB_NAME jest wymagane"* ]]
 }
 
+@test "HUB_ADMIN_USER o nieprawidłowym formacie jest odrzucany (#51)" {
+  # login trafia do pliku roli huba (15-wlb-admin-role.py) -> chronimy przed wstrzyknięciem do Pythona;
+  # wielkie litery łamią format loginu (^[a-z0-9]...), a są bezpieczne dla sourcowania lab.env
+  sed -i 's/^HUB_ADMIN_USER=.*/HUB_ADMIN_USER=Admin-Klienta/' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"HUB_ADMIN_USER ma nieprawidłowy format"* ]]
+}
+
 @test "pełna konfiguracja Laboratorium" {
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
@@ -124,8 +133,10 @@ EOF
   # śluza wyjściowa restartowana po montowaniach (#4)
   calls | grep -qx 'systemctl restart wlb-sluza-out.service'
 
-  # hub: admin, brak sudo, hasło początkowe tylko dla roota
-  calls | grep -qx 'tljh-config add-item users.admin admin-klienta'
+  # hub: rola OGRANICZONA zamiast pełnego admina (IMG-003/#51), brak sudo, hasło tylko dla roota
+  refute called 'add-item users.admin'
+  grep -q 'wlb-admin-klienta' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
+  grep -q '"admin-klienta"' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
   calls | grep -qx 'tljh-config reload hub'
   [ ! -e "$SANDBOX/etc/sudoers.d/jupyterhub-admins" ]
   [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = haslo-poczatkowe-123 ]
@@ -252,6 +263,8 @@ OS
   run "$FIRSTBOOT" --force
   [ "$status" -eq 0 ]
   refute called add-item
+  # konto było wcześniej pełnym adminem (stub users.admin) -> firstboot je degraduje (IMG-003/#51)
+  calls | grep -q 'remove-item users.admin admin-klienta'
   [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = haslo-poczatkowe-123 ]
 }
 

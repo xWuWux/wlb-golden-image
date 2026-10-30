@@ -6,6 +6,7 @@
 | `/sluza-in`  | dane wejściowe zatwierdzone przez Kontrolera Przesyłu Danych | tylko czytać |
 | `/data-mart` | kohorta OMOP przypisana do Laboratorium            | tylko czytać            |
 | `/sluza-out` | wyniki do eksportu                                 | tylko zapisywać         |
+| `/sluza-odrzucone` | powody odrzuconych wniosków eksportu         | tylko czytać            |
 | `/docs`      | dokumentacja platformy i skrypty pomocnicze        | tylko czytać            |
 
 **Eksport wyników — przygotuj najpierw, skopiuj na końcu:**
@@ -28,6 +29,20 @@ status dla badacza, zgoda Lidera i publikacja pozostają do wdrożenia (#20).
 - Cały katalog kopiuj w całości jednym `cp -r ~/wyniki /sluza-out/`.
 - Nazwy tymczasowe (`.*`, `*.tmp`, `*.part`, `*~`) są pomijane do czasu zmiany nazwy na docelową,
   więc zapis atomowy (plik tymczasowy → zmiana nazwy) nie trafi do kolejki jako niekompletny.
+
+**Ograniczenia eksportu (decyzje operacyjne, IMG-008):**
+
+- **Limit jednego wniosku: 100 GiB i 100 000 plików.** Większy eksport podziel na części albo zgłoś
+  operatorowi — transfery ponad limit idą osobnym trybem, nie przez śluzę.
+- **Odrzucane są:** dowiązania symboliczne i twarde, pliki specjalne (potoki, urządzenia) oraz wnioski,
+  w których pliki mają **różnych właścicieli**. Typowy przypadek: plik skopiowany z `/data-mart` należy
+  do `root`, a nie do Ciebie — użyj `cp` (tworzy kopię Twojej własności), nie dowiązania. **Jeden
+  niepasujący element odrzuca cały wniosek.**
+- **Gdy wniosek zostanie odrzucony**, element znika ze `/sluza-out`, a **powód pojawia się w katalogu
+  `/sluza-odrzucone`** (plik `*.powod.*` z wyjaśnieniem). Jeśli plik zniknął, a nie dotarł do operatora —
+  zajrzyj tam najpierw.
+- **Jeśli eksport przestał działać** (nowe pliki nie znikają ze śluzy), wniosek mógł utknąć w kwarantannie
+  operatora i wstrzymać kolejkę — **zgłoś to HelpDeskowi**; operator odblokuje.
 
 **Sesja:** serwer notebooków zamyka się po 30 minutach bezczynności, a sesja kończy
 się po 12 godzinach niezależnie od aktywności (§9.5 Regulaminu). Zapisuj pracę.

@@ -46,7 +46,7 @@ check: ## 2. Build test: walidacja i kompilacja bez budowania obrazu
 security: ## 3. SAST, IaC, podatności zależności, licencje
 	ci/security.sh
 
-observability: ## 3.5. Kontrakt obserwowalności zgodny z kodem obrazu
+observability: ## 3.5. Kontrakty obrazu: obserwowalność i zmienne wdrożeniowe
 	ci/observability.sh
 
 unit: ## 4. Testy jednostkowe z progami pokrycia

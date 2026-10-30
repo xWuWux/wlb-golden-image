@@ -111,7 +111,7 @@ Logika jest w `ci/*.sh`, więc lokalnie uruchamia się ją tak samo (`make tools
 | 1. Lint, format, sekrety | `ci/lint.sh` | shellcheck, shfmt, ruff, yamllint, ansible-lint (profil production), actionlint, packer fmt, gitleaks (historia + drzewo) | zawsze |
 | 2. Build test | `ci/build-check.sh` | packer validate, syntax-check Ansible, render szablonów i kompilacja wyniku, parsowanie R, schemat cloud-init, `nft -c` i `rsyslogd -N1` na konfiguracji z `wlb-firstboot` | zawsze |
 | 3. Security & compliance | `ci/security.sh` | SAST (semgrep, bandit), IaC (checkov), podatności zamrożonych zależności (osv-scanner), licencje (`ci/license-policy.yml`) | zawsze |
-| 3.5. Kontrakt obserwowalności | `ci/observability.sh` | zdarzenia z `observability/contract.yml` zgodne z kodem obrazu: źródła logów, pola, klucze audytu, prefiksy zapory, przekazywanie do SIEM | zawsze |
+| 3.5. Kontrakty obrazu | `ci/observability.sh` | zdarzenia z `observability/contract.yml` zgodne z kodem obrazu (źródła logów, pola, klucze audytu, prefiksy zapory, przekazywanie do SIEM) oraz zmienne wdrożeniowe `lab.env` zgodne z `wlb-firstboot` i przykładami cloud-init | zawsze |
 | 4. Testy jednostkowe | `ci/unit.sh` | bats + kcov (próg 85%), pytest + coverage z gałęziami (próg 90%) | zawsze |
 | 5. Integracja i migracja | `ci/integration.sh` | budowanie obrazu na KVM, kryteria akceptacji MVP w VM, zdarzenia z kontraktu w logu centralnym (testowy SIEM), migracja na istniejący dysk roboczy, dryf locków, podatności pakietów w obrazie (raport) | zmiany poza dokumentacją |
 | 6a. Benchmarki | `ci/perf.sh` | start VM, logowanie, spawn, pandas, ładowanie HADES, dysk — względem `ci/perf-budget.env` | etykieta PR `perf` lub ręcznie |
@@ -168,6 +168,13 @@ Kontrakt jest sprawdzany na dwa sposoby:
 - **etap 3.5 (statycznie):** każde źródło logów w obrazie jest opisane w kontrakcie, a kod emituje
   dokładnie zadeklarowane pola. Klucze audytu i prefiksy logów zapory zgadzają się w obie strony.
   Zmiana formatu logu bez zmiany kontraktu zatrzymuje PR.
+Osobno ten sam etap pilnuje **kontraktu zmiennych wdrożeniowych** (`ci/deployment_vars.py`). Obraz
+buduje się raz, a stawia wiele razy, więc każdy parametr per Laboratorium musi istnieć w trzech
+miejscach naraz: czytany przez `wlb-firstboot`, opisany we wzorze `cloud-init/lab.env.example`
+i obecny w działającym przykładzie wdrożenia (`cloud-init/lab-user-data.example.yaml`, który
+zapisuje `/etc/wlb/lab.env`). Nowa zmienna bez pary dokumentacja + przykład, nieaktualna wartość
+progowa albo parametr opisany a nieczytany zatrzymują PR.
+
 - **etap 5 (dynamicznie):** VM testowa wysyła logi rsyslogiem do testowego odbiornika SIEM na hoście
   (`tests/syslog_sink.py`). Po teście akceptacyjnym `ci/observability_contract.py verify-log` sprawdza,
   że każde zdarzenie oznaczone `acceptance: true` dotarło do logu centralnego z poprawnymi wartościami.

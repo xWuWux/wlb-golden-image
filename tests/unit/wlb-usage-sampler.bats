@@ -83,6 +83,24 @@ kv() { cat "$WLB_USAGE_RUN_DIR/$1.kv"; }
   refute grep -q 'CPUIntervalMax' "$WLB_USAGE_RUN_DIR/jupyter-tester1.service.kv"
 }
 
+@test "dwie probki w tej samej sekundzie (d=0): brak dzielenia przez zero, max przeniesiony (#170)" {
+  prop jupyter-tester1.service MemoryPeak 1
+  prop jupyter-tester1.service InvocationID inv-1
+  prop jupyter-tester1.service CPUUsageNSec 1000000000
+  "$SAMP"
+  printf '200.00 90.00\n' >"$WLB_UPTIME_FILE" # +100 s
+  prop jupyter-tester1.service CPUUsageNSec 7000000000 # +6e9 ns / 100 s = 0.06 rdzenia
+  "$SAMP"
+  kv jupyter-tester1.service | grep -q 'CPUIntervalMax=0.060000'
+
+  # trzecia probka w TEJ SAMEJ sekundzie uptime (d=0) — wczesniej dzielenie przez zero wywracalo
+  # caly przebieg pod `set -eu`; teraz obliczenie pominiete, a skumulowany max przeniesiony.
+  prop jupyter-tester1.service CPUUsageNSec 9000000000
+  run "$SAMP"
+  [ "$status" -eq 0 ]
+  kv jupyter-tester1.service | grep -q 'CPUIntervalMax=0.060000'
+}
+
 @test "brak aktywnych jednostek: zadnych plikow i zadnego awaryjnego tmp (#98)" {
   : >"$STUB_UNITS"
   run "$SAMP"

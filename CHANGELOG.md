@@ -76,6 +76,11 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - Rozbicie testów akceptacyjnych na fragmenty `tests/acceptance.d/` — koniec konfliktów append (#127).
 - Etap 5 buduje tylko bazę (`-only`), nie flavory równolegle (#144); allowlista na prawdziwym proxy — koniec SKIP (#16/#93).
 - Bramka znaczników konfliktu gita + hak pre-commit (#123/#124); trigger Merge Queue (#121).
+- Kontrakt zmiennych wdrożeniowych w etapie 3.5 (`ci/deployment_vars.py`): `/etc/wlb/lab.env`,
+  `cloud-init/lab.env.example` i przykład `cloud-init/lab-user-data.example.yaml` muszą się zgadzać
+  z tym, co czyta `wlb-firstboot` — obraz stawia się wiele razy, a rozjazd parametru był dotąd
+  widoczny dopiero na VM. Przykład wdrożenia uzupełniony o `AUTH_MODE`, `LOCAL_TEST_MODE`
+  i wzory limitów zasobów.
 - Bieżące podbicia zależności i locków pod skan SCA (wiele PR-ów dependabot/ręcznych).
 
 ### Decyzje architektoniczne (ADR)

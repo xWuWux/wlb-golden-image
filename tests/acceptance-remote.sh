@@ -102,6 +102,75 @@ expect_ok "Dowiązanie w /sluza-out odrzucone (#29)" \
   bash -c "journalctl -t wlb-sluza-out | grep -q 'rejected user=jupyter-$R1 entry=link-test reason=unsupported_type'"
 expect_ok "Prawa /etc/passwd bez zmian (#29)" test "$(stat -c %a /etc/passwd)" = "$passwd_mode"
 expect_fail "W kolejce nie ma dowiązań ani plików specjalnych (#29)" bash -c "find '$QUEUE' ! -type f ! -type d | grep -q ."
+# Zwrotny powód odrzucenia widoczny dla badacza — koniec pętli „wrzucam–znika–nie wiem" (#162/IMG-008)
+expect_ok "Badacz widzi katalog zwrotny /sluza-odrzucone" as $R1 ls /sluza-odrzucone
+expect_ok "Powód odrzucenia dowiązania czytelny dla badacza (#162)" \
+  as $R1 bash -c "grep -rq unsupported_type /sluza-odrzucone/*link-test*.powod.* 2>/dev/null"
+
+echo "== 5c. Administrator Klienta: rola ograniczona, bez wglądu w dane badacza (IMG-003/#51) =="
+HUB_DB=sqlite:////workspace/.wlb-hub/jupyterhub.sqlite
+ADMIN=$(sed -n 's/.*"users": *\["\([^"]*\)".*/\1/p' /opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py | head -1)
+expect_ok "Plik roli ograniczonej obecny (15-wlb-admin-role.py)" test -f /opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py
+expect_ok "Audyt akcji admina obecny (16-wlb-admin-audit.py)" test -f /opt/tljh/config/jupyterhub_config.d/16-wlb-admin-audit.py
+expect_ok "Administrator Klienta wykryty w roli" test -n "$ADMIN"
+# Administrator Klienta NIE jest pełnym adminem huba (users.admin puste).
+expect_fail "Administrator Klienta NIE w users.admin (brak pełnego admina)" \
+  bash -c "/opt/tljh/hub/bin/tljh-config show | sed -n '/admin:/,/^[^ ]/p' | grep -qw '$ADMIN'"
+# Behawioralny rdzeń #51: efektywne scope z bazy huba — brak dostępu do SERWERA i TOKENÓW badacza
+# (Z1–Z3), ale pełne zarządzanie kontami/serwerami (admin:users/servers/admin-ui).
+expect_ok "Rola ograniczona: brak access do serwera badacza + brak tokenów, jest zarządzanie (IMG-003)" \
+  env "WLB_HUB_DB=$HUB_DB" /opt/tljh/hub/bin/python - "$ADMIN" "$R1" <<'PY'
+import os
+import sys
+
+from jupyterhub.orm import User
+from jupyterhub.scopes import get_scopes_for, has_scope
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+admin, researcher = sys.argv[1], sys.argv[2]
+db = sessionmaker(bind=create_engine(os.environ["WLB_HUB_DB"]))()
+u = db.query(User).filter_by(name=admin).first()
+assert u is not None, f"brak konta admina {admin}"
+assert not u.admin, "Administrator Klienta NIE powinien mieć flagi admin (pełnej roli)"
+assert "wlb-admin-klienta" in [r.name for r in u.roles], "brak roli wlb-admin-klienta"
+sc = get_scopes_for(u)
+assert not has_scope(f"access:servers!user={researcher}", sc), "NIE wolno mieć dostępu do serwera badacza (Z1)"
+assert not has_scope(f"tokens!user={researcher}", sc), "NIE wolno tworzyć tokenów badacza (Z3)"
+assert has_scope("admin:servers", sc), "powinno być zarządzanie serwerami (admin:servers)"
+assert has_scope("admin:users", sc), "powinno być zarządzanie kontami (admin:users)"
+assert "admin-ui" in sc, "powinien być panel admina (admin-ui)"
+PY
+# Nadanie pełnego admina odrzuca sam hub (nie nadasz scope'ów, których nie masz) oraz audyt do SIEM:
+# uprzywilejowana akcja admina (tu: utworzenie konta przez API) trafia pod tag wlb-hub-audit.
+env "WLB_HUB_DB=$HUB_DB" HUB_URL="$HUB" /opt/tljh/hub/bin/python - "$ADMIN" <<'PY' || true
+import json
+import os
+import ssl
+import sys
+import urllib.error
+import urllib.request
+
+from jupyterhub.orm import User
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+db = sessionmaker(bind=create_engine(os.environ["WLB_HUB_DB"]))()
+u = db.query(User).filter_by(name=sys.argv[1]).first()
+tok = u.new_api_token(note="acceptance-audit", roles=["wlb-admin-klienta"])
+db.commit()
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
+req = urllib.request.Request(os.environ["HUB_URL"] + "/hub/api/users/wlb-audit-probe", method="POST",
+                             headers={"Authorization": "token " + tok})
+try:
+    urllib.request.urlopen(req, context=ctx, timeout=15)
+except urllib.error.HTTPError:
+    pass
+PY
+expect_ok "Uprzywilejowana akcja admina audytowana pod tagiem wlb-hub-audit (#51)" \
+  bash -c "journalctl -t wlb-hub-audit --since '-2min' 2>/dev/null | grep -qE 'POST /hub/api/users/'"
 
 echo "== 5b. Identyfikacja IP_CMC i pomoc (#53, #54) =="
 expect_ok "Logo na stronie logowania wskazuje /hub/logo (#53)" bash -c "curl -s '$HUB/hub/login' | grep -qE \"src=['\\\"]/hub/logo['\\\"]\""
