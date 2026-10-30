@@ -65,6 +65,11 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - Hooki cyklu życia sesji badacza + korelacja sesji w SIEM (#97/#114).
 
 ### Bezpieczeństwo i zgodność
+- Konta stanowiskowe `u01`…`uNN` i Administrator Klienta `a01` tworzone przez `wlb-firstboot`
+  (`RESEARCHER_ACCOUNTS`), samodzielna rejestracja wyłączona (IMG-002 Faza 1, #102/#185).
+  Loginy `u01`–`u99` zarezerwowane dla badaczy; hasło początkowe przez plik `.pending`, więc
+  przerwany start nie zostawia konta z nieznanym hasłem. Rejestr przypisań osoba↔konto
+  i przekazanie stanowiska pozostają otwarte (#102 Faza 2).
 - Wymuszony CIDR dostępu + TLS huba, inkrement 1 (#18/IMG-005/#161).
 - AppArmor: dokładny tryb profilu z `aa-status --json`, wymuszenie enforce (#65, #155/#156/#158/#163).
 - Sysctl sieciowe + wyłączenie zrzutów pamięci (CIS 1.x/3.x, #63/#94).

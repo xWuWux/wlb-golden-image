@@ -3,6 +3,42 @@
 
 load helpers
 
+# fake_hub_user — atrapa wlb-hub-user ze stanem: konto to plik $HUBDB/<login> z hasłem. Obsługuje tryby
+# używane przez firstboot (--check, --verify, --if-missing --password-stdin) z kodami narzędzia
+# (3: brak konta, 4: inne hasło). Plik $STUBS/wlb-hub-user.fail z loginem symuluje przerwanie po
+# zapisie konta w bazie: konto powstaje, a narzędzie kończy się błędem (#102).
+fake_hub_user() {
+  HUBDB="$BATS_TEST_TMPDIR/hubdb"
+  mkdir -p "$HUBDB"
+  cat >"$STUBS/wlb-hub-user" <<EOF
+#!/usr/bin/env bash
+echo "wlb-hub-user \$*" >>"\$CALLS"
+mode="" login=""
+for a in "\$@"; do
+  case \$a in --check | --verify | --if-missing) mode=\$a ;; --password-stdin) ;; *) login=\$a ;; esac
+done
+account="$HUBDB/\$login"
+case \$mode in
+  --check) [[ -f \$account ]] || exit 3 ;;
+  --verify)
+    IFS= read -r pw
+    [[ -f \$account ]] || exit 3
+    [[ \$(cat "\$account") == "\$pw" ]] || exit 4
+    ;;
+  --if-missing)
+    IFS= read -r pw
+    [[ -f \$account ]] || printf '%s\n' "\$pw" >"\$account"
+    [[ -f "$STUBS/wlb-hub-user.fail" && \$(cat "$STUBS/wlb-hub-user.fail") == "\$login" ]] && exit 1
+    ;;
+  *) exit 1 ;;
+esac
+exit 0
+EOF
+  chmod +x "$STUBS/wlb-hub-user"
+}
+
+hub_password() { cat "$HUBDB/$1"; }
+
 setup() {
   setup_sandbox
   cat >"$SANDBOX/etc/wlb/image.conf" <<'EOF'
@@ -21,7 +57,7 @@ EOF
 EOF
   cat >"$SANDBOX/etc/wlb/lab.env" <<'EOF'
 LAB_NAME=lab-unit01
-HUB_ADMIN_USER=admin-klienta
+HUB_ADMIN_USER=a01
 PROXY_URL=http://10.20.0.10:3128
 RESEARCHER_PACKAGE_INSTALL=mirror
 PYPI_INDEX_URL=https://pypi.wlb.local/simple
@@ -47,8 +83,9 @@ EOF
   chmod 0600 "$SANDBOX/etc/wlb/hub-tls.key"
   stub getent 2
   stub tljh-config 0 "users:"
-  stub wlb-hub-user 0 "haslo-poczatkowe-123"
+  fake_hub_user
   export WLB_TLJH_CONFIG="$STUBS/tljh-config" WLB_HUB_USER_TOOL="$STUBS/wlb-hub-user" WLB_HUB_WAIT_SECONDS=4
+  export WLB_HUB_USER_RETRY_SLEEP=0 # ponowienia narzędzia kont (#31) bez czekania
   # zasoby VM (#30): domyślnie 16 GiB RAM, 8 vCPU
   meminfo 16384
   stub nproc 0 8
@@ -76,6 +113,47 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -ne 0 ]
   [[ $output == *"HUB_ADMIN_USER ma nieprawidłowy format"* ]]
+}
+
+@test "HUB_ADMIN_USER nie może używać przestrzeni kont badaczy, nawet poza aktualną pulą (#102)" {
+  lab_env RESEARCHER_ACCOUNTS=0
+  for login in u01 u09 u10 u64 u65 u99; do
+    sed -i "s/^HUB_ADMIN_USER=.*/HUB_ADMIN_USER=$login/" "$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"koliduje z przestrzenią kont badaczy"* ]]
+    refute called 'wlb-hub-user'
+    refute called 'systemctl restart'
+    [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  done
+}
+
+@test "pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)" {
+  lab_env RESEARCHER_ACCOUNTS=3
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  for n in u01 u02 u03; do
+    calls | grep -qx "wlb-hub-user --if-missing --password-stdin $n"
+    [ "$(cat "$SANDBOX/root/wlb-hub-$n-initial-password")" = "$(hub_password "$n")" ]
+    [ ! -e "$SANDBOX/root/wlb-hub-$n-initial-password.pending" ]
+    [ "$(stat -c %a "$SANDBOX/root/wlb-hub-$n-initial-password")" = 600 ]
+  done
+  [ ! -e "$SANDBOX/root/wlb-hub-u04-initial-password" ]  # nie tworzymy ponad limit
+}
+
+@test "RESEARCHER_ACCOUNTS=0: tylko admin, zero kont badaczy (IMG-002)" {
+  lab_env RESEARCHER_ACCOUNTS=0
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password" ]
+  refute called -E 'wlb-hub-user .*u01$'
+}
+
+@test "RESEARCHER_ACCOUNTS spoza zakresu 0–64 jest odrzucane (IMG-002)" {
+  lab_env RESEARCHER_ACCOUNTS=65
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"RESEARCHER_ACCOUNTS musi być liczbą 0–64"* ]]
 }
 
 @test "pełna konfiguracja Laboratorium" {
@@ -136,11 +214,17 @@ EOF
   # hub: rola OGRANICZONA zamiast pełnego admina (IMG-003/#51), brak sudo, hasło tylko dla roota
   refute called 'add-item users.admin'
   grep -q 'wlb-admin-klienta' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
-  grep -q '"admin-klienta"' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
+  grep -q '"a01"' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/15-wlb-admin-role.py"
   calls | grep -qx 'tljh-config reload hub'
   [ ! -e "$SANDBOX/etc/sudoers.d/jupyterhub-admins" ]
-  [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = haslo-poczatkowe-123 ]
+  [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = "$(hub_password a01)" ]
   [ "$(stat -c %a "$SANDBOX/root/wlb-hub-admin-initial-password")" = 600 ]
+  # pre-provisioning kont stanowiskowych uNN (IMG-002/#102); RESEARCHER_ACCOUNTS domyślnie = RESEARCHERS_PER_VM (1)
+  calls | grep -qx 'wlb-hub-user --if-missing --password-stdin u01'
+  [ "$(cat "$SANDBOX/root/wlb-hub-u01-initial-password")" = "$(hub_password u01)" ]
+  # hasła początkowe nie trafiają do logu (SIEM)
+  refute grep -qF "$(hub_password u01)" <<<"$output"
+  [ "$(stat -c %a "$SANDBOX/root/wlb-hub-u01-initial-password")" = 600 ]
 
   # koniec: znacznik i reguły audytu
   [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
@@ -257,15 +341,17 @@ OS
 
 @test "--force nie dubluje admina i nie nadpisuje hasła" {
   "$FIRSTBOOT" >/dev/null
-  stub tljh-config 0 $'users:\n  admin:\n  - admin-klienta'
-  stub wlb-hub-user 0 "inne-haslo-456789"
+  before=$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")
+  stub tljh-config 0 $'users:\n  admin:\n  - a01'
   : >"$CALLS"
   run "$FIRSTBOOT" --force
   [ "$status" -eq 0 ]
   refute called add-item
   # konto było wcześniej pełnym adminem (stub users.admin) -> firstboot je degraduje (IMG-003/#51)
-  calls | grep -q 'remove-item users.admin admin-klienta'
-  [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = haslo-poczatkowe-123 ]
+  calls | grep -q 'remove-item users.admin a01'
+  refute called 'wlb-hub-user --if-missing'
+  [ "$(cat "$SANDBOX/root/wlb-hub-admin-initial-password")" = "$before" ]
+  [ "$(hub_password a01)" = "$before" ]
 }
 
 @test "ponowne uruchomienie usuwa stare ustawienia proxy" {
@@ -364,12 +450,65 @@ OS
 }
 
 @test "konto admina z dysku roboczego — hasło bez zmian" {
-  stub wlb-hub-user 0 ""
+  printf 'haslo-z-dysku-roboczego\n' >"$HUBDB/a01"
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
-  calls | grep -qx 'wlb-hub-user --if-missing admin-klienta'
+  calls | grep -qx 'wlb-hub-user --check a01'
+  refute called 'wlb-hub-user --if-missing --password-stdin a01'
   [ ! -e "$SANDBOX/root/wlb-hub-admin-initial-password" ]
-  [[ $output == *"admin-klienta już istnieje (dysk roboczy)"* ]]
+  [ ! -e "$SANDBOX/root/wlb-hub-admin-initial-password.pending" ]
+  [ "$(hub_password a01)" = haslo-z-dysku-roboczego ]
+  [[ $output == *"a01 już istnieje (dysk roboczy)"* ]]
+}
+
+# --- Przerwanie provisioningu kont (#102) ------------------------------------------------------
+
+@test "przerwanie po zapisie konta, przed plikiem hasła — ponowienie odzyskuje hasło (#102)" {
+  echo u01 >"$STUBS/wlb-hub-user.fail"
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [ -e "$HUBDB/u01" ] # konto zapisane w bazie
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password" ]
+  [ "$(stat -c %a "$SANDBOX/root/wlb-hub-u01-initial-password.pending")" = 600 ]
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  rm "$STUBS/wlb-hub-user.fail"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$SANDBOX/root/wlb-hub-u01-initial-password")" = "$(hub_password u01)" ]
+  [ "$(stat -c %a "$SANDBOX/root/wlb-hub-u01-initial-password")" = 600 ]
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password.pending" ]
+}
+
+@test "plik oczekujący bez konta (przerwanie przed zapisem w bazie) — konto z hasłem z pliku (#102)" {
+  mkdir -p "$SANDBOX/root"
+  (umask 077 && printf 'haslo-oczekujace-123\n' >"$SANDBOX/root/wlb-hub-u01-initial-password.pending")
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ "$(hub_password u01)" = haslo-oczekujace-123 ]
+  [ "$(cat "$SANDBOX/root/wlb-hub-u01-initial-password")" = haslo-oczekujace-123 ]
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password.pending" ]
+}
+
+@test "plik oczekujący, konto z dysku roboczego ma inne hasło — hasło bez zmian (#102)" {
+  mkdir -p "$SANDBOX/root"
+  (umask 077 && printf 'haslo-z-przerwanego-startu\n' >"$SANDBOX/root/wlb-hub-u01-initial-password.pending")
+  printf 'haslo-z-dysku-roboczego\n' >"$HUBDB/u01"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ "$(hub_password u01)" = haslo-z-dysku-roboczego ]
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password" ]
+  [ ! -e "$SANDBOX/root/wlb-hub-u01-initial-password.pending" ]
+  [[ $output == *"u01 już istnieje (dysk roboczy)"* ]]
+}
+
+@test "plik hasła bez konta — konto nie jest odtwarzane, ostrzeżenie (#102)" {
+  mkdir -p "$SANDBOX/root"
+  (umask 077 && printf 'haslo-odebranego-konta\n' >"$SANDBOX/root/wlb-hub-u01-initial-password")
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$HUBDB/u01" ]
+  refute called 'wlb-hub-user --if-missing --password-stdin u01'
+  [[ $output == *"brak konta huba u01 mimo pliku hasła"* ]]
 }
 
 @test "WLB_TLJH_ADMIN_SUDO=1 zostawia sudo adminom huba" {
@@ -466,7 +605,6 @@ EOF
 
 @test "konto huba: trwała blokada bazy przerywa firstboot czytelnym błędem (#31)" {
   stub wlb-hub-user 1 # narzędzie zawsze zawodzi (np. baza huba stale zablokowana)
-  export WLB_HUB_USER_RETRY_SLEEP=0
   run "$FIRSTBOOT"
   [ "$status" -ne 0 ]
   [[ $output == *"nie udało się założyć konta huba"* ]]
@@ -817,4 +955,16 @@ hub_env() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"; }
   refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/etc/environment"
   hub_env | grep -q '"https_proxy"'
   refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"
+}
+
+@test "RESEARCHER_ACCOUNTS: błędny zapis i przepełnienie są odrzucane przed provisioningiem (#102)" {
+  local value
+  for value in 08 064 18446744073709551616 -1 abc; do
+    lab_env RESEARCHER_ACCOUNTS="$value"
+    : >"$CALLS"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"RESEARCHER_ACCOUNTS musi być liczbą 0–64"* ]]
+    refute called 'wlb-hub-user'
+  done
 }
