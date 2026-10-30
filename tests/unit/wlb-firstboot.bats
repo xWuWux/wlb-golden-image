@@ -849,3 +849,15 @@ hub_env() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"; }
   hub_env | grep -q '"https_proxy"'
   refute grep -q 'PYTHONNOUSERSITE' "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"
 }
+
+@test "RESEARCHER_ACCOUNTS: błędny zapis i przepełnienie są odrzucane przed provisioningiem (#102)" {
+  local value
+  for value in 08 064 18446744073709551616 -1 abc; do
+    lab_env RESEARCHER_ACCOUNTS="$value"
+    : >"$CALLS"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"RESEARCHER_ACCOUNTS musi być liczbą 0–64"* ]]
+    refute called 'wlb-hub-user'
+  done
+}

@@ -145,8 +145,8 @@ RESEARCHERS_PER_VM=${RESEARCHERS_PER_VM:-1} # ilu badaczy równolegle na tej VM 
 # domyślnie tyle, ile równoległych badaczy. Konta u01..uNN + Administrator Klienta a01; mapowanie
 # osoba↔konto trzyma rejestr (poza nazwą konta). 0 = brak kont badaczy (laboratorium tylko z adminem).
 RESEARCHER_ACCOUNTS=${RESEARCHER_ACCOUNTS:-$RESEARCHERS_PER_VM}
-if [[ ! $RESEARCHER_ACCOUNTS =~ ^[0-9]+$ ]] || ((RESEARCHER_ACCOUNTS > 64)); then
-  die "RESEARCHER_ACCOUNTS musi być liczbą 0–64, jest '${RESEARCHER_ACCOUNTS}'"
+if [[ ! $RESEARCHER_ACCOUNTS =~ ^(0|[1-9][0-9]?)$ ]] || ((RESEARCHER_ACCOUNTS > 64)); then
+  die "RESEARCHER_ACCOUNTS musi być liczbą 0–64 (zapis dziesiętny bez zer wiodących), jest '${RESEARCHER_ACCOUNTS}'"
 fi
 RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT:-}     # pamięć na badacza, np. 8G; domyślnie pula / RESEARCHERS_PER_VM
 RESEARCHER_CPU_LIMIT=${RESEARCHER_CPU_LIMIT:-}     # rdzenie na badacza, np. 2 albo 1.5; domyślnie vCPU / RESEARCHERS_PER_VM (min. 1)
