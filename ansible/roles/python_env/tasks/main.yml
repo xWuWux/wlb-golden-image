@@ -81,3 +81,56 @@
     src: /opt/wlb/envs/python/conda-env-update.log
     dest: "{{ wlb_artifacts_dir }}/conda-env-update.log"
     flat: true
+
+# M0 (#193) dotyczy WYŁĄCZNIE nowo budowanego obrazu, nie działającej VM badacza.
+# TLJH instaluje swój prefiks pod /opt/tljh/user; zwykłe mv nie relokuje conda.
+# Klon używa mechanizmu conda i docelowego prefiksu; przed publikacją weryfikujemy importy.
+- name: Przygotuj wersjonowany prefiks Pythona w budowanym obrazie (#193)
+  when: wlb_prepare_versioned_python | default(false) | bool
+  block:
+    - name: Sprawdź status huba przed migracją podczas budowy
+      ansible.builtin.systemd:
+        name: jupyterhub.service
+      register: python_env_hub_status
+
+    - name: Zatrzymaj hub podczas przygotowania prefiksu obrazu
+      ansible.builtin.systemd:
+        name: jupyterhub.service
+        state: stopped
+      when: python_env_hub_status.status.ActiveState == 'active'
+
+    - name: Klonuj środowisko i przygotuj dowiązanie
+      block:
+        - name: Skopiuj narzędzie przygotowania prefiksu
+          ansible.builtin.copy:
+            src: wlb-version-python-env
+            dest: /opt/wlb/bin/wlb-version-python-env
+            mode: "0755"
+
+        - name: Sprawdź istniejące dowiązanie
+          ansible.builtin.stat:
+            path: /opt/tljh/user
+            follow: false
+          register: python_env_user_before
+
+        - name: Przygotuj klon conda w prefiksie wersjonowanym
+          ansible.builtin.command:
+            argv:
+              - /opt/wlb/bin/wlb-version-python-env
+              - --version
+              - "{{ wlb_image_version }}"
+          changed_when: not (python_env_user_before.stat.islnk | default(false))
+      rescue:
+        - name: Przerwij budowę po błędzie klonowania prefiksu
+          ansible.builtin.fail:
+            msg: "Przygotowanie prefiksu nie powiodło się: {{ ansible_failed_result.msg | default('nieznany błąd') }}"
+      always:
+        - name: Przywróć poprzedni stan działania huba po przygotowaniu obrazu
+          ansible.builtin.systemd:
+            name: jupyterhub.service
+            state: started
+          when: python_env_hub_status.status.ActiveState == 'active'
+  rescue:
+    - name: Zatrzymaj budowę po błędzie etapu M0
+      ansible.builtin.fail:
+        msg: "Etap M0 nie powiódł się ({{ ansible_failed_task.name }}): {{ ansible_failed_result.msg | default('nieznany błąd') }}"

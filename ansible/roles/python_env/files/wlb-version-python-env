@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Przy budowie obrazu sklonuj środowisko TLJH do prefiksu wersjonowanego (#193).
+
+Nie jest to mechanizm CD ani narzędzie do uruchamiania na działającej VM badacza.
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def export_packages(conda: Path, prefix: Path) -> str:
+    result = subprocess.run(  # noqa: S603  # nosec B603: conda z zaufanego środowiska obrazu
+        [str(conda), "env", "export", "--no-builds", "--prefix", str(prefix)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return "\n".join(line for line in result.stdout.splitlines() if not line.startswith(("name:", "prefix:")))
+
+
+def migrate(user: Path, envs: Path, version: str) -> None:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}", version):
+        raise ValueError("niepoprawna wersja obrazu")
+    target = envs / ("python-" + version)
+    backup = user.with_name(user.name + ".wlb-build-backup")
+    link = user.with_name(user.name + ".wlb-build-new")
+    if user.is_symlink():
+        if user.resolve(strict=True) != target.resolve(strict=True):
+            raise ValueError("istniejące dowiązanie wskazuje inne środowisko")
+        if backup.exists() or link.exists() or link.is_symlink():
+            raise ValueError("pozostałość poprzedniej migracji wymaga sprawdzenia")
+        return
+    if backup.exists() or link.exists() or link.is_symlink():
+        raise ValueError("pozostałość poprzedniej migracji wymaga sprawdzenia")
+    if not user.is_dir() or not (user / "bin/conda").is_file():
+        raise ValueError("brak źródłowego środowiska conda TLJH")
+    envs.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        raise ValueError("docelowy prefiks już istnieje — nie nadpisuję")
+    try:
+        subprocess.run(  # noqa: S603  # nosec B603: argv, prefiks z zaufanej budowy
+            [str(user / "bin/conda"), "create", "--yes", "--copy", "--clone", str(user), "--prefix", str(target)],
+            check=True,
+        )
+        if export_packages(user / "bin/conda", user) != export_packages(target / "bin/conda", target):
+            raise ValueError("eksport pakietów klonu różni się od źródła")
+        subprocess.run(  # noqa: S603  # nosec B603: interpreter świeżego klonu
+            [
+                str(target / "bin/python"),
+                "-c",
+                "import sys; import jupyterhub, jupyterlab, numpy, pandas; print(sys.prefix)",
+            ],
+            check=True,
+        )
+        # Ten etap odbywa się wyłącznie przy budowie obrazu, z zatrzymanym hubem.
+        # Nie jest atomową migracją działającej VM.
+        os.rename(user, backup)
+        try:
+            os.symlink(str(target), link)
+            os.replace(link, user)
+            subprocess.run(  # noqa: S603  # nosec B603: interpreter zweryfikowanego klonu
+                [str(user / "bin/python"), "-c", "import jupyterhub, jupyterlab, numpy, pandas"], check=True
+            )
+        except BaseException:
+            if user.is_symlink():
+                user.unlink()
+            if link.is_symlink():
+                link.unlink()
+            os.rename(backup, user)
+            raise
+        shutil.rmtree(backup)
+    except BaseException:
+        # Usuwamy tylko prefiks utworzony w tej próbie, nigdy źródło ani istniejący cel.
+        if target.is_dir() and not user.is_symlink():
+            shutil.rmtree(target)
+        raise
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--user", type=Path, default=Path("/opt/tljh/user"))
+    parser.add_argument("--envs", type=Path, default=Path("/opt/wlb/envs"))
+    parser.add_argument("--version", required=True)
+    args = parser.parse_args()
+    try:
+        migrate(args.user, args.envs, args.version)
+    except (OSError, ValueError, subprocess.CalledProcessError) as exc:
+        print(f"wlb-version-python-env: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
