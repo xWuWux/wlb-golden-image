@@ -76,6 +76,11 @@ write_files:
       EGRESS_ALLOW="10.20.0.10:3128 10.30.0.5:5432"
       ADMIN_SSH_CIDR=10.10.0.0/24
       HUB_ALLOWED_CIDR=10.10.1.0/24
+      # native = konta lokalne w bazie huba; oidc = SSO IdP (wymaga OIDC_* — patrz
+      # cloud-init/lab.env.example). Zmiana tutaj to zmiana sposobu logowania badaczy.
+      AUTH_MODE=native
+      # 1 = dane przykładowe lokalnego testu obrazu. Nigdy na produkcji.
+      LOCAL_TEST_MODE=0
       # TLS huba (#18/IMG-005, §20): HTTPS na 443 z certyfikatu wewnętrznego CA GUMed (Let's Encrypt
       # odpada bez internetu). Cert i klucz z write_files niżej. HUB_TLS=0 tylko dev/izolowana sieć.
       HUB_TLS=1
@@ -88,6 +93,13 @@ write_files:
       SIEM_TLS_NAME=siem.wlb.local
       SIEM_CA_CERT=/etc/wlb/siem-ca.pem
       SIEM_PORT=6514
+      # Wzory opcjonalne — odkomentuj, gdy odchodzisz od wartości domyślnej:
+      #OIDC_GROUPS_CLAIM=groups
+      #RESEARCHERS_PER_VM=1
+      #SYSTEM_MEM_RESERVE=4G
+      #RESEARCHER_MEM_LIMIT=16G
+      #RESEARCHER_CPU_LIMIT=4
+      #RESEARCHER_TASKS_MAX=2048
   # CA, które wystawiło certyfikat SIEM (sam certyfikat publiczny — bez klucza prywatnego)
   - path: /etc/wlb/siem-ca.pem
     permissions: "0644"

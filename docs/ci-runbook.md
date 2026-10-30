@@ -37,7 +37,7 @@ gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-rep
    | 1 | `make lint` (`FIX=1 make lint` poprawia formatowanie) | formatowanie, shellcheck, ansible-lint |
    | 2 | `make check` | składnia Packera/Ansible, schemat cloud-init, reguły nft |
    | 3 | `make security` | nowe CVE w zamrożonych wersjach, licencja spoza polityki |
-   | 3.5 | `make observability` | zmieniony format logu bez aktualizacji `observability/contract.yml` |
+   | 3.5 | `make observability` | zmieniony format logu bez aktualizacji `observability/contract.yml`, nowa zmienna `lab.env` bez wpisu w `cloud-init/lab.env.example` i w przykładzie user-data |
    | 4 | `make unit` | test jednostkowy, spadek pokrycia poniżej progu |
    | 5 | `make integration` (KVM) | budowanie obrazu, kryterium akceptacji, migracja, dryf locków, SIEM |
 

@@ -157,7 +157,7 @@ krok_5() {
   polecenie "Etap 1: lint, formatowanie, sekrety (FIX=1 make lint poprawia formatowanie)" "make lint"
   polecenie "Etap 2: walidacja Packera, Ansible, szablonów, cloud-init i konfiguracji z wlb-firstboot" "make check"
   polecenie "Etap 3: SAST (semgrep, bandit), IaC (checkov), podatności zależności, licencje" "make security"
-  polecenie "Etap 3.5: kontrakt obserwowalności (czy logi obrazu zgadzają się z observability/contract.yml)" \
+  polecenie "Etap 3.5: kontrakty obrazu (logi vs observability/contract.yml, zmienne lab.env vs wlb-firstboot i przykłady cloud-init)" \
     "make observability"
   polecenie "Etap 4: testy jednostkowe (bats + pytest) z progami pokrycia 85% / 90%" "make unit"
   opis "Wszystkie cztery naraz: make ci  — warto uruchamiać przed każdym pushem."
