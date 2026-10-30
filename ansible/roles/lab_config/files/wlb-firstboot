@@ -54,6 +54,10 @@ set +a
 # (15-wlb-admin-role.py, #51), więc bezpieczny zestaw znaków chroni przed wstrzyknięciem do Pythona.
 [[ $HUB_ADMIN_USER =~ ^[a-z0-9][a-z0-9._-]{0,31}$ ]] ||
   die "HUB_ADMIN_USER ma nieprawidłowy format (login ^[a-z0-9][a-z0-9._-]{0,31}\$): '${HUB_ADMIN_USER}'"
+# Cała przestrzeń u01–u99 jest zarezerwowana dla stanowisk, niezależnie od bieżącej wielkości
+# puli: jej zmniejszenie nie usuwa kont, a późniejsze zwiększenie nie może stworzyć kolizji ról.
+[[ ! $HUB_ADMIN_USER =~ ^u(0[1-9]|[1-9][0-9])$ ]] ||
+  die "HUB_ADMIN_USER='${HUB_ADMIN_USER}' koliduje z przestrzenią kont badaczy u01–u99 (#102)"
 PROXY_URL=${PROXY_URL:-}
 NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
 PYPI_INDEX_URL=${PYPI_INDEX_URL:-}
@@ -630,9 +634,10 @@ hub_ready || die "JupyterHub nie odpowiada"
 write_nftables 1
 
 # Pre-provisioning kont huba (IMG-002/#102): Administrator Klienta a01 + stanowiskowe u01..uNN.
-# Konta BEZOSOBOWE; hasła początkowe w /root/wlb-hub-<login>-initial-password (0600) — Administrator
-# Klienta rozdaje je badaczom, a mapowanie osoba↔konto trzyma rejestr poza nazwą konta. Idempotentne:
-# baza huba leży na dysku roboczym, więc konto przeniesione z poprzedniego obrazu zostaje bez zmiany hasła.
+# Nazwy stanowisk nie zawierają danych osobowych; konta są aktywne od utworzenia. Hasła początkowe
+# znajdują się w /root (0600), do którego Administrator Klienta nie ma dostępu. Operator platformy
+# odpowiada za kontrolowane przekazanie poświadczeń i rejestr przypisań osoba↔konto. Istniejące konto
+# na dysku roboczym pozostaje bez zmiany hasła; przekazanie stanowiska wymaga osobnej procedury.
 provision_hub_account() { # provision_hub_account LOGIN PLIK_HASŁA
   local login=$1 pwfile=$2 created=0 password="" attempt
   [[ -s $pwfile ]] && return 0

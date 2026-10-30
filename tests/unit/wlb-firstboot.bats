@@ -78,6 +78,19 @@ EOF
   [[ $output == *"HUB_ADMIN_USER ma nieprawidłowy format"* ]]
 }
 
+@test "HUB_ADMIN_USER nie może używać przestrzeni kont badaczy, nawet poza aktualną pulą (#102)" {
+  lab_env RESEARCHER_ACCOUNTS=0
+  for login in u01 u09 u10 u64 u65 u99; do
+    sed -i "s/^HUB_ADMIN_USER=.*/HUB_ADMIN_USER=$login/" "$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"koliduje z przestrzenią kont badaczy"* ]]
+    refute called 'wlb-hub-user --if-missing'
+    refute called 'systemctl restart'
+    [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  done
+}
+
 @test "pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)" {
   lab_env RESEARCHER_ACCOUNTS=3
   run "$FIRSTBOOT"
