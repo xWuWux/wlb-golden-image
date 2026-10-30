@@ -159,6 +159,7 @@ Może być zaimplementowane w tym PR lub jako osobne zgłoszenie.
 from opentelemetry.proto.trace.v1 import trace_pb2
 from google.protobuf import json_format
 
+
 def test_otlp_schema():
     body, _ = build_traces(RUN, JOBS)
     # Oficjalna walidacja przeciwko protobuf
@@ -182,10 +183,12 @@ def test_otlp_schema():
 ```python
 import re
 
+
 def redact_sensitive(text):
     """Redaguj credentials z URL kolektora OTLP."""
     # Ukryj user:pass w URL
-    return re.sub(r'(https?://)[^:@]+:[^@]+@', r'\1***:***@', text)
+    return re.sub(r"(https?://)[^:@]+:[^@]+@", r"\1***:***@", text)
+
 
 def export_otlp(endpoint, headers, data, post):
     try:
@@ -215,11 +218,12 @@ def test_redact_collector_url():
 ```python
 import time
 
+
 def export_otlp(endpoint, headers, data, post):
     """Eksport OTLP z retry dla błędów sieci i 5xx."""
     max_retries = 3
     backoff = 1
-    
+
     for attempt in range(max_retries):
         try:
             response = post(endpoint, token, data, headers)
@@ -241,12 +245,13 @@ def export_otlp(endpoint, headers, data, post):
 def test_retry_on_network_error():
     """Sprawdź że eksport jest ponawiany przy błędzie sieci."""
     attempts = []
+
     def failing_post(*args, **kwargs):
         attempts.append(1)
         if len(attempts) < 3:
             raise OSError("network error")
         return {"status": 200}
-    
+
     export_otlp("http://otel:4318", {}, {}, failing_post)
     assert len(attempts) == 3
 ```

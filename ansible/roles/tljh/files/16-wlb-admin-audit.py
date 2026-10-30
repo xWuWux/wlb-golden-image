@@ -10,9 +10,7 @@ import logging
 import re
 import syslog
 
-_WLB_AUDIT_RE = re.compile(
-    r"\b(?:PATCH|POST|DELETE) /hub/(?:api/users/|api/groups/|change-password/|authorize/)"
-)
+_WLB_AUDIT_RE = re.compile(r"\b(?:PATCH|POST|DELETE) /hub/(?:api/users/|api/groups/|change-password/|authorize/)")
 
 # syslog.openlog ustawia realny identyfikator (SYSLOG_IDENTIFIER w journald); .ident w SysLogHandler
 # tylko doklejałby tekst do treści i journalctl -t by go nie widział.
