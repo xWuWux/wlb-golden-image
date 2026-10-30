@@ -132,7 +132,7 @@ i faktyczne wylogowanie po 12 h) wymagają infrastruktury albo czasu, którego t
 
 ## 8. Ręczne sprawdzenie w przeglądarce
 
-**8.1. Hasło Administratora Klienta (konto `admin-klienta`):**
+**8.1. Hasło Administratora Klienta (konto bezosobowe `a01`):**
 
 ```bash
 wsl$ make test-password
@@ -141,10 +141,11 @@ wsl$ make test-password
 Hasło jest zapisane w VM w pliku `/root/wlb-hub-admin-initial-password`, który może czytać tylko root.
 `make test-password` odczytuje je przez SSH, więc nie trzeba logować się do VM.
 
-**8.2. Hub:** otwórz w przeglądarce Windows `http://localhost:8080` i zaloguj się jako `admin-klienta`.
+**8.2. Hub:** otwórz w przeglądarce Windows `http://localhost:8080` i zaloguj się jako `a01`.
 
-- Konto badacza: kliknij „Sign up” na stronie logowania (wniosek o konto). Zatwierdź je jako `admin-klienta`
-  w `http://localhost:8080/hub/authorize`.
+- Konta bezosobowe (IMG-002): badacze NIE rejestrują się sami — konta stanowiskowe `u01`, `u02`, …
+  są pre-provisionowane przy pierwszym starcie (ile — `RESEARCHER_ACCOUNTS` w `lab.env`). Hasła początkowe
+  w VM: `/root/wlb-hub-u01-initial-password` itd. (tylko root). Zaloguj się jako `u01` tym hasłem.
 - Jako badacz sprawdź na przykład: nowy notebook Python i R; odczyt `/data-mart`; zapis do `/sluza-out`
   (plik powinien zniknąć); po wdrożeniu #7 także przycisk pobierania pliku (powinien być ukryty, a bezpośredni adres `/files/…` dawać odmowę 403).
 
