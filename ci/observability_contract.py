@@ -112,7 +112,7 @@ def check_static(root: Path, contract: dict) -> list[str]:
         text = path.read_text()
         if "tag" in src and not (
             re.search(rf"\blogger\b.*\s-t\s+{re.escape(src['tag'])}\b", text)
-            or re.search(rf"""openlog\(\s*ident=["']{re.escape(src['tag'])}["']""", text)
+            or re.search(rf"""openlog\(\s*ident=["']{re.escape(src["tag"])}["']""", text)
         ):
             errors.append(f"{where}: {src['file']} nie loguje z tagiem {src['tag']}")
         if fmt == "kv":
