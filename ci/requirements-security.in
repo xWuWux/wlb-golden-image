@@ -1,7 +1,7 @@
 # ŹRÓDŁO pinów top-level (edytuj tutaj). Po zmianie uruchom ci/lock-requirements.sh i zacommituj
 # wygenerowany lock z hashami ci/requirements-security.txt (instalowany w CI z --require-hashes, IMG-008 5b).
 # Stage 3: SAST, IaC, licencje.
-semgrep==1.181.0
+semgrep==1.182.1
 bandit==1.9.4
-checkov==3.3.29
+checkov==3.3.30
 PyYAML==6.0.3
