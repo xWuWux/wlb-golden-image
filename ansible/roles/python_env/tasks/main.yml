@@ -120,9 +120,17 @@
               - --version
               - "{{ wlb_image_version }}"
           changed_when: not (python_env_user_before.stat.islnk | default(false))
+      rescue:
+        - name: Przerwij budowę po błędzie klonowania prefiksu
+          ansible.builtin.fail:
+            msg: "Przygotowanie prefiksu nie powiodło się: {{ ansible_failed_result.msg | default('nieznany błąd') }}"
       always:
         - name: Przywróć poprzedni stan działania huba po przygotowaniu obrazu
           ansible.builtin.systemd:
             name: jupyterhub.service
             state: started
           when: python_env_hub_status.status.ActiveState == 'active'
+  rescue:
+    - name: Zatrzymaj budowę po błędzie etapu M0
+      ansible.builtin.fail:
+        msg: "Etap M0 nie powiódł się ({{ ansible_failed_task.name }}): {{ ansible_failed_result.msg | default('nieznany błąd') }}"
