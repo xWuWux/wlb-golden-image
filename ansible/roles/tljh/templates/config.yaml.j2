@@ -1,5 +1,7 @@
 # Zarządzane przez Ansible (rola tljh). Zmiany wprowadzamy w repozytorium, nie na żywej VM.
-# users.admin uzupełnia wlb-firstboot na podstawie HUB_ADMIN_USER z /etc/wlb/lab.env.
+# users.admin ZOSTAJE PUSTE: Administrator Klienta dostaje rolę OGRANICZONĄ (bez access:servers/tokens),
+# a nie pełnego admina (IMG-003/#51). Rolę nadaje wlb-firstboot w 15-wlb-admin-role.py na podstawie
+# HUB_ADMIN_USER z /etc/wlb/lab.env; audyt akcji admina: 16-wlb-admin-audit.py.
 auth:
   type: nativeauthenticator.NativeAuthenticator
 

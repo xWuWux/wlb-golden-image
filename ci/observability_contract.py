@@ -27,6 +27,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 IMAGE_DIRS = ["ansible"]  # zawartość obrazu — tu szukamy źródeł logów
 
 LOGGER_TAG = re.compile(r"\blogger\b.*?\s-t\s+([A-Za-z0-9_.-]+)")
+# Emiter pythonowy: syslog.openlog(ident="...") ustawia tag journald tak samo jak logger -t (#51).
+SYSLOG_IDENT = re.compile(r"""openlog\(\s*ident=["']([A-Za-z0-9_.-]+)["']""")
 NFT_PREFIX = re.compile(r'log prefix "([^"]+)"')
 AUDIT_KEY = re.compile(r"\s-k\s+(\S+)")
 KV_FIELD = re.compile(r"(?<![A-Za-z0-9_])([a-z_][a-z0-9_]*)=")
@@ -108,7 +110,10 @@ def check_static(root: Path, contract: dict) -> list[str]:
             errors.append(f"{where}: plik {src['file']} nie istnieje")
             continue
         text = path.read_text()
-        if "tag" in src and not re.search(rf"\blogger\b.*\s-t\s+{re.escape(src['tag'])}\b", text):
+        if "tag" in src and not (
+            re.search(rf"\blogger\b.*\s-t\s+{re.escape(src['tag'])}\b", text)
+            or re.search(rf"""openlog\(\s*ident=["']{re.escape(src["tag"])}["']""", text)
+        ):
             errors.append(f"{where}: {src['file']} nie loguje z tagiem {src['tag']}")
         if fmt == "kv":
             lines = emitting_lines(text, src)
@@ -130,6 +135,8 @@ def check_static(root: Path, contract: dict) -> list[str]:
     for path in image_files(root):
         for line in path.read_text(errors="replace").splitlines():
             if m := LOGGER_TAG.search(line):
+                code_tags.setdefault(m.group(1), str(path.relative_to(root)))
+            if m := SYSLOG_IDENT.search(line):
                 code_tags.setdefault(m.group(1), str(path.relative_to(root)))
             for prefix in NFT_PREFIX.findall(line):
                 code_prefixes.setdefault(prefix, str(path.relative_to(root)))

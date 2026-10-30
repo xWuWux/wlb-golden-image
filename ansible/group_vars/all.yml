@@ -27,6 +27,7 @@ wlb_directories:
   - { path: /workspace/.wlb-export-queue, owner: root, group: root, mode: "0700" }   # kolejka eksportu (#4)
   - { path: /sluza-in, owner: root, group: jupyterhub-users, mode: "0750" }          # tylko odczyt
   - { path: /sluza-out, owner: root, group: jupyterhub-users, mode: "1730" }         # tylko zapis, bez listowania
+  - { path: /sluza-odrzucone, owner: root, group: jupyterhub-users, mode: "0750" }   # zwrotne powody odrzuceń eksportu (#162/IMG-008); badacz czyta
   - { path: /data-mart, owner: root, group: jupyterhub-users, mode: "0750" }         # tylko odczyt
   - { path: /docs, owner: root, group: root, mode: "0755" }                          # tylko odczyt
   # wspólny katalog projektu (§10, #50): setgid + grupa zespołu; domyślny ACL g::rwX ustawia wlb-firstboot.
@@ -59,7 +60,9 @@ tljh_max_session_seconds: 43200        # §9.5: twardy limit 12 h
 tljh_cull_every_seconds: 60
 # limity zasobów badaczy wylicza wlb-firstboot z RAM/vCPU VM (nadpisania w lab.env, #30)
 tljh_admins_have_sudo: false           # TLJH domyślnie daje adminom huba sudo; wyłączamy (§21, §24.c)
-tljh_enable_signup: true               # wniosek o konto; aktywacja wymaga zatwierdzenia admina
+# Konta bezosobowe uNN/a01 są pre-provisionowane przez wlb-firstboot (IMG-002/#102), nie zakładane
+# samodzielnie — formularz rejestracji wyłączony. Dostępu pilnuje is_authorized (ustawiane przez wlb-hub-user).
+tljh_enable_signup: false
 tljh_password_min_length: 12
 tljh_allowed_failed_logins: 5
 tljh_lockout_seconds: 600

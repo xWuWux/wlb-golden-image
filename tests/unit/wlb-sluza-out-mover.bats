@@ -6,8 +6,9 @@ load helpers
 setup() {
   setup_sandbox
   export WLB_SLUZA_OUT="$SANDBOX/sluza-out" WLB_EXPORT_QUEUE="$SANDBOX/queue"
+  export WLB_SLUZA_REJECTED="$SANDBOX/odrzucone" # katalog zwrotny (#162/IMG-008)
   export WLB_IMAGE_CONF="$SANDBOX/etc/wlb/image.conf" # nie istnieje -> wartości z env
-  mkdir -p "$WLB_SLUZA_OUT"
+  mkdir -p "$WLB_SLUZA_OUT" "$WLB_SLUZA_REJECTED"
   stub logger
   stub chown
   stub fuser 1 # domyślnie: plik nie jest otwarty
@@ -76,6 +77,23 @@ setup() {
   [ -e "$BATS_TEST_TMPDIR/cel" ]
   [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]  # pusta = brak wpisu widocznego dla badacza; dotfiles ignorowane
   calls | grep -q "rejected user=$ME entry=link reason=unsupported_type"
+  # badacz dostaje zwrotny powód (#162/IMG-008)
+  compgen -G "$WLB_SLUZA_REJECTED/*_link.powod.*" >/dev/null
+  grep -qE 'Powód: +unsupported_type' "$WLB_SLUZA_REJECTED"/*_link.powod.*
+}
+
+@test "odrzucenie zostawia badaczowi czytelny plik z powodem (#162/IMG-008)" {
+  echo wynik >"$BATS_TEST_TMPDIR/oryginal"
+  ln "$BATS_TEST_TMPDIR/oryginal" "$WLB_SLUZA_OUT/wynik.csv" # drugi hardlink -> snapshot_error
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  local notice
+  notice=$(compgen -G "$WLB_SLUZA_REJECTED/*_wynik.csv.powod.*")
+  [ -n "$notice" ]
+  [ "$(stat -c %a "$notice")" = 640 ]
+  grep -qE 'Element: +wynik\.csv' "$notice"
+  grep -qE 'Powód: +snapshot_error' "$notice"
+  grep -q 'limit' "$notice" # wskazówka z najczęstszymi przyczynami
 }
 
 @test "świeży katalog czeka, aż przestanie się zmieniać" {

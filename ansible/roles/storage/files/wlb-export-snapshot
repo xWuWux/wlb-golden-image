@@ -14,7 +14,8 @@ import stat
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
+from uuid import UUID
 
 
 class Entry(TypedDict):
@@ -50,6 +51,67 @@ MAX_ENTRIES = 100_000
 MAX_DEPTH = 64
 MAX_BYTES = 100 * 1024**3
 CHUNK_SIZE = 1024**2
+
+
+def validate_manifest(value: object) -> Manifest:
+    """Validate v1 metadata before reading payload; this does not authenticate it.
+
+    Unknown fields are refused: a new contract requires an explicit reader update.
+    bool is deliberately not accepted as an integer (True == 1 in Python).
+    """
+    if not isinstance(value, dict) or set(value) != set(Manifest.__annotations__):
+        raise SnapshotError("invalid_manifest")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        raise SnapshotError("unsupported_manifest")
+    if value["state"] != "pending_review":
+        raise SnapshotError("unsupported_manifest")
+    for key in ("request_id", "created_at", "original_name"):
+        if not isinstance(value[key], str) or not value[key]:
+            raise SnapshotError("invalid_manifest")
+    try:
+        request_id = UUID(value["request_id"])
+        created_at = datetime.fromisoformat(value["created_at"])
+    except ValueError as error:
+        raise SnapshotError("invalid_manifest") from error
+    if request_id.version != 4 or str(request_id) != value["request_id"]:
+        raise SnapshotError("invalid_manifest")
+    if created_at.utcoffset() != timezone.utc.utcoffset(created_at):
+        raise SnapshotError("invalid_manifest")
+    requester = value["requester"]
+    if not isinstance(requester, dict) or set(requester) != set(Requester.__annotations__):
+        raise SnapshotError("invalid_manifest")
+    if type(requester["uid"]) is not int or requester["uid"] < 0:
+        raise SnapshotError("invalid_manifest")
+    if not isinstance(requester["username"], str) or not requester["username"]:
+        raise SnapshotError("invalid_manifest")
+    if value["digest_algorithm"] not in ("sha256-file", "sha256-inventory-v1"):
+        raise SnapshotError("invalid_manifest")
+    if not valid_digest(value["sha256"]):
+        raise SnapshotError("invalid_manifest")
+    entries = value["entries"]
+    if not isinstance(entries, list) or not 1 <= len(entries) <= MAX_ENTRIES:
+        raise SnapshotError("invalid_manifest")
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != set(Entry.__annotations__):
+            raise SnapshotError("invalid_manifest")
+        if not isinstance(entry["path"], str) or not entry["path"]:
+            raise SnapshotError("invalid_manifest")
+        if type(entry["size"]) is not int or entry["size"] < 0:
+            raise SnapshotError("invalid_manifest")
+        if entry["type"] == "file":
+            if not valid_digest(entry["sha256"]):
+                raise SnapshotError("invalid_manifest")
+        elif entry["type"] == "directory":
+            if entry["size"] != 0 or entry["sha256"] != "":
+                raise SnapshotError("invalid_manifest")
+        else:
+            raise SnapshotError("invalid_manifest")
+    return cast(Manifest, value)
+
+
+def valid_digest(value: object) -> bool:
+    """A v1 SHA-256 is exactly 64 lowercase hexadecimal characters."""
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
 
 
 def canonical(value: object) -> bytes:
@@ -198,6 +260,7 @@ def create(source: Path, destination: Path, original_name: str, request_id: str)
         "sha256": payload_digest(entries),
         "entries": entries,
     }
+    validate_manifest(manifest)
     with (destination / "manifest.json").open("xb") as output:
         os.chmod(output.name, 0o600)
         output.write(canonical(manifest) + b"\n")
@@ -214,13 +277,7 @@ def verify(bundle: Path) -> Manifest:
     Legacy queue entries without a v1 manifest are deliberately refused.
     """
     with (bundle / "manifest.json").open("rb") as source:
-        manifest = json.load(source)
-    if (
-        not isinstance(manifest, dict)
-        or manifest.get("schema_version") != 1
-        or manifest.get("state") != "pending_review"
-    ):
-        raise SnapshotError("unsupported_manifest")
+        manifest = validate_manifest(json.load(source))
     entries = inventory(bundle / "payload")
     algorithm = "sha256-file" if entries[0]["type"] == "file" else "sha256-inventory-v1"
     if (

@@ -1,9 +1,9 @@
 # Przewodnik administratora: konta badaczy i administracja obrazem
 
 Jak założyć i prowadzić konto badacza oraz jak administrować samym obrazem VM
-Laboratorium. Opisuje **stan obecny** (MVP, Native Authenticator); model docelowy
-kont bezosobowych `uNN` jest przyjęty w [IMG-002](adr/IMG-002-model-kont-badaczy.md),
-ale **jeszcze niewdrożony** (#102).
+Laboratorium. Opisuje **stan obecny** (MVP, Native Authenticator, konta stanowiskowe
+`uNN` z [IMG-002](adr/IMG-002-model-kont-badaczy.md), Faza 1 z #102). Rejestr przypisań
+osoba↔konto i procedura przekazania stanowiska nie są jeszcze wdrożone.
 
 Powiązane: [pierwsze uruchomienie obrazu](pierwsze-uruchomienie.md) ·
 [RB-05 aktualizacja i rollback](runbooks/RB-05-aktualizacja-i-rollback.md) ·
@@ -17,7 +17,7 @@ Powiązane: [pierwsze uruchomienie obrazu](pierwsze-uruchomienie.md) ·
 | Kto | zespół platformy / opiekun obrazu | wyznaczona osoba po stronie jednostki badawczej |
 | Gdzie działa | buduje i wdraża obraz, SSH do VM, `lab.env` | panel huba w przeglądarce |
 | Zakres | pełny nad obrazem i wdrożeniem | **ograniczony** (patrz [IMG-003](adr/IMG-003-zakres-admina-klienta.md)) |
-| Konta badaczy | może zakładać z CLI (`wlb-hub-user`) | zatwierdza/zarządza w panelu huba |
+| Konta badaczy | konta tworzy `wlb-firstboot`; wydaje hasła, resetuje je z CLI (`wlb-hub-user`) | zarządza kontami i serwerami w panelu huba |
 | Dane badacza | brak wglądu w ramach procedury (poufność §26) | **nie wchodzi** do serwera badacza (`access:servers`, `tokens` odebrane) |
 
 Administrator Klienta ma w hubie rolę ograniczoną: zatwierdzanie kont
@@ -34,12 +34,19 @@ obserwowalności. Uzasadnienie i macierz zagrożeń: [IMG-003](adr/IMG-003-zakre
 
 - **Uwierzytelnianie:** Native Authenticator (MVP). `AUTH_MODE=native` w `lab.env`;
   przełączenie na OIDC (Entra ID / Keycloak, SSO+MFA) planowane (#18/#57).
+- **Konta stanowiskowe:** Administrator Klienta `a01` (`HUB_ADMIN_USER`) i badacze
+  `u01`…`uNN`, gdzie N = `RESEARCHER_ACCOUNTS` (0–64, domyślnie `RESEARCHERS_PER_VM`).
+  Nazwy nie zawierają danych osobowych, ale to nazwy techniczne, które **są** powiązane
+  z osobą przez rejestr przypisań — nie konta anonimowe.
+- **Rezerwacja nazw:** loginy `u01`–`u99` należą do stanowisk badaczy; `HUB_ADMIN_USER`
+  z tego zakresu jest odrzucany przy starcie.
+- **Brak samodzielnej rejestracji** (`enable_signup=False`, `open_signup=False`).
 - **Login:** `^[a-z0-9][a-z0-9._-]{0,31}$`, hasło min. 12 znaków, blokada po seriach
-  nieudanych prób. Rejestracja otwarta jest wyłączona (`open_signup=False`) — każde
-  konto wymaga zatwierdzenia.
-- **Katalog domowy:** `/workspace/<login>`, prawa `0700`; badacz widzi tylko swoje pliki.
-- **Model docelowy:** konta bezosobowe stanowiskowe `uNN` + rejestr osoba↔konto↔daty
-  ([IMG-002](adr/IMG-002-model-kont-badaczy.md)) — **jeszcze nie wdrożony**; dziś konta są nazwane.
+  nieudanych prób.
+- **Katalog domowy:** `/workspace/jupyter-<login>`, prawa `0700`; badacz widzi tylko swoje pliki.
+- **Jeszcze niewdrożone:** rejestr osoba↔konto↔daty i procedura przekazania stanowiska
+  ([IMG-002](adr/IMG-002-model-kont-badaczy.md), #102 Faza 2). Do tego czasu rejestr
+  prowadzi operator platformy poza VM.
 
 ## Skąd bierze się Administrator Klienta (bootstrap)
 
@@ -52,19 +59,31 @@ Przy pierwszym starcie VM `wlb-firstboot` czyta `/etc/wlb/lab.env`, dodaje
 - Na wdrożeniu: Administrator Platformy pobiera je z pliku (SSH) i przekazuje
   Administratorowi Klienta kanałem bezpiecznym; przy pierwszym logowaniu należy je zmienić.
 
-## Założenie konta badacza — dwie drogi
+## Konta badaczy — przygotowanie i wydanie
 
-### A. Administrator Klienta w panelu huba (droga podstawowa)
+### Przygotowanie przy pierwszym starcie
 
-1. Badacz (lub Administrator Klienta w jego imieniu) składa **wniosek o konto** na stronie
-   logowania huba (formularz „Signup"; dostępny, gdy `tljh_enable_signup=1`).
-2. Administrator Klienta wchodzi na **`/hub/authorize`**, weryfikuje i **zatwierdza** wniosek.
-3. Od tej chwili badacz loguje się swoim loginem i hasłem; przy pierwszym logowaniu zmienia hasło.
+`wlb-firstboot` tworzy konta `u01`…`uNN` (wg `RESEARCHER_ACCOUNTS`) i zapisuje hasła
+początkowe do `/root/wlb-hub-uNN-initial-password` (`0600`). Konta są **aktywne od
+utworzenia** (`is_authorized=True`) — wydanie hasła jest więc momentem przyznania dostępu.
 
-> Gdy formularz wniosków jest wyłączony (`tljh_enable_signup=0`), konta zakłada wyłącznie
-> Administrator Platformy drogą B.
+Hasło trafia najpierw do pliku `…-initial-password.pending`, a pod docelową nazwę dopiero
+po potwierdzeniu w bazie huba. Przerwany start (awaria, restart) można więc bezpiecznie
+powtórzyć — konto nie zostanie z hasłem, którego nikt nie zna. Jeśli plik hasła istnieje,
+a konta w bazie nie ma, `wlb-firstboot` **nie odtwarza** go (mogło zostać odebrane) i zapisuje
+ostrzeżenie w logu; decyzja należy do operatora platformy.
 
-### B. Administrator Platformy z CLI na VM (zakładanie/zasiew)
+1. Operator platformy (SSH, root) odbiera hasło z pliku. Administrator Klienta (`a01`)
+   nie ma dostępu do `/root` i go nie odbierze.
+2. Operator wpisuje przypisanie osoba↔konto↔data do rejestru i przekazuje hasło
+   zatwierdzonej osobie bezpiecznym kanałem; przy pierwszym logowaniu hasło należy zmienić.
+3. Po przekazaniu operator usuwa plik hasła z VM.
+
+**Liczba kont nie jest mechanizmem odebrania dostępu.** Zmniejszenie
+`RESEARCHER_ACCOUNTS` sprawia tylko, że nowe konta nie powstają; istniejące ponad limit
+zostają aktywne. Odebranie dostępu wymaga osobnej operacji (#81/#102).
+
+### Administrator Platformy z CLI na VM (zasiew, reset)
 
 Narzędzie `wlb-hub-user` tworzy **od razu zatwierdzone** konto w bazie Native Authenticatora:
 
@@ -72,6 +91,8 @@ Narzędzie `wlb-hub-user` tworzy **od razu zatwierdzone** konto w bazie Native A
 sudo wlb-hub-user u01                 # generuje hasło i wypisuje je na stdout
 sudo wlb-hub-user u01 --password-stdin # hasło z pierwszej linii stdin (min. 12 znaków)
 sudo wlb-hub-user u01 --if-missing     # tylko gdy konta nie ma (istniejące: bez zmian)
+sudo wlb-hub-user u01 --check          # kod 0: konto istnieje, 3: brak (tylko odczyt)
+sudo wlb-hub-user u01 --verify         # hasło ze stdin; kod 0: zgodne, 4: inne, 3: brak konta
 ```
 
 - Login jest walidowany; hasło wygenerowane losowo przekaż badaczowi bezpiecznym kanałem.
@@ -84,9 +105,16 @@ sudo wlb-hub-user u01 --if-missing     # tylko gdy konta nie ma (istniejące: be
 ## Reset hasła i przejęcie konta
 
 Ponowne `sudo wlb-hub-user <login>` **resetuje hasło** i zatwierdza konto (tej samej
-komendy użyj, gdy badacz zapomni hasła). W modelu docelowym `uNN` przejęcie konta
-stanowiskowego przez nową osobę = reset poświadczeń + wpis do rejestru
-(patrz [IMG-002](adr/IMG-002-model-kont-badaczy.md)).
+komendy użyj, gdy badacz zapomni hasła).
+
+**Reset hasła nie jest przekazaniem stanowiska innej osobie.** Nie kończy aktywnych sesji,
+nie unieważnia ciasteczek i tokenów ani nie rozlicza danych w `/workspace/jupyter-uNN`.
+Procedura przekazania (blokada konta, zakończenie sesji i odebranie tokenów, rozliczenie
+danych, zamknięcie starego przypisania, aktywacja nowego) jest otwarta w #102 Faza 2 —
+do tego czasu stanowiska nie należy przekazywać między osobami.
+
+Wymiana obrazu VM (ten sam dysk roboczy) zachowuje konta i hasła — to ciągłość tego
+samego przypisania, nie przekazanie.
 
 ## Co dostaje badacz i jakie są granice
 
@@ -125,7 +153,8 @@ radiologia jest opt-in (`WLB_BUILD_RADIOLOGIA=1`, #167).
 ## Konfiguracja wdrożenia (`/etc/wlb/lab.env`)
 
 Parametry Laboratorium dostarcza cloud-init (`write_files`); czyta je `wlb-firstboot`.
-Wzorzec z opisem każdej zmiennej: [`cloud-init/lab.env.example`](../cloud-init/lab.env.example).
+Wzorzec z opisem każdej zmiennej: [`cloud-init/lab.env.example`](../cloud-init/lab.env.example),
+gotowy do skopiowania przykład wdrożenia: [`cloud-init/lab-user-data.example.yaml`](../cloud-init/lab-user-data.example.yaml).
 Najważniejsze:
 
 | Zmienna | Rola |
@@ -143,6 +172,12 @@ Najważniejsze:
 
 Przy `HUB_TLS=1` firstboot **waliduje** certyfikat i klucz (para, ważność, prawa `0600`,
 brak hasła) **przed** otwarciem portu — błędna konfiguracja nie wystawi huba po HTTP.
+
+Obraz stawia się wiele razy, dlatego zgodność tych trzech miejsc (kod `wlb-firstboot`, wzorzec
+`lab.env.example`, przykład wdrożenia) jest bramką CI w etapie 3.5 (`ci/deployment_vars.py`).
+Nowy parametr bez pary dokumentacja + przykład, parametr opisany a nigdy nieczytany oraz rozjazd
+wartości domyślnej zatrzymują PR — zamiast ujawnić się dopiero na postawionej VM. Zmienne `WLB_*`
+z `/etc/wlb/image.conf` są własnością obrazu (nie parametrem Laboratorium) i kontrakt ich nie obejmuje.
 Rotacja certyfikatu / zmiana `lab.env`: podmień pliki i uruchom `sudo wlb-firstboot --force`
 (przed blokadą audytu).
 
@@ -172,5 +207,7 @@ Kopia bazy huba przed operacją: [runbook-kopia-bazy-huba.md](runbook-kopia-bazy
 3. Wdróż obraz; po pierwszym starcie sprawdź, że `wlb-firstboot` zakończył się bez błędu.
 4. Pobierz hasło początkowe Administratora Klienta (`/root/wlb-hub-admin-initial-password`),
    przekaż bezpiecznym kanałem; wymuś zmianę przy pierwszym logowaniu.
-5. Załóż konta badaczy (droga A w panelu albo B z `wlb-hub-user`) — liczba kont = liczba zatwierdzonych użytkowników.
+5. Ustaw `RESEARCHER_ACCOUNTS` na liczbę zatwierdzonych badaczy. Po starcie wydaj hasła
+   `u01`…`uNN` z `/root/wlb-hub-uNN-initial-password` zgodnie z rejestrem przypisań,
+   a potem usuń pliki haseł.
 6. Zweryfikuj akceptację i widoczność zdarzeń w SIEM.

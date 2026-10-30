@@ -58,11 +58,11 @@ def test_ponowne_wywolanie_zatwierdza_wniosek_o_konto(hub_user, hub_db, capsys):
 
 
 def test_if_missing_nie_zmienia_istniejacego_konta(hub_user, hub_db, capsys):
-    hub_user.main(["admin-klienta"])
+    hub_user.main(["a01"])
     original = capsys.readouterr().out.strip()
-    hub_user.main(["admin-klienta", "--if-missing"])
+    hub_user.main(["a01", "--if-missing"])
     assert capsys.readouterr().out == ""
-    assert bcrypt.checkpw(original.encode(), user_info(hub_db, "admin-klienta").password)
+    assert bcrypt.checkpw(original.encode(), user_info(hub_db, "a01").password)
 
 
 def test_if_missing_zaklada_brakujace_konto(hub_user, hub_db, capsys):
@@ -99,6 +99,69 @@ def test_niezainicjalizowana_baza(hub_user, tmp_path, monkeypatch):
 
 def test_domyslna_baza_na_dysku_roboczym(hub_user):
     assert hub_user.DEFAULT_DB_URL == "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
+
+
+# --- Tryby odczytu dla bezpiecznego provisioningu w wlb-firstboot (#102) ----------------------
+
+
+def exit_code(hub_user, argv, stdin="", monkeypatch=None):
+    if monkeypatch is not None:
+        monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    try:
+        hub_user.main(argv)
+    except SystemExit as exc:
+        return exc.code
+    return 0
+
+
+def test_check_rozroznia_istniejace_i_brakujace_konto(hub_user, hub_db, capsys):
+    assert exit_code(hub_user, ["u01", "--check"]) == hub_user.EXIT_MISSING  # tabela wtyczki jeszcze nie istnieje
+    hub_user.main(["u01"])
+    capsys.readouterr()
+    assert exit_code(hub_user, ["u01", "--check"]) == 0
+    assert exit_code(hub_user, ["u02", "--check"]) == hub_user.EXIT_MISSING
+    assert capsys.readouterr().out == ""  # tryb odczytu nie wypisuje hasła
+    assert user_info(hub_db, "u02") is None  # i niczego nie zakłada
+
+
+def test_verify_sprawdza_haslo_bez_zmiany_konta(hub_user, hub_db, capsys, monkeypatch):
+    hub_user.main(["u01"])
+    password = capsys.readouterr().out.strip()
+    stored = user_info(hub_db, "u01").password
+    assert exit_code(hub_user, ["u01", "--verify"], password + "\n", monkeypatch) == 0
+    assert exit_code(hub_user, ["u01", "--verify"], "inne-haslo-123\n", monkeypatch) == hub_user.EXIT_MISMATCH
+    assert exit_code(hub_user, ["u09", "--verify"], password + "\n", monkeypatch) == hub_user.EXIT_MISSING
+    assert user_info(hub_db, "u01").password == stored
+
+
+def test_verify_uszkodzony_zapis_hasla_nie_pasuje(hub_user, hub_db, monkeypatch):
+    with Session(create_engine(hub_db)) as db:
+        UserInfo.__table__.create(db.get_bind(), checkfirst=True)
+        db.add(UserInfo(username="u01", password=b"nie-bcrypt", is_authorized=True))
+        db.commit()
+    assert exit_code(hub_user, ["u01", "--verify"], "cokolwiek-dlugiego\n", monkeypatch) == hub_user.EXIT_MISMATCH
+
+
+def test_tryby_odczytu_na_niezainicjalizowanej_bazie_to_blad(hub_user, tmp_path, monkeypatch):
+    monkeypatch.setenv("WLB_HUB_DB_URL", f"sqlite:///{tmp_path}/pusta.sqlite")
+    with pytest.raises(SystemExit, match="nie jest zainicjalizowana"):
+        hub_user.main(["u01", "--check"])
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["u01", "--check", "--password-stdin"],
+        ["u01", "--verify", "--password-stdin"],
+        ["u01", "--check", "--if-missing"],
+        ["u01", "--verify", "--check"],
+    ],
+)
+def test_tryby_wykluczaja_sie(hub_user, hub_db, argv):
+    with pytest.raises(SystemExit) as exc:
+        hub_user.main(argv)
+    assert exc.value.code == 2  # błąd wywołania argparse, nie odpowiedź o koncie
+    assert user_info(hub_db, "u01") is None
 
 
 # --- Blokada zapisu SQLite przy działającym hubie (#31) ---------------------------------------

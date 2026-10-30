@@ -65,6 +65,11 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - Hooki cyklu życia sesji badacza + korelacja sesji w SIEM (#97/#114).
 
 ### Bezpieczeństwo i zgodność
+- Konta stanowiskowe `u01`…`uNN` i Administrator Klienta `a01` tworzone przez `wlb-firstboot`
+  (`RESEARCHER_ACCOUNTS`), samodzielna rejestracja wyłączona (IMG-002 Faza 1, #102/#185).
+  Loginy `u01`–`u99` zarezerwowane dla badaczy; hasło początkowe przez plik `.pending`, więc
+  przerwany start nie zostawia konta z nieznanym hasłem. Rejestr przypisań osoba↔konto
+  i przekazanie stanowiska pozostają otwarte (#102 Faza 2).
 - Wymuszony CIDR dostępu + TLS huba, inkrement 1 (#18/IMG-005/#161).
 - AppArmor: dokładny tryb profilu z `aa-status --json`, wymuszenie enforce (#65, #155/#156/#158/#163).
 - Sysctl sieciowe + wyłączenie zrzutów pamięci (CIS 1.x/3.x, #63/#94).
@@ -76,6 +81,11 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - Rozbicie testów akceptacyjnych na fragmenty `tests/acceptance.d/` — koniec konfliktów append (#127).
 - Etap 5 buduje tylko bazę (`-only`), nie flavory równolegle (#144); allowlista na prawdziwym proxy — koniec SKIP (#16/#93).
 - Bramka znaczników konfliktu gita + hak pre-commit (#123/#124); trigger Merge Queue (#121).
+- Kontrakt zmiennych wdrożeniowych w etapie 3.5 (`ci/deployment_vars.py`): `/etc/wlb/lab.env`,
+  `cloud-init/lab.env.example` i przykład `cloud-init/lab-user-data.example.yaml` muszą się zgadzać
+  z tym, co czyta `wlb-firstboot` — obraz stawia się wiele razy, a rozjazd parametru był dotąd
+  widoczny dopiero na VM. Przykład wdrożenia uzupełniony o `AUTH_MODE`, `LOCAL_TEST_MODE`
+  i wzory limitów zasobów.
 - Bieżące podbicia zależności i locków pod skan SCA (wiele PR-ów dependabot/ręcznych).
 
 ### Decyzje architektoniczne (ADR)

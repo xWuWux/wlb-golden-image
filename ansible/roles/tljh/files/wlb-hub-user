@@ -4,6 +4,8 @@
     wlb-hub-user LOGIN                   # generuje hasło i wypisuje je na stdout
     wlb-hub-user LOGIN --password-stdin  # hasło z pierwszej linii stdin
     wlb-hub-user LOGIN --if-missing      # tylko gdy konta nie ma (istniejące: bez zmian, bez wyjścia)
+    wlb-hub-user LOGIN --check           # kod 0: konto istnieje, 3: brak (bez zmian w bazie)
+    wlb-hub-user LOGIN --verify          # hasło ze stdin; kod 0: zgodne, 4: inne, 3: brak konta
 
 Uprawnienia administratora huba nadaje wyłącznie lista users.admin w tljh-config.
 Hub musi być uruchomiony co najmniej raz, żeby baza istniała. Baza leży na dysku
@@ -24,6 +26,10 @@ from sqlalchemy.orm import Session
 DEFAULT_DB_URL = "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 MIN_PASSWORD_LENGTH = 12
+# Kody odpowiedzi trybów odczytu. Błędy (np. baza niezainicjalizowana) kończą się kodem 1,
+# więc wywołujący odróżnia odpowiedź od awarii i może ponowić tylko awarię.
+EXIT_MISSING = 3
+EXIT_MISMATCH = 4
 # Czas oczekiwania na blokadę zapisu bazy (s). Hub trzyma bazę przy logowaniu, kopii (#8) czy
 # upgrade_db; domyślne 5 s pysqlite bywa za krótkie na wolnym storage (fsync na Ceph). Stała, by
 # test mógł ją nadpisać.
@@ -50,16 +56,45 @@ def _engine(url):
     return engine
 
 
+def _lookup(login, password=None):
+    """Tryby odczytu: istnienie konta i opcjonalnie zgodność hasła. Kończy proces kodem odpowiedzi."""
+    engine = _engine(os.environ.get("WLB_HUB_DB_URL", DEFAULT_DB_URL))
+    if not inspect(engine).has_table("users"):
+        sys.exit("Baza JupyterHub nie jest zainicjalizowana — uruchom najpierw hub")
+    if not inspect(engine).has_table(UserInfo.__tablename__):
+        sys.exit(EXIT_MISSING)
+    with Session(engine) as db:
+        info = db.query(UserInfo).filter_by(username=login).first()
+    if info is None:
+        sys.exit(EXIT_MISSING)
+    if password is not None:
+        try:
+            matches = bcrypt.checkpw(password.encode(), info.password)
+        except ValueError:  # zapis spoza bcrypt (np. uszkodzony) nie może pasować
+            matches = False
+        if not matches:
+            sys.exit(EXIT_MISMATCH)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("login")
     parser.add_argument("--password-stdin", action="store_true")
-    parser.add_argument("--if-missing", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--if-missing", action="store_true")
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--verify", action="store_true")
     args = parser.parse_args(argv)
+    if args.password_stdin and (args.check or args.verify):
+        parser.error("--password-stdin dotyczy zakładania i resetu; --verify czyta hasło ze stdin samo")
 
     login = args.login.lower()
     if not LOGIN_RE.match(login):
         sys.exit(f"Nieprawidłowy login: {args.login!r}")
+
+    if args.check or args.verify:
+        _lookup(login, sys.stdin.readline().rstrip("\n") if args.verify else None)
+        return
 
     if args.password_stdin:
         password = sys.stdin.readline().rstrip("\n")
