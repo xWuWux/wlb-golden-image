@@ -8,6 +8,9 @@
 #   stage 5 (dynamicznie)   ci/observability_contract.py verify-log <log z odbiornika SIEM>
 #       zdarzenia oznaczone "acceptance: true" pojawiają się w logu centralnym po teście
 #       akceptacyjnym, z poprawnymi wartościami pól
+#   Wazuh (#17)              ci/wazuh-logtest.sh <log>  (stage 3.5: próbka, stage 5: log z odbiornika)
+#       każde zdarzenie trafia w regułę wazuh_rule z nazwanymi polami wlb.<pole>,
+#       a wpis o tej samej treści od niezaufanego nadawcy — w regułę podszycia
 #
 # Zmiana formatu zdarzenia = zmiana tego pliku w tym samym PR (inaczej stage 3.5 nie przejdzie).
 # Reguły korelacji w SIEM (Wazuh/OpenSearch) należy budować na nazwach pól z tego pliku.
@@ -54,6 +57,7 @@ events:
       sha256: "^[0-9a-f]{64}$"
       queued_as: "^[0-9]{8}T[0-9]{6}Z_.+"
     acceptance: true
+    wazuh_rule: 100110
 
   - name: sluza_out.rejected
     description: >-
@@ -69,6 +73,7 @@ events:
       entry: ".+"
       reason: "^(unsupported_type|hardlink)$"
     acceptance: true
+    wazuh_rule: 100111
 
   - name: sluza_out.snapshot_failed
     description: >-
@@ -82,6 +87,7 @@ events:
       request_id: "^[0-9a-f-]{36}$"
       reason: "^(snapshot_error|transfer_error|publish_error|sync_error)$"
     acceptance: false
+    wazuh_rule: 100112
 
   - name: sluza_out.start
     description: Start usługi śluzy wyjściowej (przy starcie VM — przed konfiguracją SIEM).
@@ -92,6 +98,7 @@ events:
       src: "^/.+"
       queue: "^/.+"
     acceptance: false
+    wazuh_rule: 100113
 
   - name: shell.command
     description: Polecenie wpisane przez badacza w powłoce (terminal JupyterLab, SSH).
@@ -107,6 +114,7 @@ events:
       cwd: "^/.*"
       cmd: ".+"
     acceptance: false # test akceptacyjny nie otwiera interaktywnej powłoki
+    wazuh_rule: 100114
 
   - name: firstboot.done
     description: Konfiguracja Laboratorium zakończona (koniec wlb-firstboot).
@@ -115,6 +123,7 @@ events:
     format: text
     pattern: "^Laboratorium (?P<lab>\\S+) skonfigurowane$"
     acceptance: true
+    wazuh_rule: 100115
 
   - name: firstboot.message
     description: Pozostałe komunikaty wlb-firstboot (ostrzeżenia, błędy) — tekst dla administratora.
@@ -123,26 +132,41 @@ events:
     format: text
     pattern: ".+"
     acceptance: false
+    wazuh_rule: 100116
 
   - name: hub.login
     description: Udane logowanie do JupyterHub (komunikat JupyterHub, usługa jupyterhub).
     regulamin: "§21"
-    source: { journal_unit: jupyterhub }
+    source: { journal_unit: jupyterhub, syslog_app: python3 }
     trusted: { input: imuxsock, uid: "^0$" } # usługa roota
     format: text
     pattern: "User logged in: (?P<user>[a-z0-9._-]+)"
     acceptance: true
+    wazuh_rule: 100117
+
+  - name: hub.login_failed
+    description: >-
+      Nieudane logowanie do JupyterHub (komunikat JupyterHub). Seria na to samo konto to alert
+      (Wazuh 100170) — analiza prób logowania (OPZ B.17).
+    regulamin: "§21"
+    source: { journal_unit: jupyterhub, syslog_app: python3 }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
+    format: text
+    pattern: "Failed login for '(?P<user>[^']*)'"
+    acceptance: true
+    wazuh_rule: 100118
 
   - name: hub.download_denied
     description: >-
       Odmowa pobrania pliku z serwera notebooków (/files, /nbconvert, /view) przez blokadę w Traefiku
       (#7) — wpis access logu Traefika (JSON), badacz w ścieżce /user/<login>/.
     regulamin: "§14, §21, §24.e"
-    source: { journal_unit: traefik }
+    source: { journal_unit: traefik, syslog_app: traefik }
     trusted: { input: imuxsock, uid: "^0$" } # Traefik z TLJH działa jako root
     format: text
     pattern: '^(?=.*"RouterName":"(https-)?wlb-block-download@file")(?=.*"DownstreamStatus":403).*"RequestPath":"/user/(?P<user>[^/"]+)/'
     acceptance: true
+    wazuh_rule: 100119
 
   - name: session.start
     description: Serwer notebooków badacza wystartował (pre_spawn_hook JupyterHub) — korelacja sesji Huba (#97).
@@ -156,6 +180,7 @@ events:
       hub_session: "^[0-9a-f]{32}$"
       lab: ".*"
     acceptance: false
+    wazuh_rule: 100120
 
   - name: session.stop
     description: Serwer notebooków badacza zatrzymany (post_stop_hook); duration_seconds = czas trwania sesji (#97).
@@ -170,6 +195,7 @@ events:
       lab: ".*"
       duration_seconds: "^[0-9]*$"
     acceptance: false
+    wazuh_rule: 100121
 
   - name: hub.admin_action
     description: >-
@@ -186,6 +212,7 @@ events:
     # Wyzwolenie wymaga uwierzytelnionej akcji admina; pokrywa to dedykowany test w acceptance-remote.sh
     # (sprawdzenie scope roli + faktyczna emisja tagu wlb-hub-audit), nie weryfikacja logu SIEM.
     acceptance: false
+    wazuh_rule: 100122
 
   - name: network.egress_deny
     description: Zablokowane połączenie wychodzące procesu badacza (nftables, obrona w głębi).
@@ -194,6 +221,7 @@ events:
     trusted: { input: imklog } # dziennik jądra — procesy użytkownika nie mają zapisu do /dev/kmsg
     format: kernel
     acceptance: true
+    wazuh_rule: 100123
 
   - name: network.ingress_deny
     description: Odrzucony ruch przychodzący spoza dozwolonych sieci.
@@ -201,11 +229,13 @@ events:
     trusted: { input: imklog } # dziennik jądra — procesy użytkownika nie mają zapisu do /dev/kmsg
     format: kernel
     acceptance: false
+    wazuh_rule: 100124
 
 # Zdarzenia auditd (przekazywane do syslogu przez audisp-syslog; klucz w polu key="...").
 audit:
   rules_file: ansible/roles/audit/templates/50-wlb.rules.j2
   trusted: { input: imuxsock, uid: "^0$" } # audisp-syslog działa jako root
+  wazuh_rule: 100130 # SYSCALL z kluczem wlb_*; reguły pochodne dla kluczy wymagających reakcji
   keys:
     - { key: wlb_sluza_in, description: "Każda operacja na plikach śluzy wejściowej", regulamin: "§10, §21", acceptance: true }
     - { key: wlb_sluza_out, description: "Zapis w śluzie wyjściowej", regulamin: "§10, §21", acceptance: true }
@@ -236,3 +266,10 @@ siem:
   template: WLB_SyslogProtocol23Trusted # szablon z polami zaufanymi (trusted_sd_id)
   tls: 'StreamDriverAuthMode=\"x509/name\"' # TLS z weryfikacją nazwy serwera SIEM (#6, §20)
   trusted_input: { file: ansible/roles/logging/tasks/main.yml, marker: 'SysSock.ParseTrusted="on"' }
+
+# Dekodery i reguły Wazuh (#17): pliki dla /var/ossec/etc/{decoders,rules}/ menedżera.
+# Każde zdarzenie wskazuje swoją regułę (wazuh_rule); reguła należy do grupy wlb_ev_<nazwa>.
+wazuh:
+  decoders: observability/siem/wazuh/wlb_decoders.xml
+  rules: observability/siem/wazuh/wlb_rules.xml
+  sample: tests/fixtures/siem-sample.log # próbka dla etapu 3.5 — każde zdarzenie z kontraktu
