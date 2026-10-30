@@ -26,4 +26,16 @@ wazuh_sample() {
     --expect-untrusted sluza_out.export_request --expect-untrusted hub.login --expect-untrusted shell.command
 }
 run_check "Wazuh: dekodery i reguły na próbce strumienia (#17)" wazuh_sample
+
+# Wersja Ubuntu i wrapper zgodne z obrazem. Test startuje prywatny VNC w kontenerze,
+# nigdy na żywej VM ani w istniejącej sesji badacza.
+desktop_smoke() {
+  if ! command -v docker >/dev/null; then
+    [[ -z ${CI:-} ]] || return 1
+    echo "docker niedostępny — pomijam lokalny test TigerVNC"
+    return 0
+  fi
+  ci/desktop-vnc-smoke.sh
+}
+run_check "TigerVNC: konfiguracja Ubuntu i polityka schowka (#106)" desktop_smoke
 finish

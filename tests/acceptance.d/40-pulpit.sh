@@ -9,7 +9,15 @@ if /opt/tljh/user/bin/python -c "import jupyter_remote_desktop_proxy" 2>/dev/nul
   expect_ok "Serwer VNC na obrazie (TigerVNC)" \
     bash -c "command -v Xtigervnc || command -v tigervncserver || command -v vncserver"
   expect_ok "websockify na obrazie" bash -c "command -v websockify"
-  expect_ok "Schowek VNC wyłączony — konfiguracja obecna (#106)" test -f /etc/tigervnc/vncserver-config-mandatory
+  expect_ok "Konfiguracja TigerVNC ma poprawną składnię Perla (#106)" \
+    perl -c /etc/tigervnc/vncserver-config-mandatory
+  # Znak dolara jest częścią sprawdzanej konfiguracji Perla.
+  # shellcheck disable=SC2016
+  expect_ok "Schowek VNC: polityka wrappera wyłącza odbiór (#106)" \
+    grep -qxF '$AcceptCutText = 0;' /etc/tigervnc/vncserver-config-mandatory
+  # shellcheck disable=SC2016
+  expect_ok "Schowek VNC: polityka wrappera wyłącza wysyłanie (#106)" \
+    grep -qxF '$SendCutText = 0;' /etc/tigervnc/vncserver-config-mandatory
 else
   expect_fail "Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)" \
     grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia)' /etc/wlb/image-release

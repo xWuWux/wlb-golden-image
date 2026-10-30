@@ -14,6 +14,9 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Pulpit (#106/#135):** poprawna składnia konfiguracji TigerVNC na Ubuntu 24.04;
+  test rzeczywistego uruchomienia i parametrów blokujących schowek w izolowanym kontenerze.
+
 - **Lokalne metryki stanu (#22):** timer `wlb-health`, agregaty kolejki, spoolu SIEM,
   miejsca, auditd i chrony oraz kontrola kontraktu na odpowiedzi node_exportera.
   Brak zdalnego scrape i alertowania; [runbook](docs/runbooks/RB-wlb-health.md).

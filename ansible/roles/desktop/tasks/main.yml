@@ -37,19 +37,10 @@
   delay: 30
   changed_when: true
 
-# Granica eksfiltracji przeglądarka↔VM (§14.7/§24.e): schowek i transfer plików WYŁĄCZONE.
-# To NIE dotyczy wymiany notatnik↔pulpit — oba działają w tej samej VM, na wspólnym katalogu
-# domowym badacza (~/). TigerVNC steruje schowkiem po stronie serwera (-AcceptCutText/-SendCutText),
-# niezależnie od klienta noVNC.
-# UWAGA PoC: to KANDYDAT — czy jupyter-remote-desktop-proxy uruchamia Xvnc przez wrapper vncserver
-# (czytający ten plik), czy bezpośrednio (plik pominięty), rozstrzyga empiryczny test w #106.
-- name: TigerVNC bez schowka — granica przeglądarka↔VM (kandydat, weryfikacja w PoC)
+# Ubuntu 24.04 ładuje vncserver-config-mandatory jako Perl, nie listę argumentów.
+# Polityka dotyczy wrappera, a nie uruchomienia Xtigervnc bezpośrednio (#106).
+- name: TigerVNC bez schowka dla sesji przez wrapper
   ansible.builtin.copy:
+    src: vncserver-config-mandatory
     dest: /etc/tigervnc/vncserver-config-mandatory
     mode: "0644"
-    content: |
-      # Zarządzane przez Ansible (rola desktop) — §14.7/§24.e, #106
-      # Schowek VNC wyłączony po stronie serwera. Transfer plików noVNC nie jest domyślnie
-      # wystawiany przez jupyter-remote-desktop-proxy. Do potwierdzenia empirycznego (#106).
-      -AcceptCutText=0
-      -SendCutText=0
