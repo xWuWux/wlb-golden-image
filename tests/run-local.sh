@@ -85,6 +85,6 @@ cat <<EOF
 VM testowa działa.
   SSH:  ssh -p $SSH_PORT -i build/test/id_ed25519 wlbadmin@127.0.0.1
   Hub:  http://localhost:$HUB_PORT
-  Hasło admina huba (admin-klienta): make test-password
+  Hasło admina huba (a01): make test-password
 Testy: make test    Zatrzymanie: make test-down
 EOF

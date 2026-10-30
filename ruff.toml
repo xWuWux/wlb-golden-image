@@ -18,5 +18,7 @@ known-first-party = [
   "deployment_vars",
   "license_check",
   "observability_contract",
+  "wazuh_check",
+  "wazuh_logtest_client",
   "sca_requirements",
 ]

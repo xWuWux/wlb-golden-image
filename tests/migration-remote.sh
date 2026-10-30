@@ -32,7 +32,7 @@ case $1 in
       test "$(hub_login "$USER_NAME" "$password")" = 302
     expect_ok "Serwer notebooków startuje po migracji" hub_spawn "$USER_NAME"
     expect_ok "Administrator Klienta loguje się starym hasłem" \
-      test "$(hub_login admin-klienta "$admin_password")" = 302
+      test "$(hub_login a01 "$admin_password")" = 302
     expect_fail "Nowa VM nie wygenerowała nowego hasła admina" test -s /root/wlb-hub-admin-initial-password
     expect_ok "Hub działa po ewentualnej aktualizacji schematu bazy" curl -sf -o /dev/null "$HUB/hub/api"
     queue=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)

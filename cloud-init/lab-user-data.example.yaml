@@ -64,7 +64,8 @@ write_files:
     permissions: "0600"
     content: |
       LAB_NAME=lab-example01
-      HUB_ADMIN_USER=admin-klienta
+      HUB_ADMIN_USER=a01
+      RESEARCHER_ACCOUNTS=1
       PROXY_URL=http://10.20.0.10:3128
       NO_PROXY=localhost,127.0.0.1,.wlb.local
       # IMG-004/#23: deny = zakaz instalacji przez badacza (§24.c). mirror = kuratorowany mirror,
