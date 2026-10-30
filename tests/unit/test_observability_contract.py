@@ -17,6 +17,7 @@ def repo(tmp_path):
     """Kopia obrazu (ansible/) i kontraktu, którą testy mogą psuć."""
     shutil.copytree(REPO_ROOT / "ansible", tmp_path / "ansible")
     shutil.copytree(REPO_ROOT / "observability", tmp_path / "observability")
+    shutil.copytree(REPO_ROOT / "tests/fixtures", tmp_path / "tests/fixtures")
     return tmp_path
 
 
@@ -163,6 +164,8 @@ GOOD = [
     "entry=link-test reason=unsupported_type",
     f"<13>1 2026-09-25T12:00:00Z lab-test01 wlb-firstboot 12 - {ROOT}  Laboratorium lab-test01 skonfigurowane",
     f"<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - {ROOT}  [I 2026 JupyterHub base:931] User logged in: tester1",
+    f"<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - {ROOT}  "
+    "[W 2026 JupyterHub base:998] Failed login for 'tester2'",
     f"<14>1 2026-09-25T12:00:00Z lab-test01 traefik 77 - {ROOT}  "
     '{"ClientHost":"127.0.0.1","DownstreamStatus":403,"RequestPath":"/user/tester1/files/dane.csv",'
     '"RouterName":"wlb-block-download@file","level":"info"}',
@@ -319,3 +322,65 @@ def test_main_static_z_bledami(repo, capsys, monkeypatch):
     edit(repo / "ansible/roles/storage/files/wlb-sluza-out-mover", " sha256=$sha", "")
     assert oc.main(["--repo-root", str(repo), "static"]) == 1
     assert "Niezgodności:" in capsys.readouterr().out
+
+
+# --- Wazuh: dekodery i reguły powiązane z kontraktem (#17) -------------------------------------
+
+
+def test_zdarzenie_uslugi_tylko_od_jej_programu():
+    """journal_unit nie przechodzi do strumienia — o źródle decyduje syslog_app (#17)."""
+    hub_login = next(e for e in oc.load_contract(REPO_ROOT)["events"] if e["name"] == "hub.login")
+    line = f"<30>1 2026-09-25T12:00:00Z lab-test01 sudo - - {ROOT}  COMMAND=/usr/bin/echo User logged in: tester1"
+    rec = oc.parse_syslog([line])[0]
+    assert oc.event_matches(hub_login, rec, "wlb@32473") == (False, "", "")
+    rec = oc.parse_syslog([line.replace(" sudo ", " python3 ")])[0]
+    assert oc.event_matches(hub_login, rec, "wlb@32473")[0]
+
+
+def wazuh_errors(repo):
+    return [e for e in oc.check_static(repo, contract(repo)) if "Wazuh" in e or "wazuh" in e or "regu" in e]
+
+
+def test_wazuh_regula_zdarzenia_musi_istniec(repo):
+    data = contract(repo)
+    next(e for e in data["events"] if e["name"] == "hub.login")["wazuh_rule"] = 100999
+    save(repo, data)
+    assert any("hub.login: reguły 100999 nie ma" in e for e in wazuh_errors(repo))
+
+
+def test_wazuh_brak_wazuh_rule_i_duplikat(repo):
+    data = contract(repo)
+    events = {e["name"]: e for e in data["events"]}
+    del events["hub.login"]["wazuh_rule"]
+    events["session.stop"]["wazuh_rule"] = events["session.start"]["wazuh_rule"]
+    save(repo, data)
+    errors = wazuh_errors(repo)
+    assert any("hub.login: brak wazuh_rule" in e for e in errors)
+    assert any("session.stop: wazuh_rule 100120 używa już session.start" in e for e in errors)
+
+
+def test_wazuh_regula_bez_grupy_zdarzenia(repo):
+    edit(repo / "observability/siem/wazuh/wlb_rules.xml", "wlb_ev_hub.login,", "")
+    assert any("hub.login: reguła 100117 nie ma grupy wlb_ev_hub.login" in e for e in wazuh_errors(repo))
+
+
+def test_wazuh_grupa_zdarzenia_spoza_kontraktu(repo):
+    edit(repo / "observability/siem/wazuh/wlb_rules.xml", "wlb_ev_hub.login,", "wlb_ev_hub.login,wlb_ev_nie.ma,")
+    assert any("grupę wlb_ev_nie.ma zdarzenia spoza kontraktu" in e for e in wazuh_errors(repo))
+
+
+def test_wazuh_niepoprawny_xml_i_brak_plikow(repo):
+    (repo / "observability/siem/wazuh/wlb_decoders.xml").write_text("<decoder name='x'>")
+    assert any("niepoprawny XML" in e for e in wazuh_errors(repo))
+    (repo / "tests/fixtures/siem-sample.log").unlink()
+    assert any("plik sample" in e for e in wazuh_errors(repo))
+
+
+def test_wazuh_brak_sekcji_i_reguly_audytu(repo):
+    data = contract(repo)
+    data["audit"]["wazuh_rule"] = 1
+    save(repo, data)
+    assert any("audyt: wazuh_rule 1 nie istnieje" in e for e in wazuh_errors(repo))
+    del data["wazuh"]
+    save(repo, data)
+    assert any("brak sekcji wazuh" in e for e in wazuh_errors(repo))

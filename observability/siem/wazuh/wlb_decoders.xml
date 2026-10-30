@@ -1,0 +1,140 @@
+<!--
+  Dekodery Wazuh dla strumienia z VM Laboratorium WLB (#17).
+  Kontrakt zdarzeń: observability/contract.yml. Test: ci/wazuh-logtest.sh (etap 3.5 na próbce,
+  etap 5 na logu z testowego SIEM). Instalacja: /var/ossec/etc/decoders/ menedżera.
+
+  Wejście: RFC 5424 z rsyslog (szablon WLB_SyslogProtocol23Trusted), np.
+    <85>1 2026-10-30T10:29:41+01:00 lab-test01 wlb-sluza-out - - [wlb@32473 input="imuxsock" uid="0" gid="0" pid="349"]  export_request user=...
+  Predekoder Wazuh nie rozpoznaje RFC 5424 (hostname i program_name zostają puste), dlatego
+  nagłówek dekodujemy sami do pól wlb.*.
+
+  Pola zaufane (#44) mają przedrostek wlb.sender_*: uid/gid/pid nadawcy z jądra (SCM_CREDENTIALS)
+  i moduł wejścia rsyslog. Treść i tag może podać każdy proces; reguły MUSZĄ opierać się na
+  wlb.input i wlb.sender_uid, nie na samym tagu (wlb.app).
+
+  Pola zdarzeń mają nazwy z kontraktu (wlb.user, wlb.uid, wlb.entry, ...). Każdy dekoder-rodzeństwo
+  (wlb-fields) dopasowuje cały wiersz; dopasowane pola się sumują.
+-->
+
+<decoder name="wlb">
+  <prematch type="pcre2">^(?:\x3c\d{1,3}\x3e)?1 \S+ \S+ \S+ \S+ \S+ \[wlb@32473 </prematch>
+</decoder>
+
+<!-- Nagłówek RFC 5424 i pola zaufane -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">^(?:\x3c\d{1,3}\x3e)?1 (\S+) (\S+) (\S+) \S+ \S+ \[wlb@32473 input="([^"]*)" uid="([^"]*)" gid="([^"]*)" pid="([^"]*)"\] </regex>
+  <order>wlb.timestamp, wlb.host, wlb.app, wlb.input, wlb.sender_uid, wlb.sender_gid, wlb.sender_pid</order>
+</decoder>
+
+<!-- sluza_out.* (wlb-sluza-out-mover) -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(export_request) user=(\S+) uid=(\S*) entry=(.+?) sha256=([0-9a-f]+) queued_as=(\S+)$</regex>
+  <order>wlb.marker, wlb.user, wlb.uid, wlb.entry, wlb.sha256, wlb.queued_as</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(rejected) user=(\S+) entry=(.+?) reason=(\S+)$</regex>
+  <order>wlb.marker, wlb.user, wlb.entry, wlb.reason</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(snapshot_failed) request_id=(\S+) reason=(\S+)$</regex>
+  <order>wlb.marker, wlb.request_id, wlb.reason</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(start) src=(\S+) queue=(\S+)$</regex>
+  <order>wlb.marker, wlb.src, wlb.queue</order>
+</decoder>
+
+<!-- shell.command (wlb-shell-audit.sh): cwd może zawierać spacje, cmd to reszta wiersza -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +user=(\S+) uid=(\S*) session=(\S+) cwd=(.*?) cmd=(.*)$</regex>
+  <order>wlb.user, wlb.uid, wlb.session, wlb.cwd, wlb.cmd</order>
+</decoder>
+
+<!-- session.* (wlb-session-log) -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(session_start|session_stop) user=(\S+) uid=(\S*) hub_session=(\S+) lab=(\S*)(?: duration_seconds=(\S*))?$</regex>
+  <order>wlb.marker, wlb.user, wlb.uid, wlb.hub_session, wlb.lab, wlb.duration_seconds</order>
+</decoder>
+
+<!-- firstboot.done -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +Laboratorium (\S+) (skonfigurowane)$</regex>
+  <order>wlb.lab, wlb.marker</order>
+</decoder>
+
+<!-- hub.login / hub.login_failed (komunikaty JupyterHub) -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">JupyterHub \S+\] (User logged in): ([a-z0-9._-]+)</regex>
+  <order>wlb.marker, wlb.user</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">JupyterHub \S+\] (Failed login) for '([^']*)'</regex>
+  <order>wlb.marker, wlb.user</order>
+</decoder>
+
+<!-- hub.download_denied: access log Traefika (JSON w treści) -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">"ClientHost":"([^"]*)".*"DownstreamStatus":(\d+).*"RequestPath":"(/user/([^/"]+)/[^"]*)".*"RouterName":"([^"]*)"</regex>
+  <order>wlb.client, wlb.status, wlb.path, wlb.user, wlb.router</order>
+</decoder>
+
+<!-- hub.admin_action (16-wlb-admin-audit.py) -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(\d{3}) (PATCH|POST|DELETE) (/hub/\S+) \(([^@)]+)@([^)]+)\)</regex>
+  <order>wlb.status, wlb.method, wlb.path, wlb.actor, wlb.ip</order>
+</decoder>
+
+<!-- network.*_deny: log nftables z jądra -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +(wlb-egress-deny|wlb-in-deny) IN=(\S*) OUT=(\S*) .*?SRC=(\S+) DST=(\S+) .*?PROTO=(\S+)(?: SPT=(\d+) DPT=(\d+))?</regex>
+  <order>wlb.nft_prefix, wlb.in_if, wlb.out_if, wlb.src_ip, wlb.dst_ip, wlb.proto, wlb.src_port, wlb.dst_port</order>
+</decoder>
+
+<!-- auditd przez audisp-syslog. Jedno zdarzenie audytu to kilka wierszy (SYSCALL, EXECVE, CWD,
+     PATH, PROCTITLE, EOE) połączonych wyłącznie przez msg=audit(czas:numer); klucz wlb_* jest tylko
+     w SYSCALL. Wazuh nie skleja wierszy — korelacja po wlb.audit_id po stronie SIEM.
+     auditd zapisuje wartości ze spacją szesnastkowo i bez cudzysłowu (np. comm=417474616368...
+     dla wątku "Attach Listener"); takie pola zostają w wlb.audit_comm/wlb.audit_exe w postaci hex. -->
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">\] +type=(\S+) msg=audit\(([0-9.]+:\d+)\):</regex>
+  <order>wlb.audit_type, wlb.audit_id</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">type=SYSCALL .*? success=(\S+) .*? auid=(\d+) uid=(\d+) .*? comm="?([^" ]*)"? exe="?([^" ]*)"?.*? key="([^"]*)".*? SYSCALL=(\S+) AUID="([^"]*)" UID="([^"]*)"</regex>
+  <order>wlb.audit_success, wlb.audit_auid, wlb.audit_uid, wlb.audit_comm, wlb.audit_exe, wlb.audit_key, wlb.audit_syscall, wlb.audit_auid_name, wlb.audit_user</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">type=CONFIG_CHANGE .*? op=(\S+) key="([^"]*)"</regex>
+  <order>wlb.audit_op, wlb.audit_key</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">type=EXECVE msg=audit\([^)]*\): argc=(\d+) (.*)$</regex>
+  <order>wlb.audit_argc, wlb.audit_argv</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">type=CWD msg=audit\([^)]*\): cwd=(\S+)</regex>
+  <order>wlb.audit_cwd</order>
+</decoder>
+<decoder name="wlb-fields">
+  <parent>wlb</parent>
+  <regex type="pcre2">type=PATH msg=audit\([^)]*\): item=(\d+) name=(\S+) .*? nametype=(\S+)</regex>
+  <order>wlb.audit_item, wlb.audit_path, wlb.audit_nametype</order>
+</decoder>

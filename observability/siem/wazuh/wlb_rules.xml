@@ -1,0 +1,317 @@
+<!--
+  Reguły Wazuh dla VM Laboratorium WLB (#17). Dekodery: wlb_decoders.xml.
+  Instalacja: /var/ossec/etc/rules/ menedżera. Zakres identyfikatorów: 100100–100199.
+
+  Każde zdarzenie z observability/contract.yml ma jedną regułę (pole wazuh_rule w kontrakcie) oraz
+  grupę wlb_ev_<nazwa>. Etap 3.5 sprawdza, że reguły istnieją; ci/wazuh-logtest.sh — że prawdziwy
+  strumień z VM trafia w te reguły z nazwanymi polami.
+
+  Zaufanie (#44): reguły zdarzeń wymagają pól zaufanych (wlb.input, wlb.sender_uid) zgodnych
+  z polem trusted w kontrakcie. Wpis o pasującej treści z innego źródła trafia do reguł podszycia
+  (grupa wlb_spoof), a nie do reguły zdarzenia.
+
+  Poziomy: 0–3 ślad audytowy, 5 zdarzenie do przeglądu, 7–8 nietypowe, 10+ wymaga reakcji (BP-LZ-6.4).
+  Godziny pracy w regułach czasowych liczone są w strefie czasu menedżera Wazuh.
+
+  Reguły-rodzeństwo (wspólny if_sid) MUSZĄ się wzajemnie wykluczać: Wazuh nie sprawdza ich w kolejności
+  z pliku (reguła o wyższym poziomie bywa próbowana pierwsza). Przypadek szczegółowy to dziecko
+  przypadku ogólnego (np. firstboot.done pod firstboot.message), a nie jego rodzeństwo.
+-->
+
+<group name="wlb,">
+
+  <!-- Baza: każdy wiersz z nagłówkiem WLB -->
+  <rule id="100100" level="0">
+    <decoded_as>wlb</decoded_as>
+    <description>WLB: zdarzenie z VM Laboratorium</description>
+  </rule>
+
+  <!-- Źródła zaufane -->
+  <rule id="100101" level="0">
+    <if_sid>100100</if_sid>
+    <field name="wlb.input" type="pcre2">^imuxsock$</field>
+    <field name="wlb.sender_uid" type="pcre2">^0$</field>
+    <description>WLB: wpis od UID 0 przez lokalne gniazdo syslog</description>
+  </rule>
+
+  <rule id="100102" level="0">
+    <if_sid>100100</if_sid>
+    <field name="wlb.input" type="pcre2">^imklog$</field>
+    <description>WLB: wpis dziennika jądra</description>
+  </rule>
+
+  <!-- ===== Śluza wyjściowa ===== -->
+  <rule id="100110" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-sluza-out$</field>
+    <field name="wlb.marker" type="pcre2">^export_request$</field>
+    <description>WLB: wniosek o eksport $(wlb.entry) od $(wlb.user) w kolejce (nie jest zgodą)</description>
+    <group>wlb_ev_sluza_out.export_request,wlb_export,</group>
+  </rule>
+
+  <rule id="100111" level="5">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-sluza-out$</field>
+    <field name="wlb.marker" type="pcre2">^rejected$</field>
+    <description>WLB: śluza odrzuciła $(wlb.entry) od $(wlb.user) ($(wlb.reason))</description>
+    <group>wlb_ev_sluza_out.rejected,wlb_export,</group>
+  </rule>
+
+  <rule id="100112" level="10">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-sluza-out$</field>
+    <field name="wlb.marker" type="pcre2">^snapshot_failed$</field>
+    <description>WLB: nie utworzono kopii eksportu $(wlb.request_id) ($(wlb.reason)) — wymagana interwencja operatora</description>
+    <group>wlb_ev_sluza_out.snapshot_failed,wlb_export,</group>
+  </rule>
+
+  <rule id="100113" level="2">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-sluza-out$</field>
+    <field name="wlb.marker" type="pcre2">^start$</field>
+    <description>WLB: start usługi śluzy wyjściowej</description>
+    <group>wlb_ev_sluza_out.start,wlb_export,</group>
+  </rule>
+
+  <!-- Eksport poza godzinami pracy i w weekend (kandydat do przeglądu przez Kontrolera, §10) -->
+  <rule id="100140" level="8">
+    <if_sid>100110</if_sid>
+    <time>7 pm - 7 am</time>
+    <description>WLB: wniosek o eksport poza godzinami pracy ($(wlb.user))</description>
+    <group>wlb_ev_sluza_out.export_request,wlb_export,wlb_off_hours,</group>
+  </rule>
+
+  <rule id="100141" level="8">
+    <if_sid>100110</if_sid>
+    <weekday>weekends</weekday>
+    <description>WLB: wniosek o eksport w weekend ($(wlb.user))</description>
+    <group>wlb_ev_sluza_out.export_request,wlb_export,wlb_off_hours,</group>
+  </rule>
+
+  <!-- ===== Powłoka badacza ===== -->
+  <rule id="100114" level="2">
+    <if_sid>100100</if_sid>
+    <field name="wlb.input" type="pcre2">^imuxsock$</field>
+    <field name="wlb.sender_uid" type="pcre2">^[1-5][0-9]{4}$</field>
+    <field name="wlb.app" type="pcre2">^wlb-shell$</field>
+    <field name="wlb.cmd" type="pcre2">.</field>
+    <regex type="pcre2">uid="(\d+)".*\] +user=\S+ uid=\1 </regex>
+    <description>WLB: polecenie badacza $(wlb.user): $(wlb.cmd)</description>
+    <group>wlb_ev_shell.command,</group>
+  </rule>
+
+  <!-- ===== Konfiguracja Laboratorium ===== -->
+  <rule id="100116" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-firstboot$</field>
+    <description>WLB: komunikat konfiguracji Laboratorium</description>
+    <group>wlb_ev_firstboot.message,</group>
+  </rule>
+
+  <rule id="100115" level="3">
+    <if_sid>100116</if_sid>
+    <field name="wlb.marker" type="pcre2">^skonfigurowane$</field>
+    <description>WLB: Laboratorium $(wlb.lab) skonfigurowane</description>
+    <group>wlb_ev_firstboot.done,</group>
+  </rule>
+
+  <rule id="100125" level="7">
+    <if_sid>100116</if_sid>
+    <match>BŁĄD:</match>
+    <description>WLB: błąd konfiguracji Laboratorium (wlb-firstboot)</description>
+    <group>wlb_ev_firstboot.message,</group>
+  </rule>
+
+  <!-- ===== JupyterHub ===== -->
+  <rule id="100117" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^python3$</field>
+    <field name="wlb.marker" type="pcre2">^User logged in$</field>
+    <description>WLB: logowanie do huba: $(wlb.user)</description>
+    <group>wlb_ev_hub.login,authentication_success,</group>
+  </rule>
+
+  <rule id="100118" level="5">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^python3$</field>
+    <field name="wlb.marker" type="pcre2">^Failed login$</field>
+    <description>WLB: nieudane logowanie do huba: $(wlb.user)</description>
+    <group>wlb_ev_hub.login_failed,authentication_failed,</group>
+  </rule>
+
+  <rule id="100170" level="10" frequency="5" timeframe="300">
+    <if_matched_sid>100118</if_matched_sid>
+    <same_field>wlb.user</same_field>
+    <description>WLB: seria nieudanych logowań do huba na konto $(wlb.user)</description>
+    <group>wlb_ev_hub.login_failed,authentication_failures,</group>
+  </rule>
+
+  <rule id="100119" level="5">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^traefik$</field>
+    <field name="wlb.router" type="pcre2">^(https-)?wlb-block-download@file$</field>
+    <field name="wlb.status" type="pcre2">^403$</field>
+    <description>WLB: odmowa pobrania pliku przez $(wlb.user) ($(wlb.path))</description>
+    <group>wlb_ev_hub.download_denied,</group>
+  </rule>
+
+  <rule id="100120" level="2">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-session$</field>
+    <field name="wlb.marker" type="pcre2">^session_start$</field>
+    <description>WLB: start serwera notebooków $(wlb.user)</description>
+    <group>wlb_ev_session.start,</group>
+  </rule>
+
+  <rule id="100121" level="2">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-session$</field>
+    <field name="wlb.marker" type="pcre2">^session_stop$</field>
+    <description>WLB: koniec sesji $(wlb.user) po $(wlb.duration_seconds) s</description>
+    <group>wlb_ev_session.stop,</group>
+  </rule>
+
+  <rule id="100122" level="5">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-hub-audit$</field>
+    <field name="wlb.method" type="pcre2">.</field>
+    <description>WLB: akcja w API huba: $(wlb.method) $(wlb.path) przez $(wlb.actor)</description>
+    <group>wlb_ev_hub.admin_action,</group>
+  </rule>
+
+  <!-- Serwer notebooków badacza co kilka minut raportuje aktywność (POST .../activity). To nie jest
+       działanie administratora — bez tej reguły każda sesja dawałaby ciągłe zdarzenia poziomu 5. -->
+  <rule id="100126" level="2">
+    <if_sid>100122</if_sid>
+    <field name="wlb.method" type="pcre2">^POST$</field>
+    <field name="wlb.path" type="pcre2">^/hub/api/users/[^/]+/activity$</field>
+    <description>WLB: raport aktywności serwera notebooków $(wlb.actor)</description>
+    <group>wlb_ev_hub.admin_action,</group>
+  </rule>
+
+  <!-- ===== Zapora ===== -->
+  <rule id="100123" level="5">
+    <if_sid>100102</if_sid>
+    <field name="wlb.nft_prefix" type="pcre2">^wlb-egress-deny$</field>
+    <description>WLB: zablokowane połączenie wychodzące do $(wlb.dst_ip):$(wlb.dst_port)</description>
+    <group>wlb_ev_network.egress_deny,firewall_drop,</group>
+  </rule>
+
+  <rule id="100171" level="10" frequency="20" timeframe="120">
+    <if_matched_sid>100123</if_matched_sid>
+    <same_field>wlb.host</same_field>
+    <description>WLB: seria zablokowanych połączeń wychodzących z $(wlb.host)</description>
+    <group>wlb_ev_network.egress_deny,firewall_drop,</group>
+  </rule>
+
+  <rule id="100124" level="3">
+    <if_sid>100102</if_sid>
+    <field name="wlb.nft_prefix" type="pcre2">^wlb-in-deny$</field>
+    <description>WLB: odrzucony ruch przychodzący z $(wlb.src_ip)</description>
+    <group>wlb_ev_network.ingress_deny,firewall_drop,</group>
+  </rule>
+
+  <!-- ===== Audyt (auditd przez audisp-syslog) ===== -->
+  <rule id="100130" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^audisp-syslog$</field>
+    <field name="wlb.audit_type" type="pcre2">^SYSCALL$</field>
+    <field name="wlb.audit_key" type="pcre2">^wlb_</field>
+    <description>WLB audyt $(wlb.audit_key): $(wlb.audit_user) $(wlb.audit_syscall) $(wlb.audit_exe)</description>
+    <group>wlb_audit,</group>
+  </rule>
+
+  <!-- auid=4294967295 oznacza brak audit login UID, nie dowodzi pochodzenia z usługi;
+       ustawiony auid nie dowodzi samodzielnie obecności człowieka. Rozróżnienie obniża szum,
+       ale może ukryć istotne zdarzenia: progi wymagają oceny operatora. -->
+  <rule id="100131" level="10">
+    <if_sid>100130</if_sid>
+    <field name="wlb.audit_key" type="pcre2">^wlb_(audit_config|logging_config|network_config|privileges|mac_config)$</field>
+    <field name="wlb.audit_auid" type="pcre2">^(?!4294967295$)</field>
+    <description>WLB: zmiana konfiguracji zabezpieczeń ($(wlb.audit_key)) przez $(wlb.audit_auid_name)</description>
+    <group>wlb_audit,wlb_config_change,</group>
+  </rule>
+
+  <rule id="100136" level="5">
+    <if_sid>100130</if_sid>
+    <field name="wlb.audit_key" type="pcre2">^wlb_(audit_config|logging_config|network_config|privileges|mac_config)$</field>
+    <field name="wlb.audit_auid" type="pcre2">^4294967295$</field>
+    <description>WLB: zmiana konfiguracji zabezpieczeń ($(wlb.audit_key)), audit login UID nieustawiony, exe $(wlb.audit_exe)</description>
+    <group>wlb_audit,wlb_config_change,</group>
+  </rule>
+
+  <rule id="100132" level="5">
+    <if_sid>100130</if_sid>
+    <field name="wlb.audit_key" type="pcre2">^wlb_access_denied$</field>
+    <description>WLB: odmowa dostępu do pliku dla $(wlb.audit_user) ($(wlb.audit_exe))</description>
+    <group>wlb_audit,access_denied,</group>
+  </rule>
+
+  <rule id="100172" level="10" frequency="10" timeframe="120">
+    <if_matched_sid>100132</if_matched_sid>
+    <same_field>wlb.audit_user</same_field>
+    <description>WLB: seria odmów dostępu do plików dla $(wlb.audit_user)</description>
+    <group>wlb_audit,access_denied,</group>
+  </rule>
+
+  <rule id="100133" level="10">
+    <if_sid>100130</if_sid>
+    <field name="wlb.audit_key" type="pcre2">^wlb_(kernel_module|time_change)$</field>
+    <field name="wlb.audit_auid" type="pcre2">^(?!4294967295$)</field>
+    <description>WLB: zmiana czasu systemowego lub modułów jądra ($(wlb.audit_key)) przez $(wlb.audit_auid_name)</description>
+    <group>wlb_audit,wlb_config_change,</group>
+  </rule>
+
+  <rule id="100134" level="7">
+    <if_sid>100130</if_sid>
+    <field name="wlb.audit_key" type="pcre2">^wlb_(config|hub_config|account_change)$</field>
+    <field name="wlb.audit_auid" type="pcre2">^(?!4294967295$)</field>
+    <description>WLB: zmiana konfiguracji Laboratorium, huba albo kont ($(wlb.audit_key))</description>
+    <group>wlb_audit,wlb_config_change,</group>
+  </rule>
+
+  <!-- Ładowanie reguł audytu przy starcie (CONFIG_CHANGE); po blokadzie -e 2 zmiany są niemożliwe -->
+  <rule id="100135" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^audisp-syslog$</field>
+    <field name="wlb.audit_type" type="pcre2">^CONFIG_CHANGE$</field>
+    <description>WLB audyt: zmiana reguł audytu ($(wlb.audit_op), $(wlb.audit_key))</description>
+    <group>wlb_audit,</group>
+  </rule>
+
+  <!-- ===== Podszycie (#44): treść zdarzenia WLB z niezaufanego źródła ===== -->
+  <rule id="100180" level="12">
+    <if_sid>100100</if_sid>
+    <field name="wlb.input" type="pcre2">^imuxsock$</field>
+    <field name="wlb.app" type="pcre2">^wlb-(?!shell$)</field>
+    <field name="wlb.sender_uid" type="pcre2">^(?!0$)</field>
+    <description>WLB: podszycie — wpis z tagiem $(wlb.app) od UID $(wlb.sender_uid) zamiast usługi systemowej</description>
+    <group>wlb_spoof,</group>
+  </rule>
+
+  <rule id="100181" level="12">
+    <if_sid>100100</if_sid>
+    <field name="wlb.marker" type="pcre2">^(User logged in|Failed login)$</field>
+    <field name="wlb.sender_uid" type="pcre2">^(?!0$)</field>
+    <description>WLB: podszycie — komunikat logowania huba od UID $(wlb.sender_uid)</description>
+    <group>wlb_spoof,</group>
+  </rule>
+
+  <!-- shell.command: nadawca to proces badacza, a uid w treści musi być równy uid nadawcy z jądra -->
+  <rule id="100182" level="12">
+    <if_sid>100100</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-shell$</field>
+    <regex type="pcre2">uid="(\d*)".*\] +user=\S+ uid=(?!\1 )</regex>
+    <description>WLB: podszycie — wpis wlb-shell z uid $(wlb.uid) w treści od nadawcy UID $(wlb.sender_uid)</description>
+    <group>wlb_spoof,</group>
+  </rule>
+
+  <rule id="100183" level="12">
+    <if_sid>100100</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-shell$</field>
+    <field name="wlb.sender_uid" type="pcre2">^(?![1-5][0-9]{4}$)</field>
+    <description>WLB: podszycie — wpis wlb-shell od nadawcy spoza zakresu badaczy (UID $(wlb.sender_uid))</description>
+    <group>wlb_spoof,</group>
+  </rule>
+
+</group>

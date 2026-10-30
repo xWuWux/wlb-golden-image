@@ -193,7 +193,8 @@ Kopia bazy huba przed operacją: [runbook-kopia-bazy-huba.md](runbook-kopia-bazy
   [`tests/acceptance.d/`](../tests/acceptance.d/) (adaptują się do flavora — np. `70-radiologia.sh`
   sprawdza stos neuro tylko na obrazie radiologicznym).
 - **Logi/audyt:** auditd + journald → rsyslog → SIEM (`SIEM_HOST`). Kontrakt zdarzeń:
-  [`observability/contract.yml`](../observability/contract.yml).
+  [`observability/contract.yml`](../observability/contract.yml). Dekodery, reguły, testy i ograniczenia
+  integracji Wazuh: [instrukcja SIEM](../observability/siem/wazuh/README.md); retencja wymaga decyzji właściciela polityki.
 - **Panel huba:** lista i zarządzanie serwerami/kontami w zakresie roli Administratora Klienta.
 - **Mapa testów ↔ zgłoszeń:** [docs/mapa-testy-zgloszenia.md](mapa-testy-zgloszenia.md).
 
