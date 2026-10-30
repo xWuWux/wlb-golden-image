@@ -19,7 +19,7 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   # test wrappera niżej; FSLDIR/PATH ze źródłowanego profilu dziedziczy proces script. Marker bez kotwicy.
   # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w wewnętrznym bash -c, nie tu
   expect_ok "FSLeyes uruchamia się (--version, #4)" \
-    bash -c '. /etc/profile.d/fsl.sh >/dev/null 2>&1; out=$(timeout --kill-after=5s 60s script -qec "fsleyes --version" /dev/null </dev/null 2>&1); printf "%s" "$out" | grep -q "FSLeyes version"'
+    bash -c '. /etc/profile.d/fsl.sh >/dev/null 2>&1; out=$(timeout --kill-after=5s 60s script -qec "fsleyes --version" /dev/null </dev/null 2>&1) || { printf "%s\n" "$out"; exit 1; }; printf "%s" "$out" | grep -q "FSLeyes version"'
   # 3DSlicer: wymaga serwera X — startujemy jednorazowy Xtigervnc i sprawdzamy marker wersji.
   if command -v Xtigervnc >/dev/null 2>&1; then
     # shellcheck disable=SC2016  # wyrażenia celowo rozwijane w wewnętrznym bash -c, nie tu

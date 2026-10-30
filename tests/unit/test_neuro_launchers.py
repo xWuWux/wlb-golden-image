@@ -7,18 +7,24 @@ from pathlib import Path
 
 
 class NeuroLauncherAcceptanceTests(unittest.TestCase):
-    def run_checks(self, wrapper: str, overrides: dict[str, str] | None = None) -> int:
+    def run_checks(self, wrapper: str, overrides: dict[str, str] | None = None, *, direct: bool = False) -> int:
         """Run the real acceptance commands against temporary launcher fixtures."""
         source = (Path(__file__).resolve().parents[1] / "acceptance.d/70-radiologia.sh").read_text()
         # Only the launcher contract block; GUI runtime needs a real image.
         block = source.split("  # Kafelek musi", 1)[1].split("  # desktop-file-validate", 1)[0]
         block = "  # Kafelek musi" + block
+        if direct:
+            block = source.split('  expect_ok "FSLeyes uruchamia się', 1)[1].split("  # 3DSlicer:", 1)[0]
+            block = '  expect_ok "FSLeyes uruchamia się' + block
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             apps = root / "applications"
             binaries = root / "bin"
             apps.mkdir()
             binaries.mkdir()
+            profile = root / "fsl.sh"
+            profile.write_text(f'export PATH="{binaries}:$PATH"\n')
+            block = block.replace("/etc/profile.d/fsl.sh", str(profile))
             entries = {
                 "wlb-slicer": "Exec=/usr/local/bin/Slicer %F",
                 "wlb-fsleyes": "Exec=wlb-fsleyes %F",
@@ -27,7 +33,7 @@ class NeuroLauncherAcceptanceTests(unittest.TestCase):
             entries.update(overrides or {})
             for name, entry in entries.items():
                 (apps / (name + ".desktop")).write_text(entry.replace("/usr/local/bin", str(binaries)) + "\n")
-            for name, body in (("wlb-fsleyes", wrapper), ("wlb-fsl", "exit 0")):
+            for name, body in (("wlb-fsleyes", wrapper), ("fsleyes", wrapper), ("wlb-fsl", "exit 0")):
                 executable = binaries / name
                 executable.write_text("#!/bin/sh\n" + body + "\n")
                 executable.chmod(0o755)
@@ -75,3 +81,14 @@ class NeuroLauncherAcceptanceTests(unittest.TestCase):
         ):
             with self.subTest(app=app):
                 self.assertNotEqual(self.run_checks('echo "FSLeyes version 1.18.0"', {app: entry}), 0)
+
+    def test_direct_smoke_requires_marker_and_successful_exit(self) -> None:
+        for body, expected in (
+            ('echo "FSLeyes version 1.18.0"', 0),
+            ('echo "FSLeyes version 1.18.0"; exit 17', 1),
+            ('echo "FSLeyes version 1.18.0"; sleep 10', 1),
+            ("exit 0", 1),
+        ):
+            with self.subTest(body=body):
+                result = self.run_checks(body, direct=True)
+                self.assertEqual(result == 0, expected == 0)
