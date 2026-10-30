@@ -1,0 +1,6 @@
+# Zarządzane przez Ansible (rola desktop) — #106.
+# Ubuntu 24.04 interpretuje ten plik jako Perl, nie jako argumenty wiersza poleceń.
+# Polityka wrappera vncserver: schowek RFB wyłączony w obu kierunkach.
+# Użytkownik może uruchomić Xtigervnc bez wrappera; to nie jest granica izolacji.
+$AcceptCutText = 0;
+$SendCutText = 0;
