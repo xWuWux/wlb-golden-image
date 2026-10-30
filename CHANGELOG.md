@@ -12,6 +12,13 @@ pierwszym Laboratorium na klastrze).
 
 ---
 
+## Niewydane
+
+- **SIEM / Wazuh (#17):** dekodery RFC 5424, reguły zdarzeń i audytu oraz testy
+  na menedżerze Wazuh dla próbki i logu integracyjnego. Instrukcja i ograniczenia:
+  [`observability/siem/wazuh/README.md`](observability/siem/wazuh/README.md).
+  Retencja oraz wdrożenie i weryfikacja w środowisku docelowym pozostają do uzgodnienia.
+
 ## Stan obecny (2026-10-29)
 
 **Czym jest obraz.** Niezmienne (immutable) qcow2 na bazie Ubuntu 24.04 z
@@ -58,6 +65,7 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - Kompresja obrazów równoległym zstd zamiast jednowątkowego zlib (#71/#165).
 
 ### Obraz bazowy i środowisko badacza
+- `prometheus-node-exporter` udostępnia metryki lokalnie na `127.0.0.1:9100`; integracja z siecią monitoringu pozostaje osobnym etapem (#22).
 - Jedno jądro w obrazie — purge starych `linux-*` (#9/#89).
 - Kernel Julia (IJulia) w bazie + naprawy rejestru/hangów budowy (#111 i pochodne).
 - Biblioteki DICOM/neuroobrazowania dla badaczy: pydicom (+gdcm), oro.dicom, nibabel, dcm2niix, snakemake (#128/#133).

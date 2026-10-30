@@ -198,9 +198,8 @@ tylko z gałęzi domyślnej.
 **Czego celowo nie ma:**
 - **śladów rozproszonych w VM,** bo nie ma tam usług wywołujących się nawzajem (zdarzenia koreluje się
   po `user`, `uid` i `session`),
-- **metryk VM** (np. `prometheus-node-exporter`, `/hub/metrics` JupyterHuba). Wymagają wyboru systemu
-  monitoringu i otwarcia portu z sieci monitoringu. Kiedy ta decyzja zapadnie, metryki dopisuje się
-  do kontraktu, a sprawdzenia rozszerza tym samym mechanizmem.
+- **zdalnego dostępu do metryk VM**. `prometheus-node-exporter` udostępnia metryki wyłącznie lokalnie
+  na `127.0.0.1:9100`; podłączenie serwera monitoringu i otwarcie zapory wymaga kolejnej zmiany (#22).
 
 ## Wdrożenie obrazu
 
