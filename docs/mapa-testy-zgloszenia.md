@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-29). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -138,6 +138,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-28). Odświ
 
 ### #157 — Testy #65/AppArmor (20-apparmor.sh): expect_fail na complain oblewa POPRAWNY obraz  ·  _scalone_
 - `tests/acceptance.d/20-apparmor.sh` — `apparmor-utils zainstalowany (aa-enforce, aa-status)`
+
+### #180 — CI: kontrakt zmiennych wdrożeniowych (lab.env ↔ wlb-firstboot ↔ przykłady cloud-init)  ·  _otwarte_
+- `tests/unit/test_deployment_vars.py` — *kontrakt zmiennych wdrożeniowych (#180)*
 
 ## Uwagi
 

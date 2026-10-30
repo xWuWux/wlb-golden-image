@@ -12,7 +12,7 @@ stages = [
     ("lint", "1. Lint, format i sekrety", True),
     ("build-check", "2. Build test", True),
     ("security", "3. Security & compliance", True),
-    ("observability", "3.5. Kontrakt obserwowalności", True),
+    ("observability", "3.5. Kontrakty obrazu", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
     ("integration", "5. Integracja i migracja", image),
     ("perf", "6a. Benchmarki (opcjonalne)", False),
