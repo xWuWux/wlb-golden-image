@@ -171,6 +171,22 @@ events:
       duration_seconds: "^[0-9]*$"
     acceptance: false
 
+  - name: hub.admin_action
+    description: >-
+      Uprzywilejowana akcja Administratora Klienta w hubie (zmiana/usunięcie konta, nadanie roli lub
+      grupy, reset hasła badacza, zatwierdzenie konta). Po ograniczeniu roli (bez access:servers/tokens,
+      IMG-003/#51) to pozostały wektor (Z4/Z5) — ślad rozliczalności (§21/§25) i sygnał detekcyjny do SIEM.
+    regulamin: "§21, §25, §26"
+    source: { tag: wlb-hub-audit, file: ansible/roles/tljh/files/16-wlb-admin-audit.py }
+    trusted: { input: imuxsock, uid: "^0$" } # proces huba działa jako root
+    format: text
+    # Treść to linia access-logu JupyterHub przekazana przez filtr audytu: "<status> <METODA> <ścieżka>
+    # (<admin>@<ip>) <czas>". Reguła SIEM alarmuje wg method/path i koreluje actora z rejestrem (#102).
+    pattern: '^\d{3} (?P<method>PATCH|POST|DELETE) (?P<path>/hub/\S+) \((?P<actor>[^@)]+)@(?P<ip>[^)]+)\)'
+    # Wyzwolenie wymaga uwierzytelnionej akcji admina; pokrywa to dedykowany test w acceptance-remote.sh
+    # (sprawdzenie scope roli + faktyczna emisja tagu wlb-hub-audit), nie weryfikacja logu SIEM.
+    acceptance: false
+
   - name: network.egress_deny
     description: Zablokowane połączenie wychodzące procesu badacza (nftables, obrona w głębi).
     regulamin: "§31.3"

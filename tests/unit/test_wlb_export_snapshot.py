@@ -25,7 +25,7 @@ def test_open_writer_cannot_modify_snapshot(snapshot, tmp_path):
     source.write_bytes(b"reviewed")
     with source.open("r+b") as writer:
         bundle = tmp_path / "bundle"
-        manifest = snapshot.create(source, bundle, "result.csv", "test-id")
+        manifest = snapshot.create(source, bundle, "result.csv", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
         writer.write(b"modified")
         writer.flush()
         assert (bundle / "payload").read_bytes() == b"reviewed"
@@ -43,7 +43,7 @@ def test_directory_inventory_is_relocatable_and_includes_empty_dirs(snapshot, tm
     (source / "empty").mkdir()
     (source / "a\n\\b").write_bytes(b"data")
     bundle = tmp_path / "bundle"
-    manifest = snapshot.create(source, bundle, "source", "id")
+    manifest = snapshot.create(source, bundle, "source", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     moved = tmp_path / "relocated"
     bundle.rename(moved)
     assert snapshot.verify(moved) == manifest
@@ -71,7 +71,7 @@ def test_unsafe_input_is_not_partially_accepted(snapshot, tmp_path, kind):
         os.mkfifo(target)
     bundle = tmp_path / "bundle"
     with pytest.raises((OSError, snapshot.SnapshotError)):
-        snapshot.create(source, bundle, "original", "id")
+        snapshot.create(source, bundle, "original", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     assert not (bundle / "manifest.json").exists()
     assert outside.read_text() == "secret"
     assert source.exists()  # retained, not deleted on failure
@@ -83,7 +83,7 @@ def test_verify_refuses_tampering(snapshot, tmp_path, change):
     source.mkdir()
     (source / "result").write_text("ok")
     bundle = tmp_path / "bundle"
-    manifest = snapshot.create(source, bundle, "original", "id")
+    manifest = snapshot.create(source, bundle, "original", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     if change == "content":
         (bundle / "payload" / "result").write_text("bad")
     elif change == "extra_file":
@@ -108,7 +108,7 @@ def test_resource_limits(snapshot, tmp_path, monkeypatch, limit):
     (source / "child").write_text("x")
     monkeypatch.setattr(snapshot, limit, 0)
     with pytest.raises(snapshot.SnapshotError, match="limit_exceeded"):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
 
 
 def test_disk_full_keeps_source_and_no_ready_manifest(snapshot, tmp_path, monkeypatch):
@@ -120,7 +120,7 @@ def test_disk_full_keeps_source_and_no_ready_manifest(snapshot, tmp_path, monkey
 
     monkeypatch.setattr(snapshot.os, "write", fail_write)
     with pytest.raises(OSError):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     assert source.read_text() == "result"
     assert not (tmp_path / "bundle/manifest.json").exists()
 
@@ -138,7 +138,7 @@ def test_concurrent_edit_during_copy_is_rejected(snapshot, tmp_path, monkeypatch
 
     monkeypatch.setattr(snapshot.os, "read", read_and_mutate)
     with pytest.raises(snapshot.SnapshotError, match="source_changed"):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
 
 
 def test_symlink_swap_between_list_and_open(snapshot, tmp_path, monkeypatch):
@@ -158,7 +158,7 @@ def test_symlink_swap_between_list_and_open(snapshot, tmp_path, monkeypatch):
 
     monkeypatch.setattr(snapshot, "child_names", swap)
     with pytest.raises(OSError):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     assert outside.read_text() == "secret"
     assert not (tmp_path / "bundle/payload/child").exists()
 
@@ -168,7 +168,10 @@ def test_cli(snapshot, tmp_path):
     source.write_text("ok")
     bundle = tmp_path / "bundle"
     command = [sys.executable, str(SCRIPT)]
-    result = subprocess.run([*command, "create", str(source), str(bundle), "name", "id"], capture_output=True)
+    result = subprocess.run(
+        [*command, "create", str(source), str(bundle), "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5"],
+        capture_output=True,
+    )
     assert result.returncode == 0
     verified = subprocess.run([*command, "verify", str(bundle)], capture_output=True)
     assert verified.stdout == result.stdout
@@ -265,7 +268,9 @@ def test_main_create_verify_and_error(snapshot, tmp_path, monkeypatch, capsys):
     source = tmp_path / "source"
     source.write_text("ok")
     bundle = tmp_path / "bundle"
-    monkeypatch.setattr(sys, "argv", ["snapshot", "create", str(source), str(bundle), "name", "id"])
+    monkeypatch.setattr(
+        sys, "argv", ["snapshot", "create", str(source), str(bundle), "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5"]
+    )
     assert snapshot.main() == 0
     monkeypatch.setattr(sys, "argv", ["snapshot", "verify", str(bundle)])
     assert snapshot.main() == 0
@@ -303,7 +308,7 @@ def test_copy_faults_never_create_ready_manifest(snapshot, tmp_path, monkeypatch
     if fault == "fsync":
         monkeypatch.setattr(snapshot.os, "fsync", fsync_fault)
     with pytest.raises((snapshot.SnapshotError, OSError)):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     assert not (tmp_path / "bundle/manifest.json").exists()
 
 
@@ -322,7 +327,7 @@ def test_directory_changed_during_walk(snapshot, tmp_path, monkeypatch):
 
     monkeypatch.setattr(snapshot, "child_names", mutate)
     with pytest.raises(snapshot.SnapshotError, match="source_changed"):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
 
 
 def test_unknown_uid_is_recorded_numerically(snapshot, tmp_path, monkeypatch):
@@ -333,7 +338,7 @@ def test_unknown_uid_is_recorded_numerically(snapshot, tmp_path, monkeypatch):
         raise KeyError(uid)
 
     monkeypatch.setattr(snapshot.pwd, "getpwuid", no_account)
-    manifest = snapshot.create(source, tmp_path / "bundle", "name", "id")
+    manifest = snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
     assert manifest["requester"]["username"] == str(os.getuid())
 
 
@@ -353,7 +358,7 @@ def test_mixed_ownership_is_rejected(snapshot, tmp_path, monkeypatch):
 
     monkeypatch.setattr(snapshot.os, "fstat", other_owner)
     with pytest.raises(snapshot.SnapshotError, match="mixed_owner"):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
 
 
 def test_directory_listing_is_bounded(snapshot, tmp_path, monkeypatch):
@@ -363,13 +368,117 @@ def test_directory_listing_is_bounded(snapshot, tmp_path, monkeypatch):
         (source / name).touch()
     monkeypatch.setattr(snapshot, "MAX_ENTRIES", 2)
     with pytest.raises(snapshot.SnapshotError, match="limit_exceeded"):
-        snapshot.create(source, tmp_path / "bundle", "name", "id")
+        snapshot.create(source, tmp_path / "bundle", "name", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
 
 
 def test_malformed_manifest_returns_failure(snapshot, tmp_path, monkeypatch):
     (tmp_path / "manifest.json").write_text("[]")
     monkeypatch.setattr(sys, "argv", ["snapshot", "verify", str(tmp_path)])
     assert snapshot.main() == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", True),
+        ("schema_version", 1.0),
+        ("request_id", "not-a-uuid"),
+        ("request_id", None),
+        ("request_id", "00000000-0000-0000-0000-000000000000"),
+        ("created_at", "yesterday"),
+        ("created_at", "2026-10-29T08:00:00"),
+        ("created_at", "2026-10-29T08:00:00+01:00"),
+        ("original_name", 1),
+        ("original_name", ""),
+        ("requester", []),
+        ("requester", {"uid": True, "username": "user"}),
+        ("requester", {"uid": -1, "username": "user"}),
+        ("requester", {"uid": 1, "username": ""}),
+        ("requester", {"uid": 1}),
+        ("sha256", "A" * 64),
+        ("digest_algorithm", []),
+        ("entries", []),
+        ("entries", {}),
+        ("entries", [None]),
+    ],
+)
+def test_metadata_rejected_before_payload_read(snapshot, tmp_path, monkeypatch, field, value):
+    source = tmp_path / "source"
+    source.write_bytes(b"x")
+    bundle = tmp_path / "bundle"
+    manifest = snapshot.create(source, bundle, "source", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
+    manifest[field] = value
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+
+    def forbidden_read(*args):
+        pytest.fail("invalid metadata must be rejected before reading payload")
+
+    monkeypatch.setattr(snapshot, "inventory", forbidden_read)
+    with pytest.raises(snapshot.SnapshotError):
+        snapshot.verify(bundle)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "schema_version",
+        "request_id",
+        "state",
+        "created_at",
+        "requester",
+        "original_name",
+        "digest_algorithm",
+        "sha256",
+        "entries",
+    ],
+)
+def test_each_required_manifest_field(snapshot, tmp_path, field):
+    source = tmp_path / "source"
+    source.touch()
+    bundle = tmp_path / "bundle"
+    manifest = snapshot.create(source, bundle, "source", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
+    del manifest[field]
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(snapshot.SnapshotError):
+        snapshot.verify(bundle)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("size", True), ("size", 1.0), ("size", -1), ("path", None), ("type", "fifo"), ("sha256", "")],
+)
+def test_entry_metadata_types(snapshot, tmp_path, field, value):
+    source = tmp_path / "source"
+    source.write_bytes(b"x")
+    bundle = tmp_path / "bundle"
+    manifest = snapshot.create(source, bundle, "source", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
+    manifest["entries"][0][field] = value
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(snapshot.SnapshotError):
+        snapshot.verify(bundle)
+
+
+def test_unknown_fields_and_invalid_directory_metadata(snapshot, tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    manifest = snapshot.create(source, tmp_path / "bundle", "source", "c76ae24c-441d-4b8c-8b13-809b522e04e5")
+    manifest["approval"] = True
+    with pytest.raises(snapshot.SnapshotError):
+        snapshot.validate_manifest(manifest)
+    del manifest["approval"]
+    manifest["entries"][0]["size"] = 1
+    with pytest.raises(snapshot.SnapshotError):
+        snapshot.validate_manifest(manifest)
+
+
+def test_invalid_create_metadata_has_no_ready_manifest(snapshot, tmp_path):
+    source = tmp_path / "source"
+    source.touch()
+    bundle = tmp_path / "bundle"
+    with pytest.raises(snapshot.SnapshotError):
+        snapshot.create(source, bundle, "source", "invalid")
+    assert source.exists()
+    assert not (bundle / "manifest.json").exists()
 
 
 @pytest.mark.parametrize("fault", ["rename", "sync", "logger"])
