@@ -2,3 +2,9 @@
   ansible.builtin.systemd:
     name: prometheus-node-exporter.service
     state: restarted
+
+- name: Restart wlb health timer
+  ansible.builtin.systemd:
+    name: wlb-health.timer
+    state: restarted
+    daemon_reload: true

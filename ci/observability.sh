@@ -10,6 +10,7 @@ require python3
 
 run_check "Kontrakt obserwowalności: zdarzenia, pola, klucze audytu, prefiksy zapory, SIEM" \
   python3 ci/observability_contract.py static
+run_check "Kontrakt metryk WLB (#22)" python3 ci/metrics_check.py --static
 run_check "Kontrakt zmiennych wdrożeniowych: lab.env ↔ wlb-firstboot ↔ przykłady cloud-init" \
   python3 ci/deployment_vars.py
 

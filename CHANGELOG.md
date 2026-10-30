@@ -14,6 +14,10 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Lokalne metryki stanu (#22):** timer `wlb-health`, agregaty kolejki, spoolu SIEM,
+  miejsca, auditd i chrony oraz kontrola kontraktu na odpowiedzi node_exportera.
+  Brak zdalnego scrape i alertowania; [runbook](docs/runbooks/RB-wlb-health.md).
+
 - **SIEM / Wazuh (#17):** dekodery RFC 5424, reguły zdarzeń i audytu oraz testy
   na menedżerze Wazuh dla próbki i logu integracyjnego. Instrukcja i ograniczenia:
   [`observability/siem/wazuh/README.md`](observability/siem/wazuh/README.md).

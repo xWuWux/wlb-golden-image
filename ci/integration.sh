@@ -132,6 +132,12 @@ acceptance() {
   tests/run-local.sh "$img" || rc=$?
   if [[ $rc -eq 0 ]]; then
     WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=1 tests/acceptance.sh | tee "$LOGS/$logname.log" || rc=$?
+    # Sprawdzamy rzeczywistą odpowiedź node_exportera, nie tylko lokalny plik textfile.
+    if ! "${SSH[@]}" "curl --noproxy '*' -fsS --max-time 5 http://127.0.0.1:9100/metrics" >"$LOGS/metrics.prom" ||
+      ! python3 ci/metrics_check.py "$LOGS/metrics.prom"; then
+      echo "Metryki nie spełniają kontraktu obserwowalności"
+      rc=1
+    fi
     # brak podsumowania = test urwał się w połowie, nawet jeśli kod wyjścia jest 0
     grep -q '^Wynik:' "$LOGS/$logname.log" || {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"

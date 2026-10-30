@@ -273,3 +273,24 @@ wazuh:
   decoders: observability/siem/wazuh/wlb_decoders.xml
   rules: observability/siem/wazuh/wlb_rules.xml
   sample: tests/fixtures/siem-sample.log # próbka dla etapu 3.5 — każde zdarzenie z kontraktu
+
+# Metryki lokalne (#22); bez identyfikatorów badaczy i nazw plików.
+metrics:
+  source: ansible/roles/monitoring/files/wlb-health
+  endpoint: http://127.0.0.1:9100/metrics
+  selectors:
+    - 'wlb_health_timestamp_seconds'
+    - 'wlb_health_queue_collect_success'
+    - 'wlb_export_queue_bundles'
+    - 'wlb_export_queue_payload_bytes'
+    - 'wlb_export_queue_incoming'
+    - 'wlb_health_siem_spool_collect_success'
+    - 'wlb_siem_spool_file_bytes'
+    - 'wlb_health_filesystem_collect_success{scope="root"}'
+    - 'wlb_health_filesystem_available_bytes{scope="root"}'
+    - 'wlb_health_filesystem_collect_success{scope="audit"}'
+    - 'wlb_health_filesystem_available_bytes{scope="audit"}'
+    - 'wlb_health_auditd_collect_success'
+    - 'wlb_health_auditd_active'
+    - 'wlb_health_chrony_collect_success'
+    - 'wlb_health_chrony_synchronised'

@@ -455,7 +455,7 @@ template(name="WLB_SyslogProtocol23Trusted" type="string"
 *.* action(type="omfwd" target="${SIEM_HOST}" port="${SIEM_PORT}" protocol="${SIEM_PROTOCOL}"
            ${siem_tls}
            template="WLB_SyslogProtocol23Trusted"
-           queue.type="LinkedList" queue.filename="wlb_siem" queue.maxDiskSpace="2g"
+           queue.type="LinkedList" queue.filename="wlb_siem" queue.spoolDirectory="/var/spool/rsyslog" queue.maxDiskSpace="2g"
            queue.saveOnShutdown="on" action.resumeRetryCount="-1")
 EOF
   rsyslogd -N1 >/dev/null || die "błędna konfiguracja rsyslog"
