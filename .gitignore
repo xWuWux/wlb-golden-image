@@ -20,3 +20,4 @@ lab.env
 # Python
 __pycache__/
 .tools/
+.envrc
