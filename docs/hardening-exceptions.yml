@@ -1,0 +1,33 @@
+# Świadome odstępstwa od profilu utwardzenia (CIS Ubuntu 24.04 L1 Server).
+#
+# Skany utwardzenia w etapie 5 (Lynis, oscap OVAL) są RAPORTAMI, nie bramkami — audyt walidują osobne
+# testy akceptacyjne, a odstępstwa są świadome i opisane (por. ci/integration.sh: hardening_report, #11).
+# Ten plik jest rejestrem rozliczalności: każda pozycja ma uzasadnienie i odnośnik do ADR. Jest też
+# podstawą do przyszłej integracji z raportem skanu (#11), żeby wymienione reguły pokazywały się jako
+# udokumentowane odstępstwo, a nie milcząca niezgodność.
+#
+# Format pozycji:
+#   - rules:      lista identyfikatorów reguł (np. SCAP/CIS rule id)
+#     profile:    profil, z którego pochodzą reguły
+#     status:     accepted (przyjęte odstępstwo) | proposed (do decyzji)
+#     decision:   identyfikator ADR z uzasadnieniem (docs/adr/)
+#     issue:      numer zgłoszenia
+#     date:       data przyjęcia (RRRR-MM-DD)
+#     rationale:  zwięzłe uzasadnienie
+
+exceptions:
+  - rules:
+      - package_aide_installed
+      - aide_build_database
+      - aide_periodic_checking_systemd_timer
+    profile: CIS Ubuntu 24.04 L1 Server
+    status: accepted
+    decision: IMG-009
+    issue: 68
+    date: 2026-11-02
+    rationale: >-
+      Dysk systemowy Laboratorium jest jednorazowy i niezmienny (wymiana obrazu = nowy dysk); integralność
+      wydania weryfikuje suma SHA-256 + SBOM przy wydaniu (#12). Zmiany konfiguracji objęte regułami audytu
+      wlb_*, sesje badaczy bez sudo i ograniczony Administrator Klienta (IMG-003). AIDE rozwiązuje problem
+      trwałego systemu, którego model immutable nie ma; baza musiałaby i tak powstawać przy wlb-firstboot
+      i wykluczać katalogi zmienne. Decyzja odwracalna — Opcja B (realny AIDE) gotowa w #68.
