@@ -32,14 +32,22 @@
       # Zarządzane przez Ansible (rola neuro_apps) — #135
       FSLDIR={{ fsl_dir }}
       export FSLDIR
-      [ -r "${FSLDIR}/etc/fslconf/fsl.sh" ] && . "${FSLDIR}/etc/fslconf/fsl.sh"
-      # Idempotentnie: wrappery (wlb-fsleyes/wlb-fsl) źródłują ten plik już po sesji logowania,
-      # więc bezwarunkowy prepend powielał share/fsl/bin w PATH (do 4× — #199). Dokładamy tylko raz.
-      case ":${PATH}:" in
-        *":${FSLDIR}/share/fsl/bin:"*) ;;
-        *) PATH="${FSLDIR}/share/fsl/bin:${PATH}" ;;
-      esac
-      export PATH
+      # Idempotentnie dla CAŁEGO źródłowania (#199). Ten plik jest czytany i przez sesję logowania, i
+      # przez wrappery (wlb-fsleyes/wlb-fsl), a dostarczany przez FSL fslconf/fsl.sh sam dopisuje
+      # share/fsl/bin przy KAŻDYM źródłowaniu — osłona tylko na naszym prepend nie wystarczała (duplikaty
+      # szły z fslconf, do 4×). Flaga eksportowana, więc procesy potomne dziedziczą „już zainicjalizowane"
+      # i nie powtarzają inicjalizacji; w świeżym środowisku (np. wrapper pod env -i) blok wykona się raz.
+      if [ "${WLB_FSL_PROFILE_LOADED:-0}" != "1" ]; then
+        [ -r "${FSLDIR}/etc/fslconf/fsl.sh" ] && . "${FSLDIR}/etc/fslconf/fsl.sh"
+        FSL_BIN="${FSLDIR}/share/fsl/bin"
+        case ":${PATH:-}:" in
+          *":${FSL_BIN}:"*) ;;
+          *) PATH="${FSL_BIN}${PATH:+:${PATH}}" ;;
+        esac
+        export PATH
+        WLB_FSL_PROFILE_LOADED=1
+        export WLB_FSL_PROFILE_LOADED
+      fi
 
 - name: Sprzątanie po instalacji FSL
   ansible.builtin.file:
