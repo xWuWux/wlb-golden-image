@@ -110,6 +110,9 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
   IMG-001 (model VM i limity), IMG-002 (model kont badaczy — docelowo bezosobowe `uNN`),
   IMG-003 (ograniczony zakres Administratora Klienta), IMG-004 (instalacja pakietów),
   IMG-005 (dostęp TLS), IMG-006 (zamknięcie Laboratorium), IMG-007 (przepełnienie logów audytu).
+- IMG-009 (integralność plików / AIDE): bez AIDE jako świadome odstępstwo od CIS L1 — dysk systemowy
+  jednorazowy, integralność wydania przez SHA-256/SBOM (#12); 3 reguły CIS zapisane w
+  `docs/hardening-exceptions.yml` (#68).
 
 ---
 
