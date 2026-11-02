@@ -17,6 +17,22 @@ Zgłoszenia problemów technicznych kieruj do **HelpDesku IT GUMed**:
 - **datę i godzinę** wystąpienia problemu,
 - **wersję obrazu** — jest w pliku `/etc/wlb/image-release` (otwórz go w JupyterLab albo w terminalu: `cat /etc/wlb/image-release`).
 
+## Trwałość pracy, sesja i „reset" maszyny
+
+Najważniejsze: **Twoja praca nie znika.** Katalog domowy (`~`, czyli `/workspace/jupyter-<login>`)
+leży na osobnym **dysku roboczym** i przeżywa wszystko poza celowym usunięciem Laboratorium:
+
+- **zamknięcie sesji po 12 h**, restart maszyny, a nawet **aktualizację obrazu do nowszej wersji**
+  (nowa wersja = podmiana dysku **systemowego**; Twój dysk roboczy i pliki w `~` zostają nienaruszone).
+  Dlatego dane sprzed wielu godzin czy wczoraj wciąż tam są — maszyna **nie resetuje się** sama w tle.
+- **Zapis pracy = zapis do `~`.** Cokolwiek zapiszesz w katalogu domowym (notatniki, wyniki, skrypty)
+  jest trwałe. **Nie musisz** kopiować niczego do `/sluza-out`, żeby zachować pracę.
+- **`/sluza-out` służy wyłącznie do EKSPORTU** gotowych wyników poza Laboratorium (z zatwierdzeniem
+  Kontrolera Przesyłu Danych) — to nie jest „miejsce zapisu", tylko brama na zewnątrz. Do codziennej
+  pracy zapisuj do `~`, a przez śluzę przepuszczaj dopiero to, co ma opuścić maszynę.
+- **Co ginie po 12 h / restarcie:** tylko to, co było **w pamięci** (uruchomiony serwer notebooków,
+  zmienne w kernelu, niezapisane komórki). Pliki na dysku **zostają** — patrz checkpointy niżej.
+
 ## Długie obliczenia (limit sesji 12 h)
 
 Sesja w Laboratorium trwa maksymalnie **12 godzin** (§9.5 Regulaminu) — po tym czasie serwer notebooków
@@ -58,6 +74,35 @@ Obowiązują ograniczenia operacyjne (decyzje IMG-008, §14.7/§24 Regulaminu):
 
 Zachowaj oryginał w katalogu domowym do czasu potwierdzenia eksportu. Automatyczny status wniosku,
 zgoda Lidera i publikacja pozostają do wdrożenia (#20).
+
+## Narzędzia w terminalu — osobne środowisko każdej karty (FSL, flavor radiologia)
+
+Każdy **terminal** (zakładka terminala w JupyterLab lub na pulpicie) to **osobna powłoka z własnym
+środowiskiem**. Zmienne (`PATH`, `FSLDIR`) ustawione w jednej karcie **nie przenoszą się** do innych
+kart ani do już otwartych okien — w nowej karcie trzeba je ustawić ponownie.
+
+Na flavorze **radiologia** narzędzia FSL (`fsleyes`, `fslmaths`, **`eddy`**, **`topup`** itd.) nie są
+domyślnie na `PATH` w terminalu. Na początku pracy w danej karcie wczytaj środowisko FSL **jedną
+komendą**:
+
+```sh
+source /etc/profile.d/fsl.sh
+```
+
+Po tym cały zestaw FSL działa w tej karcie (`fsleyes`, `eddy`, `topup`, `flirt`, …). Równoważnie,
+gdybyś wolał ustawić to ręcznie:
+
+```sh
+export FSLDIR=/usr/local/fsl
+. ${FSLDIR}/etc/fslconf/fsl.sh
+export PATH=${FSLDIR}/share/fsl/bin:${PATH}
+```
+
+Żeby robić to automatycznie przy każdym nowym terminalu, dopisz `source /etc/profile.d/fsl.sh` do
+pliku `~/.bashrc` (jest w Twoim katalogu domowym, więc **przeżywa** restart i wymianę obrazu).
+
+> Aplikacje z **kafelków menu pulpitu** mają środowisko ustawione samodzielnie — powyższe dotyczy
+> wyłącznie pracy z **terminala**. Jeśli kafelek nie startuje, zgłoś to HelpDeskowi (znany temat #199).
 
 ## Zanim zgłosisz
 
