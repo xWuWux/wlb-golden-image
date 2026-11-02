@@ -75,6 +75,35 @@ Obowiązują ograniczenia operacyjne (decyzje IMG-008, §14.7/§24 Regulaminu):
 Zachowaj oryginał w katalogu domowym do czasu potwierdzenia eksportu. Automatyczny status wniosku,
 zgoda Lidera i publikacja pozostają do wdrożenia (#20).
 
+## Narzędzia w terminalu — osobne środowisko każdej karty (FSL, flavor radiologia)
+
+Każdy **terminal** (zakładka terminala w JupyterLab lub na pulpicie) to **osobna powłoka z własnym
+środowiskiem**. Zmienne (`PATH`, `FSLDIR`) ustawione w jednej karcie **nie przenoszą się** do innych
+kart ani do już otwartych okien — w nowej karcie trzeba je ustawić ponownie.
+
+Na flavorze **radiologia** narzędzia FSL (`fsleyes`, `fslmaths`, **`eddy`**, **`topup`** itd.) nie są
+domyślnie na `PATH` w terminalu. Na początku pracy w danej karcie wczytaj środowisko FSL **jedną
+komendą**:
+
+```sh
+source /etc/profile.d/fsl.sh
+```
+
+Po tym cały zestaw FSL działa w tej karcie (`fsleyes`, `eddy`, `topup`, `flirt`, …). Równoważnie,
+gdybyś wolał ustawić to ręcznie:
+
+```sh
+export FSLDIR=/usr/local/fsl
+. ${FSLDIR}/etc/fslconf/fsl.sh
+export PATH=${FSLDIR}/share/fsl/bin:${PATH}
+```
+
+Żeby robić to automatycznie przy każdym nowym terminalu, dopisz `source /etc/profile.d/fsl.sh` do
+pliku `~/.bashrc` (jest w Twoim katalogu domowym, więc **przeżywa** restart i wymianę obrazu).
+
+> Aplikacje z **kafelków menu pulpitu** mają środowisko ustawione samodzielnie — powyższe dotyczy
+> wyłącznie pracy z **terminala**. Jeśli kafelek nie startuje, zgłoś to HelpDeskowi (znany temat #199).
+
 ## Zanim zgłosisz
 
 - Pełny Regulamin WLB: [`/docs/Regulamin_korzystania_z_WLB.pdf`](/docs/Regulamin_korzystania_z_WLB.pdf).
