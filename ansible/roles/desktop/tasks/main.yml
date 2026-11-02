@@ -10,6 +10,9 @@
       - xfce4 # sesja + panel + menedżer okien (bez xfce4-goodies — za ciężkie na PoC)
       - xterm # terminal na pulpicie
       - scrot # zrzuty ekranu: narzędzie badacza + zależność render-smoke (tests/desktop-render-smoke.sh, #138)
+      - x11-utils # xdpyinfo/xprop/xwininfo/xmessage — gotowość i okno kontrolne render-smoke (#205)
+      - wmctrl # przesunięcie/zmiana rozmiaru okna kontrolnego w render-smoke (#205)
+      - xauth # ciasteczko X prywatnej sesji render-smoke (wrapper TigerVNC, #205)
       - dbus-x11 # magistrala D-Bus sesji XFCE
       - tigervnc-standalone-server
       - tigervnc-common
