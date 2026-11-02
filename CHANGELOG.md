@@ -64,6 +64,9 @@ konta badaczy i administracja — [`docs/przewodnik-administratora.md`](docs/prz
 Zmiany scalone do `main`, jeszcze bez tagu wydania.
 
 ### Pulpit i flavory
+- **Flavor `wlb-memory`**: rola `memory_apps` na warstwie pulpitu — **LibreOffice Calc** (arkusz,
+  warstwa arkuszowa zamiennika Prism), natywny render GTK3 pod XFCE; stockowy kafelek w menu.
+  Pierwsza aplikacja GUI #105; kolejne (jamovi, LabPlot/SciDAVis, kafelek Leaf) dojdą do tej roli (#105).
 - **Flavor `wlb-radiologia`**: pulpit + FSL/FSLeyes/3DSlicer na warstwie na `wlb-general` (#135, #137).
   Naprawa budowy (błędna flaga instalatora FSL), dopasowanie `run-local` do dużego obrazu (#164),
   komplet bibliotek Qt xcb dla 3DSlicer + smoke faktycznego uruchomienia GUI (#4), bramka CI opt-in (#167).

@@ -1,0 +1,25 @@
+# Aplikacje GUI flavora wlb-memory (#105). Nakładane na warstwę pulpitu (rola desktop) — analogicznie
+# do roli neuro_apps na flavorze wlb-radiologia. Pierwsza aplikacja: LibreOffice Calc (arkusz, zamiennik
+# GraphPad Prism — warstwa arkuszowa). Kolejne pozycje #105 (jamovi #90, LabPlot/SciDAVis, kafelek Leaf)
+# dojdą do TEJ roli osobnymi PR-ami. Build warstwowy Packera (desktop.yml): role desktop + memory_apps
+# na gotowym obrazie wlb-general — baza zostaje lekka (§ „Poza zakresem obrazu" w #105).
+
+- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      # Sam Calc + libreoffice-core; bez Writer/Impress/Base — mniejszy obraz niż metapakiet libreoffice.
+      - libreoffice-calc
+      # Natywny plugin VCL GTK3 — bez niego LibreOffice spada na plugin "gen" (czyste X11), który pod
+      # XFCE renderuje się brzydko i niespójnie z pulpitem. Zależności GTK3 są już w obrazie (XFCE).
+      - libreoffice-gtk3
+    state: present
+
+# LibreOffice (zależności GUI) potrafi wciągnąć apport z powrotem — rola desktop już go usuwała (#63),
+# bo apport przy starcie ustawia fs.suid_dumpable=2 i niweczy nasz sysctl=0. Pilnujemy ponownie w tej
+# warstwie (idempotentne, jeśli apport już nieobecny).
+- name: Ponowne usunięcie apport ewentualnie wciągniętego przez LibreOffice (#63)
+  ansible.builtin.apt:
+    name: apport
+    state: absent
+    purge: true
