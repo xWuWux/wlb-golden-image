@@ -233,9 +233,14 @@ wait_for_file() {
 }
 
 wait_for_pid_gone() {
-  local pid=$1
+  local pid=$1 state
   for _ in $(seq 1 100); do
     kill -0 "$pid" 2>/dev/null || return 0
+    # Proces zabity przez cleanup bywa jeszcze ZOMBIE: jest martwy, czeka tylko na reap, który pod
+    # obciążeniem potrafi się opóźnić. kill -0 widzi zombie jako „żywy", więc to samo w sobie sprawdzał
+    # flaky. Zombie (stan Z) albo brak stanu traktujemy jak zniknięty — sesja została zatrzymana.
+    state=$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')
+    [[ -z $state || $state == Z* ]] && return 0
     sleep 0.05
   done
   return 1

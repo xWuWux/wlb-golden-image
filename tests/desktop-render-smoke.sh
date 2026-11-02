@@ -298,6 +298,15 @@ group_owned() {
 }
 
 stop_owned_group() {
+  # Sygnał mógł nadejść, zanim pętla startu VNC zdążyła zapisać SESSION_PID (okno wyścigu między
+  # uruchomieniem wrappera a odczytem PIDFILE). Bez tego cleanup wychodziłby od razu i zostawiał WŁASNĄ
+  # sesję VNC żywą i osieroconą. Odzyskujemy PID z PIDFILE; o zabiciu i tak decyduje group_owned
+  # (własność przez token sesji), więc nie ruszymy cudzej grupy.
+  if [[ -z ${SESSION_PID:-} && -s $PIDFILE ]]; then
+    local recovered
+    recovered=$(head -n 1 "$PIDFILE" 2>/dev/null)
+    [[ $recovered =~ ^[0-9]+$ ]] && SESSION_PID=$recovered
+  fi
   [[ -n ${SESSION_PID:-} ]] || return 0
   if group_owned; then
     kill -TERM -- "-$SESSION_PID" 2>/dev/null || true
@@ -597,7 +606,11 @@ DISPLAY="$DISPLAY_NUM" XAUTHORITY="$XAUTHORITY" \
   "$MARKER" >>"$RUN_LOG" 2>&1 &
 XMESSAGE_PID=$!
 for _ in $(seq 1 20); do
-  XMESSAGE_STARTTIME=$(process_starttime "$XMESSAGE_PID")
+  # process_starttime pod `set -o pipefail` zwraca 2, gdy /proc/PID/stat zniknął (okno błędu, które się
+  # zamknęło) — bez `|| ... = ""` to bare-przypisanie wywracałoby skrypt (set -e) z unexpected_exit,
+  # zamiast dojść do klasyfikacji window_start_failed niżej. NIE ruszamy samej process_starttime: inne
+  # ścieżki (sprzątanie sesji VNC) zależą od jej baseline'owego zachowania.
+  XMESSAGE_STARTTIME=$(process_starttime "$XMESSAGE_PID") || XMESSAGE_STARTTIME=""
   [[ -n $XMESSAGE_STARTTIME ]] && break
   sleep 0.05
 done
