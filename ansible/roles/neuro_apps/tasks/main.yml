@@ -33,7 +33,12 @@
       FSLDIR={{ fsl_dir }}
       export FSLDIR
       [ -r "${FSLDIR}/etc/fslconf/fsl.sh" ] && . "${FSLDIR}/etc/fslconf/fsl.sh"
-      PATH="${FSLDIR}/share/fsl/bin:${PATH}"
+      # Idempotentnie: wrappery (wlb-fsleyes/wlb-fsl) źródłują ten plik już po sesji logowania,
+      # więc bezwarunkowy prepend powielał share/fsl/bin w PATH (do 4× — #199). Dokładamy tylko raz.
+      case ":${PATH}:" in
+        *":${FSLDIR}/share/fsl/bin:"*) ;;
+        *) PATH="${FSLDIR}/share/fsl/bin:${PATH}" ;;
+      esac
       export PATH
 
 - name: Sprzątanie po instalacji FSL
@@ -149,6 +154,9 @@
       . /etc/profile.d/fsl.sh
       exec fsl "$@"
 
+# Exec absolutny (/usr/local/bin/…), tak jak kafelek Slicera. Sesja XFCE dziedziczy PATH spawnera
+# (/opt/tljh/user/bin:/bin:/usr/bin), BEZ /usr/local/bin, więc goły "Exec=wlb-fsleyes" dawał w menu
+# "No such file or directory" (#199). Wrapper i tak sam źródłuje FSLDIR — absolutna ścieżka wystarcza.
 - name: Kafelek FSLeyes (menu XFCE)
   ansible.builtin.copy:
     dest: /usr/share/applications/wlb-fsleyes.desktop
@@ -160,7 +168,7 @@
       Name=FSLeyes
       GenericName=Przeglądarka obrazów neuro
       Comment=Przeglądarka obrazów neuroobrazowych (FSL)
-      Exec=wlb-fsleyes %F
+      Exec=/usr/local/bin/wlb-fsleyes %F
       Icon=fsleyes
       Terminal=false
       StartupNotify=true
@@ -178,7 +186,7 @@
       Name=FSL
       GenericName=Narzędzia neuroobrazowania
       Comment=Menu narzędzi FSL (FLIRT, FEAT, BET, FSLeyes…)
-      Exec=wlb-fsl
+      Exec=/usr/local/bin/wlb-fsl
       Icon=fsleyes
       Terminal=false
       StartupNotify=true

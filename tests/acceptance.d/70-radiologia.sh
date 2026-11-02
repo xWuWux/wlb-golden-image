@@ -4,6 +4,11 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   echo "== Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135) =="
   expect_ok "FSL zainstalowany (fslversion)" test -f /usr/local/fsl/etc/fslversion
   expect_ok "Środowisko FSL (profile.d/fsl.sh)" test -f /etc/profile.d/fsl.sh
+  # fsl.sh jest źródłowany i przez sesję logowania, i przez wrappery (wlb-fsleyes) — musi być
+  # idempotentny, inaczej share/fsl/bin powiela się w PATH (badacz widział 4× — #199).
+  # shellcheck disable=SC2016  # $PATH celowo rozwijane w wewnętrznym bash -c, nie tu
+  expect_ok "fsl.sh idempotentny: brak duplikatu share/fsl/bin w PATH (#199)" \
+    bash -c 'export PATH=/usr/bin:/bin; . /etc/profile.d/fsl.sh; . /etc/profile.d/fsl.sh; [ "$(printf "%s" "$PATH" | tr ":" "\n" | grep -cx "/usr/local/fsl/share/fsl/bin")" -eq 1 ]'
   expect_ok "Narzędzie FSL obecne (fslmaths)" test -x /usr/local/fsl/share/fsl/bin/fslmaths
   expect_ok "FSLeyes obecny (w FSL)" test -x /usr/local/fsl/share/fsl/bin/fsleyes
   expect_ok "3DSlicer na PATH (Slicer)" test -x /usr/local/bin/Slicer
@@ -47,8 +52,10 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   expect_ok "Ikona 3DSlicer zainstalowana" test -f /usr/share/pixmaps/slicer.png
   # Kafelek musi faktycznie wskazywać działający program (Exec), nie być pustym wpisem.
   expect_ok "Kafelek 3DSlicer wskazuje Slicer (Exec)" grep -Fxq 'Exec=/usr/local/bin/Slicer %F' /usr/share/applications/wlb-slicer.desktop
-  expect_ok "Kafelek FSLeyes wskazuje wrapper (Exec)" grep -Fxq 'Exec=wlb-fsleyes %F' /usr/share/applications/wlb-fsleyes.desktop
-  expect_ok "Kafelek FSL wskazuje wrapper (Exec)" grep -Fxq 'Exec=wlb-fsl' /usr/share/applications/wlb-fsl.desktop
+  # Exec MUSI być absolutny (#199): sesja XFCE nie ma /usr/local/bin w PATH, więc goła nazwa wrappera
+  # dawała w menu "No such file or directory". Wzorzec jak kafelek Slicera.
+  expect_ok "Kafelek FSLeyes wskazuje wrapper absolutnie (Exec, #199)" grep -Fxq 'Exec=/usr/local/bin/wlb-fsleyes %F' /usr/share/applications/wlb-fsleyes.desktop
+  expect_ok "Kafelek FSL wskazuje wrapper absolutnie (Exec, #199)" grep -Fxq 'Exec=/usr/local/bin/wlb-fsl' /usr/share/applications/wlb-fsl.desktop
   expect_ok "Wrapper FSLeyes wykonywalny" test -x /usr/local/bin/wlb-fsleyes
   expect_ok "Wrapper FSL wykonywalny" test -x /usr/local/bin/wlb-fsl
   # Test komponentowy wrappera bez odziedziczonego FSLDIR/PATH stosu neuro (nie test menu/XFCE).
