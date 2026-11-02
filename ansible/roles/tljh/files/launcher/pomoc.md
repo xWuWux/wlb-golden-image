@@ -17,6 +17,22 @@ Zgłoszenia problemów technicznych kieruj do **HelpDesku IT GUMed**:
 - **datę i godzinę** wystąpienia problemu,
 - **wersję obrazu** — jest w pliku `/etc/wlb/image-release` (otwórz go w JupyterLab albo w terminalu: `cat /etc/wlb/image-release`).
 
+## Trwałość pracy, sesja i „reset" maszyny
+
+Najważniejsze: **Twoja praca nie znika.** Katalog domowy (`~`, czyli `/workspace/jupyter-<login>`)
+leży na osobnym **dysku roboczym** i przeżywa wszystko poza celowym usunięciem Laboratorium:
+
+- **zamknięcie sesji po 12 h**, restart maszyny, a nawet **aktualizację obrazu do nowszej wersji**
+  (nowa wersja = podmiana dysku **systemowego**; Twój dysk roboczy i pliki w `~` zostają nienaruszone).
+  Dlatego dane sprzed wielu godzin czy wczoraj wciąż tam są — maszyna **nie resetuje się** sama w tle.
+- **Zapis pracy = zapis do `~`.** Cokolwiek zapiszesz w katalogu domowym (notatniki, wyniki, skrypty)
+  jest trwałe. **Nie musisz** kopiować niczego do `/sluza-out`, żeby zachować pracę.
+- **`/sluza-out` służy wyłącznie do EKSPORTU** gotowych wyników poza Laboratorium (z zatwierdzeniem
+  Kontrolera Przesyłu Danych) — to nie jest „miejsce zapisu", tylko brama na zewnątrz. Do codziennej
+  pracy zapisuj do `~`, a przez śluzę przepuszczaj dopiero to, co ma opuścić maszynę.
+- **Co ginie po 12 h / restarcie:** tylko to, co było **w pamięci** (uruchomiony serwer notebooków,
+  zmienne w kernelu, niezapisane komórki). Pliki na dysku **zostają** — patrz checkpointy niżej.
+
 ## Długie obliczenia (limit sesji 12 h)
 
 Sesja w Laboratorium trwa maksymalnie **12 godzin** (§9.5 Regulaminu) — po tym czasie serwer notebooków
