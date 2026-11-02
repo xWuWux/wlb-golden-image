@@ -67,6 +67,8 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - **Flavor `wlb-radiologia`**: pulpit + FSL/FSLeyes/3DSlicer na warstwie na `wlb-general` (#135, #137).
   Naprawa budowy (błędna flaga instalatora FSL), dopasowanie `run-local` do dużego obrazu (#164),
   komplet bibliotek Qt xcb dla 3DSlicer + smoke faktycznego uruchomienia GUI (#4), bramka CI opt-in (#167).
+  Narzędzia z pierwszego wdrożenia: **MRtrix3** (`dwidenoise`/mp-pca, pipeline dMRI) i **evince**
+  (czytnik PDF na pulpicie) w roli `neuro_apps` (#200).
 - **Rola `desktop` i PoC pulpitu w przeglądarce** (`wlb-memory`): remote-desktop-proxy, XFCE, TigerVNC/noVNC,
   kafelek „Pulpit", render-smoke (#106/#113, #138/#139).
 - Kompresja obrazów równoległym zstd zamiast jednowątkowego zlib (#71/#165).
