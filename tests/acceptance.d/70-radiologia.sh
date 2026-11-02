@@ -8,6 +8,15 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   expect_ok "FSLeyes obecny (w FSL)" test -x /usr/local/fsl/share/fsl/bin/fsleyes
   expect_ok "3DSlicer na PATH (Slicer)" test -x /usr/local/bin/Slicer
 
+  # Dodatkowe narzędzia z pierwszego wdrożenia (#200): MRtrix3 (dwidenoise/mp-pca) + czytnik PDF.
+  echo "== Dodatkowe narzędzia (MRtrix3, czytnik PDF, #200) =="
+  expect_ok "MRtrix3 dwidenoise na PATH (#200)" bash -c "command -v dwidenoise >/dev/null"
+  # Realny smoke: dwidenoise -version ładuje binarkę MRtrix3 i kończy się czysto.
+  expect_ok "MRtrix3 dwidenoise uruchamia się (-version, #200)" bash -c "dwidenoise -version >/dev/null 2>&1"
+  expect_ok "Czytnik PDF evince na PATH (#200)" bash -c "command -v evince >/dev/null"
+  # Stockowy kafelek PDF w menu XFCE (nazwa org.gnome.Evince.desktop lub evince.desktop — glob odporny).
+  expect_ok "Kafelek czytnika PDF w menu (#200)" bash -c "compgen -G '/usr/share/applications/*[Ee]vince*.desktop' >/dev/null"
+
   # GUI runtime (#4): sama obecność binarki nie wystarcza — 3DSlicer wywracał się przy starcie na
   # brakującej bibliotece xcb (libxcb-icccm.so.4), a "test -x" tego nie łapał. Faktyczny start GUI
   # pod wirtualnym X (Xtigervnc z roli desktop) + marker wersji z rdzenia aplikacji i Pythona Slicera.
