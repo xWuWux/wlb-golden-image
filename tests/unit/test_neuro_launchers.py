@@ -27,8 +27,8 @@ class NeuroLauncherAcceptanceTests(unittest.TestCase):
             block = block.replace("/etc/profile.d/fsl.sh", str(profile))
             entries = {
                 "wlb-slicer": "Exec=/usr/local/bin/Slicer %F",
-                "wlb-fsleyes": "Exec=wlb-fsleyes %F",
-                "wlb-fsl": "Exec=wlb-fsl",
+                "wlb-fsleyes": "Exec=/usr/local/bin/wlb-fsleyes %F",
+                "wlb-fsl": "Exec=/usr/local/bin/wlb-fsl",
             }
             entries.update(overrides or {})
             for name, entry in entries.items():

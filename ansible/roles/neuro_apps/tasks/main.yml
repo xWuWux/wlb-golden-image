@@ -32,9 +32,22 @@
       # Zarządzane przez Ansible (rola neuro_apps) — #135
       FSLDIR={{ fsl_dir }}
       export FSLDIR
-      [ -r "${FSLDIR}/etc/fslconf/fsl.sh" ] && . "${FSLDIR}/etc/fslconf/fsl.sh"
-      PATH="${FSLDIR}/share/fsl/bin:${PATH}"
-      export PATH
+      # Idempotentnie dla CAŁEGO źródłowania (#199). Ten plik jest czytany i przez sesję logowania, i
+      # przez wrappery (wlb-fsleyes/wlb-fsl), a dostarczany przez FSL fslconf/fsl.sh sam dopisuje
+      # share/fsl/bin przy KAŻDYM źródłowaniu — osłona tylko na naszym prepend nie wystarczała (duplikaty
+      # szły z fslconf, do 4×). Flaga eksportowana, więc procesy potomne dziedziczą „już zainicjalizowane"
+      # i nie powtarzają inicjalizacji; w świeżym środowisku (np. wrapper pod env -i) blok wykona się raz.
+      if [ "${WLB_FSL_PROFILE_LOADED:-0}" != "1" ]; then
+        [ -r "${FSLDIR}/etc/fslconf/fsl.sh" ] && . "${FSLDIR}/etc/fslconf/fsl.sh"
+        FSL_BIN="${FSLDIR}/share/fsl/bin"
+        case ":${PATH:-}:" in
+          *":${FSL_BIN}:"*) ;;
+          *) PATH="${FSL_BIN}${PATH:+:${PATH}}" ;;
+        esac
+        export PATH
+        WLB_FSL_PROFILE_LOADED=1
+        export WLB_FSL_PROFILE_LOADED
+      fi
 
 - name: Sprzątanie po instalacji FSL
   ansible.builtin.file:
@@ -149,6 +162,9 @@
       . /etc/profile.d/fsl.sh
       exec fsl "$@"
 
+# Exec absolutny (/usr/local/bin/…), tak jak kafelek Slicera. Sesja XFCE dziedziczy PATH spawnera
+# (/opt/tljh/user/bin:/bin:/usr/bin), BEZ /usr/local/bin, więc goły "Exec=wlb-fsleyes" dawał w menu
+# "No such file or directory" (#199). Wrapper i tak sam źródłuje FSLDIR — absolutna ścieżka wystarcza.
 - name: Kafelek FSLeyes (menu XFCE)
   ansible.builtin.copy:
     dest: /usr/share/applications/wlb-fsleyes.desktop
@@ -160,7 +176,7 @@
       Name=FSLeyes
       GenericName=Przeglądarka obrazów neuro
       Comment=Przeglądarka obrazów neuroobrazowych (FSL)
-      Exec=wlb-fsleyes %F
+      Exec=/usr/local/bin/wlb-fsleyes %F
       Icon=fsleyes
       Terminal=false
       StartupNotify=true
@@ -178,7 +194,7 @@
       Name=FSL
       GenericName=Narzędzia neuroobrazowania
       Comment=Menu narzędzi FSL (FLIRT, FEAT, BET, FSLeyes…)
-      Exec=wlb-fsl
+      Exec=/usr/local/bin/wlb-fsl
       Icon=fsleyes
       Terminal=false
       StartupNotify=true
