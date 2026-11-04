@@ -3,41 +3,44 @@
 # Raport rozmiaru obrazu qcow2 (#135): flavor z FSL + 3DSlicer ma dziesiątki GB, więc rozmiar
 # ma być widoczny przy każdym buildzie, a nie sprawdzany ręcznie (qemu-img info).
 #   ci/image-size-report.sh OBRAZ.qcow2 [ETYKIETA]
-# Wypisuje rozmiar wirtualny (dysk gościa) i faktyczny (plik) oraz dopisuje wiersz do
+# Wypisuje rozmiar wirtualny (dysk gościa) i zaalokowany na hoście oraz dopisuje wiersz do
 # podsumowania joba. Opcjonalny próg: WLB_IMAGE_SIZE_MAX_GIB — przekroczenie rozmiaru
-# FAKTYCZNEGO pliku kończy się kodem 1 (domyślnie bez progu, tylko raport).
+# ALOKACJI na hoście kończy się kodem 1 (domyślnie bez progu, tylko raport).
 set -euo pipefail
 # shellcheck source=ci/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-image=${1:-}
+(($# >= 1 && $# <= 2)) || die "użycie: image-size-report.sh OBRAZ.qcow2 [ETYKIETA]"
+image=$1
 label=${2:-${image##*/}}
-[[ -n $image ]] || die "użycie: image-size-report.sh OBRAZ.qcow2 [ETYKIETA]"
 [[ -f $image ]] || die "brak obrazu: $image"
+[[ $label =~ ^[a-zA-Z0-9._+-]+$ ]] || die "etykieta wymaga liter ASCII, cyfr lub ._+-"
+# Ścieżka ./ zapobiega interpretacji nazwy jako opcji lub protokołu QEMU.
+[[ $image == /* ]] || image=./$image
+result=$(qemu-img info -f qcow2 --output=json "$image" | python3 -c '
+import json, re, sys
+try:
+    data = json.load(sys.stdin)
+    virtual, actual = data["virtual-size"], data["actual-size"]
+    if any(type(n) is not int or n < 0 for n in (virtual, actual)):
+        raise ValueError("rozmiar musi być nieujemną liczbą całkowitą bajtów")
+    limit = sys.argv[1]
+    if limit and not re.fullmatch(r"[0-9]+", limit):
+        raise ValueError("WLB_IMAGE_SIZE_MAX_GIB wymaga nieujemnej liczby całkowitej GiB")
+    exceeded = bool(limit) and actual > int(limit) * 2**30
+    print(f"{virtual / 2**30:.2f} {actual / 2**30:.2f} {actual} {int(exceeded)}")
+except (ValueError, TypeError, KeyError, OverflowError) as exc:
+    sys.exit(f"BŁĄD pomiaru qcow2: {exc}")
+' "${WLB_IMAGE_SIZE_MAX_GIB:-}") || die "nie udało się sprawdzić obrazu lub progu"
+read -r v a actual exceeded <<<"$result"
 
-info=$(qemu-img info --output=json "$image")
-read -r virtual actual < <(python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-print(d["virtual-size"], d.get("actual-size", 0))
-' <<<"$info")
-
-gib() { python3 -c 'import sys; print(f"{int(sys.argv[1]) / 2**30:.2f}")' "$1"; }
-v=$(gib "$virtual")
-a=$(gib "$actual")
-
-echo "Rozmiar obrazu $label: wirtualny ${v} GiB, plik ${a} GiB"
+echo "Rozmiar obrazu $label: wirtualny ${v} GiB, alokacja ${a} GiB ($actual B)"
 summary <<EOT
 ### Rozmiar obrazu: $label
-| Wirtualny (dysk gościa) | Faktyczny (plik qcow2) |
+| Wirtualny (dysk gościa) | Alokacja na hoście (qcow2) |
 |---|---|
 | ${v} GiB | ${a} GiB |
 EOT
-
-if [[ -n ${WLB_IMAGE_SIZE_MAX_GIB:-} ]]; then
-  max_bytes=$((WLB_IMAGE_SIZE_MAX_GIB * 1024 * 1024 * 1024))
-  if ((actual > max_bytes)); then
-    echo "BŁĄD: rozmiar pliku ${a} GiB przekracza próg ${WLB_IMAGE_SIZE_MAX_GIB} GiB" >&2
-    exit 1
-  fi
+if [[ $exceeded == 1 ]]; then
+  die "alokacja $actual B przekracza próg ${WLB_IMAGE_SIZE_MAX_GIB} GiB"
 fi
