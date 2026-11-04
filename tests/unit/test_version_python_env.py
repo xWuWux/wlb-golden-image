@@ -111,3 +111,42 @@ def test_niezgodny_eksport_przerywa_przed_zmiana_dowiazania(layout, monkeypatch)
     assert not user.is_symlink()
     assert (user / "sentinel").read_text() == "oryginał"
     assert not (envs / "python-1.0").exists()
+
+
+def test_zajeta_blokada_nie_dotyka_prefiksow(layout):
+    import fcntl
+    import os
+
+    user, envs = layout
+    envs.mkdir(parents=True)
+    fd = os.open(envs, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(BlockingIOError):
+            mod.migrate(user, envs, "1.0")
+        assert list(envs.iterdir()) == []
+        assert (user / "sentinel").read_text() == "oryginał"
+    finally:
+        os.close(fd)
+
+
+def test_wiszaca_kopia_blokuje_przed_klonowaniem(layout):
+    user, envs = layout
+    backup = user.with_name("user.wlb-build-backup")
+    backup.symlink_to(user.parent / "missing")
+    with pytest.raises(ValueError, match="pozostałość"):
+        mod.migrate(user, envs, "1.0")
+    assert backup.is_symlink()
+    assert (user / "sentinel").exists()
+
+
+def test_idempotencja_odrzuca_przekierowany_katalog_wersji(layout, monkeypatch):
+    user, envs = layout
+    monkeypatch.setattr(mod.subprocess, "run", clone_stub([]))
+    mod.migrate(user, envs, "1.0")
+    target = envs / "python-1.0"
+    other = envs / "python-other"
+    target.rename(other)
+    target.symlink_to(other)
+    with pytest.raises(ValueError, match="prefiks"):
+        mod.migrate(user, envs, "1.0")
