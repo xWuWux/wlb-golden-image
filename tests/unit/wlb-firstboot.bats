@@ -705,6 +705,7 @@ meminfo() { # meminfo MiB — MemTotal w piaskownicy
 }
 limits() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"; }
 slice_conf() { cat "$SANDBOX/etc/systemd/system/wlb-badacze.slice.d/50-wlb-limits.conf"; }
+session_override() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py"; }
 lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   local kv
   for kv in "$@"; do echo "$kv" >>"$SANDBOX/etc/wlb/lab.env"; done
@@ -722,6 +723,31 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   calls | grep -qx 'systemctl daemon-reload'
   [[ $output == *"limity: RAM 16384 MiB, rezerwa 3072 MiB, badacze razem 13312 MiB (1 równolegle); na badacza 13312 MiB, CPU 8, procesy 2048"* ]]
   python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"
+}
+
+@test "limit sesji: MAX_SESSION_HOURS=48 -> cull.max_age + TTL ciasteczka/tokenu spojnie (#78)" {
+  lab_env MAX_SESSION_HOURS=48
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'tljh-config set services.cull.max_age 172800'
+  session_override | grep -qx 'c.JupyterHub.oauth_token_expires_in = 172800'
+  session_override | grep -qx 'c.JupyterHub.cookie_max_age_days = 2.000000'
+  [[ $output == *"limit sesji: 48 h (172800 s)"* ]]
+  python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py"
+}
+
+@test "limit sesji: domyslnie (bez MAX_SESSION_HOURS) brak override i brak zmiany cull.max_age (#78)" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py" ]
+  refute called 'tljh-config set services.cull.max_age 172800'
+}
+
+@test "limit sesji: MAX_SESSION_HOURS poza 1-48 -> blad firstboot (#78)" {
+  lab_env MAX_SESSION_HOURS=99
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"MAX_SESSION_HOURS musi byc"* || $output == *"MAX_SESSION_HOURS musi być"* ]]
 }
 
 @test "limity: duża VM — rezerwa 10% RAM" {

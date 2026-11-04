@@ -51,7 +51,23 @@ i wznawianie**:
 - **Nie licz w jednej komórce przez wiele godzin bez zapisu** — po 12 h stracisz całość.
 
 Jeśli Twoje obliczenia regularnie przekraczają 12 h i trudno je checkpointować, **zgłoś to HelpDeskowi** —
-planowany jest tryb uruchamiania długich zadań odpięty od limitu sesji.
+Twoje Laboratorium może dostać wydłużony limit sesji (patrz niżej).
+
+## Wydłużona sesja (48 h na wniosek)
+
+Domyślnie sesja trwa 12 godzin. Jeśli prowadzisz długie obliczenie, które się w tym nie mieści, możesz
+**wnioskować o wydłużenie limitu do maksymalnie 48 godzin**. Wydłużenie ustawiane jest dla całego
+Laboratorium (całej VM) i usuwa 12-godzinny limit jako przyczynę przerwania liczenia. Twoje zasoby
+(RAM, CPU) się przy tym nie zmieniają.
+
+> **WAŻNE: 48 godzin to NIE jest gwarancja, że nic nie przepadnie.** Wydłużony limit chroni tylko przed
+> automatycznym zamknięciem sesji — **nie** czyni obliczenia odpornym na awarię. Stan w pamięci (jądro,
+> zmienne, wynik w trakcie) **ginie bezpowrotnie** przy restarcie/reboocie VM, aktualizacji (wymianie)
+> obrazu oraz awarii hosta. Reboot w 30. godzinie 48-godzinnego liczenia zabierze cały niezapisany
+> postęp; pliki w `/workspace` zostają. Dlatego **regularny checkpoint do `/workspace` jest nadal
+> konieczny**, niezależnie od długości sesji. Obliczenie trwające ponad 48 h i tak zostanie ucięte.
+
+**Jak wnioskować:** zgłoś się do **HelpDesku** lub do **Administratora Klienta** swojego Laboratorium.
 
 ## Eksport wyników — limity i odrzucenia
 

@@ -155,6 +155,10 @@ fi
 RESEARCHER_MEM_LIMIT=${RESEARCHER_MEM_LIMIT:-}     # pamięć na badacza, np. 8G; domyślnie pula / RESEARCHERS_PER_VM
 RESEARCHER_CPU_LIMIT=${RESEARCHER_CPU_LIMIT:-}     # rdzenie na badacza, np. 2 albo 1.5; domyślnie vCPU / RESEARCHERS_PER_VM (min. 1)
 RESEARCHER_TASKS_MAX=${RESEARCHER_TASKS_MAX:-2048} # procesy i wątki na badacza (ochrona przed fork bomb)
+# Limit czasu sesji w godzinach (1–48). Puste = wkompilowane 12 h (§9.5). >12 tylko na WNIOSEK badacza,
+# za zgodą §9.5 — wydłuża też TTL ciasteczka/tokenu (dłuższe okno re-auth). Nie czyni obliczenia odpornym
+# na awarię: checkpoint do /workspace dalej konieczny. #78
+MAX_SESSION_HOURS=${MAX_SESSION_HOURS:-}
 export PROXY_URL NO_PROXY LAB_NAME
 
 mkdir -p "$STATE_DIR"
@@ -525,6 +529,27 @@ c.SystemdSpawner.unit_extra_properties = {
 EOF
 systemctl daemon-reload
 log "limity: RAM ${mem_total} MiB, rezerwa ${reserve} MiB, badacze razem ${pool} MiB (${RESEARCHERS_PER_VM} równolegle); na badacza ${mem_limit} MiB, CPU ${cpu_limit}, procesy ${RESEARCHER_TASKS_MAX}"
+
+# --- 5b. Wydłużony limit sesji (#78, §9.5) — opcjonalnie per-Laboratorium ---------------------
+# Domyślnie 12 h jest wkompilowane (group_vars). Na WNIOSEK badacza, za zgodą §9.5, Lab może dostać do
+# 48 h. Jedna wartość steruje SPÓJNIE dwoma miejscami: cull.max_age (config.yaml, przez tljh-config) ORAZ
+# TTL ciasteczka/tokenu (nadpisanie 10-wlb.py plikiem 11- o wyższym priorytecie). 48 h = dłuższe okno
+# re-auth — świadome odstępstwo §9.5. NIE czyni obliczenia odpornym na awarię (checkpoint dalej konieczny).
+if [[ -n $MAX_SESSION_HOURS ]]; then
+  { [[ $MAX_SESSION_HOURS =~ ^[0-9]+$ ]] && ((MAX_SESSION_HOURS >= 1 && MAX_SESSION_HOURS <= 48)); } ||
+    die "MAX_SESSION_HOURS musi być liczbą 1–48 (godziny), jest '${MAX_SESSION_HOURS}'"
+  max_session_seconds=$((MAX_SESSION_HOURS * 3600))
+  cookie_days=$(awk "BEGIN{printf \"%.6f\", ${max_session_seconds}/86400}")
+  "$TLJH_CONFIG" set services.cull.max_age "$max_session_seconds"
+  cat >"$HUB_CONFIG_D/11-wlb-session.py" <<EOF
+# Wygenerowane przez wlb-firstboot (${LAB_NAME}) — wydłużony limit sesji ${MAX_SESSION_HOURS} h (#78, §9.5).
+# Nadpisuje 10-wlb.py (wyższy numer = ładowane później); spójnie z cull.max_age=${max_session_seconds}.
+c = get_config()  # noqa: F821
+c.JupyterHub.cookie_max_age_days = ${cookie_days}
+c.JupyterHub.oauth_token_expires_in = ${max_session_seconds}
+EOF
+  log "limit sesji: ${MAX_SESSION_HOURS} h (${max_session_seconds} s) — cull.max_age + TTL ciasteczka/tokenu (§9.5 odstępstwo, #78)"
+fi
 
 # --- 5c. Uwierzytelnianie: native (MVP) albo OIDC (Entra ID / Keycloak), #18 -----------------
 # Domyślnie Native Authenticator (konta lokalne w bazie huba). AUTH_MODE=oidc przełącza na
