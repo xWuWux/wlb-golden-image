@@ -267,12 +267,15 @@ receipt_file() { find "$WLB_SLUZA_RECEIPTS" -maxdepth 1 -name '*.potwierdzenie.*
 }
 
 @test "#208: blad zapisu potwierdzenia nie przerywa przyjecia" {
-  chmod 0500 "$WLB_SLUZA_RECEIPTS" # mktemp nie zapisze
+  # Atrapa mktemp zawodzi tylko dla katalogu potwierdzeń (chmod nie działa jako root — CI to root).
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'case "$1" in "$WLB_SLUZA_RECEIPTS"/*) exit 1 ;; esac' \
+    'exec /usr/bin/mktemp "$@"' >"$STUBS/mktemp"
+  chmod +x "$STUBS/mktemp"
   echo wynik >"$WLB_SLUZA_OUT/wynik.csv"
   run "$MOVER" --once
-  chmod 0700 "$WLB_SLUZA_RECEIPTS"
   [ "$status" -eq 0 ]
-  compgen -G "$WLB_EXPORT_QUEUE/*_wynik.csv" >/dev/null # wniosek przyjety mimo braku katalogu do zapisu
+  compgen -G "$WLB_EXPORT_QUEUE/*_wynik.csv" >/dev/null # wniosek przyjęty mimo błędu zapisu potwierdzenia
   [ -z "$(receipt_file)" ]
 }
 
