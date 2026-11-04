@@ -185,7 +185,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Miejsce na dysku (obraz + VM testowe)
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          # Flavor wlb-memory (LibreOffice) + baza + konwersje qemu-img przepełniały / runnera
+          # ("No space left" po ~22 GB, #203). Agresywniej zwalniamy preinstal runnera.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost \
+            /usr/lib/google-cloud-sdk /opt/microsoft /usr/local/graalvm 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo apt-get clean
           df -h /
       - name: Dostęp do KVM
         run: ci/enable-kvm.sh
