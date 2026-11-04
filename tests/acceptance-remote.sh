@@ -119,6 +119,34 @@ expect_fail "W kolejce nie ma dowiązań ani plików specjalnych (#29)" bash -c 
 expect_ok "Badacz widzi katalog zwrotny /sluza-odrzucone" as $R1 ls /sluza-odrzucone
 expect_ok "Powód odrzucenia dowiązania czytelny dla badacza (#162)" \
   as $R1 bash -c "grep -rq unsupported_type /sluza-odrzucone/*link-test*.powod.* 2>/dev/null"
+# Pozytywne potwierdzenie przyjęcia do kolejki (#208): symetria sygnału zwrotnego dla badacza.
+expect_ok "Katalog potwierdzen ma tryb 0750 root:jupyterhub-users (#208)" \
+  bash -c "stat -c '%a %U %G' /sluza-potwierdzenia | grep -qx '750 root jupyterhub-users'"
+expect_ok "Badacz widzi katalog /sluza-potwierdzenia (#208)" as $R1 ls /sluza-potwierdzenia
+ZN208="ZNACZNIK208ABCD"  # znacznik treści — nie wolno go znaleźc w potwierdzeniu
+SZ208=$((${#ZN208} + 2)) # zawartość pliku: a<znacznik>b
+as $R1 bash -c "printf 'a%sb' '$ZN208' > /sluza-out/potwierdzenie-test.txt"
+for _ in $( # deterministycznie: czekamy na plik potwierdzenia, nie na ślepy sleep
+  seq 1 20
+); do
+  compgen -G '/sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.*' >/dev/null && break
+  sleep 1
+done
+expect_ok "Po przyjeciu pojawia się potwierdzenie (*potwierdzenie.*) (#208)" \
+  bash -c "compgen -G '/sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.*' >/dev/null"
+expect_ok "Potwierdzenie własnością badacza, tryb 0640 (#208)" \
+  bash -c "stat -c '%a %u' /sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.* | grep -qx '640 $(id -u jupyter-$R1)'"
+# shellcheck disable=SC2016  # zmienna lokalna rozwijana przed przekazaniem, $f celowo wewn.
+expect_ok "Potwierdzenie czytelne dla badacza i ze zgodnymi etykietami/rozmiarem kontraktu (#208)" \
+  as $R1 bash -c "grep -q 'przyjęty do kolejki' /sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -q '^Element:            potwierdzenie-test.txt$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -q '^Liczba plików:      1$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -q '^Łączny rozmiar:     $SZ208 B$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -qE '^sha256-inventory:   [0-9a-f]{64}$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.*"
+expect_fail "Potwierdzenie nie zawiera treści pliku — tylko metadane (§14.7, #208)" \
+  as $R1 bash -c "grep -q '$ZN208' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.*"
+expect_fail "Wpis odrzucony (dowiązanie) NIE ma potwierdzenia — tylko powód (#208)" \
+  bash -c "compgen -G '/sluza-potwierdzenia/*link-test*' >/dev/null"
 
 echo "== 5c. Administrator Klienta: rola ograniczona, bez wglądu w dane badacza (IMG-003/#51) =="
 HUB_DB=sqlite:////workspace/.wlb-hub/jupyterhub.sqlite

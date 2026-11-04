@@ -122,6 +122,9 @@ samego przypisania, nie przekazanie.
 - **Sesja max 12 h** niezależnie od aktywności (culler + ciasteczko/tokeny 12 h); długie
   obliczenia — patrz pomoc w Launcherze i #78.
 - **Śluza:** zapis do `/sluza-in` odrzucany; plik w `/sluza-out` znika z widoku i trafia do kolejki eksportu.
+  Badacz dostaje sygnał zwrotny: `*.potwierdzenie.*` w `/sluza-potwierdzenia` (przyjęcie, #208)
+  albo `*.powod.*` w `/sluza-odrzucone` (odrzucenie); oba katalogi 0750 z listowaniem dla grupy
+  badaczy, treść plików (0640) tylko dla właściciela.
 - **Instalacja pakietów:** zależnie od `RESEARCHER_PACKAGE_INSTALL` — `deny` (domyślnie)
   albo `mirror` (tylko kuratorowany mirror Laboratorium). Decyzja: [IMG-004](adr/IMG-004-instalacja-pakietow-badacz.md).
 - **Brak sudo** w sesji badacza (NoNewPrivileges); VM jest air-gapped (wyjście tylko przez proxy z allowlistą).
