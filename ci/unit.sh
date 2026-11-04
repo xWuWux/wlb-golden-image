@@ -3,7 +3,7 @@
 # Progi można podnosić — nie obniżać bez uzasadnienia w PR.
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
-require bats pytest coverage
+require bats pytest coverage jq
 # kcov mapuje ślad wykonania (xtrace) na wiersze skryptów; bez locale UTF-8 wiersze z polskimi
 # znakami nie są rozpoznawane i pokrycie wychodzi 0% (np. w kontenerach bez ustawionego LANG)
 [[ ${LC_ALL:-${LANG:-}} == *UTF-8* ]] || export LANG=C.UTF-8
