@@ -1,0 +1,28 @@
+{#
+  Kontrakt wizualny pulpitu (#204) — maszynowo czytelny widok desktop_xfconf + wartości
+  pozakanalowych dla tests/acceptance.d/42-pulpit-wartosci.sh. Format wierszy (| rozdzielony):
+    xfconf|<kanał>|<ścieżka>|<typ>|<wartość>     (tablice: typ array_<etype>, wartości po przecinku)
+    locale|LANG|…  keyboard|{rules,model,layout}|…  geometry|screen|…  font|{sans,mono}|…
+  Nie edytować — źródłem jest ansible/group_vars/all.yml (desktop_xfconf, desktop_contract_*).
+  Konwencja odstępów: tagi w pełni wycięte {%- -%}; wiersze wyjścia kończone jawnym {{ "\n" }}.
+#}
+# Kontrakt wizualny pulpitu (#204) — wygenerowany przez Ansible (rola desktop).{{ "\n" }}{%- macro emit(nodes, path, channel) -%}
+{%-   for it in nodes | dict2items | rejectattr('key', 'in', ['type', 'value', 'values', 'etype']) -%}
+{%-     set name = it.key -%}
+{%-     set node = it.value -%}
+{%-     set npath = path ~ '/' ~ name -%}
+{%-     if 'values' in node -%}
+{{ "xfconf|%s|%s|array_%s|%s" | format(channel, npath, node.get('etype', 'int'), node['values'] | join(',')) }}{{ "\n" }}
+{%-     elif 'type' in node -%}
+{{ "xfconf|%s|%s|%s|%s" | format(channel, npath, node['type'], node['value']) }}{{ "\n" }}
+{%-     endif -%}
+{%-     for kit in node | dict2items | rejectattr('key', 'in', ['type', 'value', 'values', 'etype']) -%}
+{{ emit({kit.key: kit.value}, npath, channel) }}{%-     endfor -%}
+{%-   endfor -%}
+{%- endmacro -%}
+{%- for channel, data in desktop_xfconf.items() -%}{{ emit(data, '', channel) }}
+{%- endfor -%}
+{{ "locale|LANG|%s\nkeyboard|rules|%s\nkeyboard|model|%s\nkeyboard|layout|%s\ngeometry|screen|%s\nfont|sans|%s\nfont|mono|%s" | format(
+       desktop_contract_locale, desktop_contract_keyboard.rules, desktop_contract_keyboard.model,
+       desktop_contract_keyboard.layout, desktop_contract_geometry,
+       desktop_contract_fonts.sans, desktop_contract_fonts.mono) }}{{ "\n" }}
