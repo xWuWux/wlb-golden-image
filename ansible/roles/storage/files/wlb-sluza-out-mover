@@ -12,7 +12,8 @@ IMAGE_CONF=${WLB_IMAGE_CONF:-/etc/wlb/image.conf}
 [[ -r $IMAGE_CONF ]] && . "$IMAGE_CONF"
 SRC=${WLB_SLUZA_OUT:-/sluza-out}
 QUEUE=${WLB_EXPORT_QUEUE:-/workspace/.wlb-export-queue}
-REJECTED=${WLB_SLUZA_REJECTED:-/sluza-odrzucone} # katalog zwrotny widoczny dla badacza (#162/IMG-008)
+REJECTED=${WLB_SLUZA_REJECTED:-/sluza-odrzucone}     # katalog zwrotny widoczny dla badacza (#162/IMG-008)
+RECEIPTS=${WLB_SLUZA_RECEIPTS:-/sluza-potwierdzenia} # potwierdzenia przyjęcia do kolejki, widoczne dla badacza (#208)
 SNAPSHOT="$(dirname -- "$(readlink -f -- "$0")")/wlb-export-snapshot"
 DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
 
@@ -52,6 +53,43 @@ reject_notice() { # reject_notice UID RAW_NAME REASON
   }
   chmod 0640 -- "$f" 2>/dev/null || true
   chown "$uid" -- "$f" 2>/dev/null || true
+}
+
+# Pozytywne potwierdzenie dla badacza: wniosek przyjęty do kolejki (#208) — lustro reject_notice
+# na ścieżce sukcesu. /sluza-potwierdzenia czytelny dla badacza (0750, jak /sluza-odrzucone);
+# plik 0640 własność UID badacza — treść tylko dla niego, §14.7: TYLKO metadane własnego wniosku
+# (nazwa, czas, UUID, liczba plików, rozmiar, sha256-inventory), żadnej treści danych. Potwierdza
+# wyłącznie przyjęcie do kolejki, NIE zgodę na eksport (#20). Zapis atomowo (tmp + mv -T);
+# każdy błąd potwierdzenia kończy funkcję cicho (return 0) — przyjęcie wnioskowi nie wolno wywrócić.
+receipt_notice() { # receipt_notice UID TS RAW_NAME REQUEST_ID PLIKI ROZMIAR SHA256
+  local uid=$1 ts=$2 name=$3 request_id=$4 files=$5 total=$6 sha=$7 tmp final
+  [[ -d $RECEIPTS ]] || return 0
+  name=$(printf '%s' "$3" | LC_ALL=C tr -c 'a-zA-Z0-9._-' '_') || return 0
+  name=${name:0:120}
+  tmp=$(mktemp "$RECEIPTS/.${ts}_${name}.potwierdzenie.XXXXXX" 2>/dev/null) || return 0
+  {
+    printf 'Wniosek eksportu został przyjęty do kolejki.\n\n'
+    printf 'Element:            %s\n' "$name"
+    printf 'Czas (UTC):         %s\n' "$ts"
+    printf 'Wniosek:            %s\n' "$request_id"
+    printf 'Liczba plików:      %s\n' "$files"
+    printf 'Łączny rozmiar:     %s B\n' "$total"
+    printf 'sha256-inventory:   %s\n' "$sha"
+    printf 'Status:             przyjęto do kolejki — oczekuje na decyzję Kontrolera\n\n'
+    printf '%s\n' 'Porównaj liczbę plików i rozmiar z tym, co zamierzałeś wysłać. To potwierdzenie dotyczy wyłącznie przyjęcia do kolejki, nie zgody na eksport.'
+  } >"$tmp" 2>/dev/null || {
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 0
+  }
+  chmod 0640 -- "$tmp" 2>/dev/null || true
+  chown "$uid" -- "$tmp" 2>/dev/null || true
+  # przyrostkowa nazwa tymczasowa zamienia się w finalną (ten sam losowy przyrostek)
+  final="$RECEIPTS/${ts}_${name}.potwierdzenie.${tmp##*.}"
+  mv -T -- "$tmp" "$final" 2>/dev/null || {
+    rm -f -- "$tmp" 2>/dev/null || true
+    return 0
+  }
+  return 0
 }
 
 # Nazwy tymczasowe/atomowe pomijamy aż do zmiany nazwy (#33). Zapis przez plik tymczasowy i dopiero
@@ -106,6 +144,15 @@ queue_entry() {
     return 1
   fi
   log "export_request user=$owner uid=$uid entry=$name sha256=$sha queued_as=${dest##*/}" || return 1
+  # Potwierdzenie dla badacza (#208): liczby czytane ze spisu w manifest.json gotowego wniosku
+  # (tylko odczyt, format kolejki bez zmian). Niedoczytany manifest = brak potwierdzenia na cicho.
+  local stats files total
+  stats=$(python3 -c "import json,sys; m=json.load(open(sys.argv[1],encoding='utf-8')); fs=[e for e in m['entries'] if e['type']=='file']; print(len(fs), sum(e['size'] for e in fs))" "$dest/manifest.json" 2>/dev/null) || stats=""
+  if [[ $stats == *[0-9]* ]]; then
+    files=${stats%% *}
+    total=${stats##* }
+    receipt_notice "$uid" "$ts" "$name" "$request_id" "$files" "$total" "$sha"
+  fi
   rm -rf -- "$incoming"
 }
 

@@ -7,8 +7,9 @@ setup() {
   setup_sandbox
   export WLB_SLUZA_OUT="$SANDBOX/sluza-out" WLB_EXPORT_QUEUE="$SANDBOX/queue"
   export WLB_SLUZA_REJECTED="$SANDBOX/odrzucone" # katalog zwrotny (#162/IMG-008)
+  export WLB_SLUZA_RECEIPTS="$SANDBOX/potwierdzenia" # potwierdzenia przyjęcia (#208)
   export WLB_IMAGE_CONF="$SANDBOX/etc/wlb/image.conf" # nie istnieje -> wartości z env
-  mkdir -p "$WLB_SLUZA_OUT" "$WLB_SLUZA_REJECTED"
+  mkdir -p "$WLB_SLUZA_OUT" "$WLB_SLUZA_REJECTED" "$WLB_SLUZA_RECEIPTS"
   stub logger
   stub chown
   stub fuser 1 # domyślnie: plik nie jest otwarty
@@ -218,4 +219,77 @@ EOF
   mv "$queued" "$BATS_TEST_TMPDIR/relocated"
   expected=$("${MOVER%/*}/wlb-export-snapshot" verify "$BATS_TEST_TMPDIR/relocated")
   calls | grep -q "entry=wyniki sha256=$expected "
+}
+
+# --- #208: pozytywne potwierdzenie przyjęcia do kolejki (receipt) -------------------------
+
+receipt_file() { find "$WLB_SLUZA_RECEIPTS" -maxdepth 1 -name '*.potwierdzenie.*' -type f; }
+
+@test "#208: przyjęty katalog dostaje potwierdzenie z liczbą plików, rozmiarem i sha256-inventory" {
+  mkdir -p "$WLB_SLUZA_OUT/wyniki/pod"
+  printf abc >"$WLB_SLUZA_OUT/wyniki/a.csv"        # 3 bajty
+  printf abcde >"$WLB_SLUZA_OUT/wyniki/pod/b.csv"  # 5 bajtów
+  WLB_DIR_SETTLE_SECONDS=0 run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  r=$(receipt_file); [ -n "$r" ]
+  [[ $(basename "$r") =~ ^[0-9]{8}T[0-9]{6}Z_wyniki\.potwierdzenie\.[A-Za-z0-9]{6}$ ]]
+  [ "$(stat -c %a "$r")" = 640 ]
+  grep -qx 'Wniosek eksportu został przyjęty do kolejki.' "$r"
+  grep -q '^Element:            wyniki$' "$r"
+  grep -q '^Liczba plików:      2$' "$r"
+  grep -q '^Łączny rozmiar:     8 B$' "$r"
+  grep -q '^Status:             przyjęto do kolejki' "$r"
+  grep -q 'nie zgody na eksport.$' "$r"
+  # sha256-inventory zgodna z sumą w logu export_request i z manifestem wniosku
+  logged=$(calls | sed -n 's/.*export_request .* sha256=\([0-9a-f]*\) queued_as=.*/\1/p')
+  grep -q "^sha256-inventory:   $logged$" "$r"
+  # identyfikator wniosku = request_id z manifestu (ten sam wniosek)
+  rid=$(sed -n 's/.*"request_id":"\([0-9a-f-]*\)".*/\1/p' "$WLB_EXPORT_QUEUE"/*/manifest.json)
+  grep -q "^Wniosek:            $rid$" "$r"
+}
+
+@test "#208: przyjęty pojedynczy plik — potwierdzenie z jednym plikiem i jego rozmiarem" {
+  printf 'wynik' >"$WLB_SLUZA_OUT/wynik.csv" # 5 bajtów
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  r=$(receipt_file); [ -n "$r" ]
+  grep -q '^Liczba plików:      1$' "$r"
+  grep -q '^Łączny rozmiar:     5 B$' "$r"
+}
+
+@test "#208: odrzucenie tworzy tylko powód — bez potwierdzenia" {
+  echo tajne >"$BATS_TEST_TMPDIR/cel"
+  ln -s "$BATS_TEST_TMPDIR/cel" "$WLB_SLUZA_OUT/link"
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ -z "$(receipt_file)" ]
+  compgen -G "$WLB_SLUZA_REJECTED/*_link.powod.*" >/dev/null
+}
+
+@test "#208: blad zapisu potwierdzenia nie przerywa przyjecia" {
+  chmod 0500 "$WLB_SLUZA_RECEIPTS" # mktemp nie zapisze
+  echo wynik >"$WLB_SLUZA_OUT/wynik.csv"
+  run "$MOVER" --once
+  chmod 0700 "$WLB_SLUZA_RECEIPTS"
+  [ "$status" -eq 0 ]
+  compgen -G "$WLB_EXPORT_QUEUE/*_wynik.csv" >/dev/null # wniosek przyjety mimo braku katalogu do zapisu
+  [ -z "$(receipt_file)" ]
+}
+
+@test "#208: potwierdzenie nie duplikuje sie i nie zostawia plikow tymczasowych" {
+  echo wynik >"$WLB_SLUZA_OUT/wynik.csv"
+  "$MOVER" --once
+  "$MOVER" --once # second pass — nothing new to queue
+  [ "$(receipt_file | wc -l)" -eq 1 ]
+  [ -z "$(find "$WLB_SLUZA_RECEIPTS" -maxdepth 1 -name '.*potwierdzenie.*')" ] # brak osieroconych tmp
+}
+
+@test "#208: nazwa wpisu z niedozwolonymi znakami jest zakodowana w potwierdzeniu" {
+  printf x >"$WLB_SLUZA_OUT/zły name!.csv"
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  r=$(receipt_file); [ -n "$r" ]
+  # "ł" to dwa bajty UTF-8 — tr podmienia każdy z osobna (sanitacja bajtowa, jak reject_notice)
+  [[ $(basename "$r") =~ ^[0-9]{8}T[0-9]{6}Z_z__y_name_\.csv\.potwierdzenie\.[A-Za-z0-9]{6}$ ]]
+  grep -q '^Element:            z__y_name_\.csv$' "$r"
 }
