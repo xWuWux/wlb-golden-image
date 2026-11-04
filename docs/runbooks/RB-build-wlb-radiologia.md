@@ -29,7 +29,7 @@ packer build -only='wlb-radiologia.*' \
 ```
 Wynik: `output/wlb-radiologia-0.1.0-<DATA>/wlb-radiologia-0.1.0-<DATA>.qcow2` + checksum + manifest.
 
-Rozmiar sprawdź od razu: `qemu-img info output/wlb-radiologia-*/*.qcow2`.
+Rozmiar raportuje automatycznie `ci/image-size-report.sh` (etap 5 CI: rozmiar wirtualny i faktyczny, w podsumowaniu joba). Lokalnie: `ci/image-size-report.sh output/wlb-radiologia-*/*.qcow2`. Opcjonalny próg: `WLB_IMAGE_SIZE_MAX_GIB=<N>` (przekroczenie rozmiaru pliku = błąd).
 
 ## 4. Weryfikacja
 
