@@ -22,6 +22,9 @@ setup() {
   export WLB_SMOKE_PYTHON="$STUBS/python"
   export WLB_SMOKE_X11_LOCK_DIR="$BATS_TEST_TMPDIR/x11-lock"
   export WLB_SMOKE_X11_SOCKET_DIR="$BATS_TEST_TMPDIR/x11-socket"
+  # Pulpit jest zaślepiony (żaden realny XFCE nie startuje), a job CI biegnie jako root → pomijamy
+  # guard „nie uruchamiaj jako root". Override wyłącznie testowy; produkcyjne uruchomienia go nie ustawiają.
+  export WLB_SMOKE_ALLOW_ROOT=1
   unset SMOKE_SCREEN_COLORS SMOKE_WINDOW_COLORS SMOKE_FG_PIXELS SMOKE_BG_FRACTION SMOKE_SHA_CONSTANT
   install_smoke_stubs
 }

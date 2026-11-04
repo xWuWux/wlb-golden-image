@@ -369,7 +369,10 @@ trap 'on_signal HUP 129' HUP
 
 # --- Walidacja parametrów i zależności ------------------------------------------------------
 [[ -z $ARG_ERROR ]] || fail invalid_arguments "$ARG_ERROR" 1
-[[ $(id -u) -ne 0 ]] || fail not_researcher "uruchom jako badacz, nie root (XFCE pod rootem jest niewspierany)" 1
+# Realny XFCE pod rootem nie jest wspierany — stąd ten guard dla prawdziwych uruchomień. W testach
+# jednostkowych pulpit jest w pełni zaślepiony (żaden XFCE nie startuje), a job CI biegnie w kontenerze
+# jako root; WLB_SMOKE_ALLOW_ROOT=1 to jawny override WYŁĄCZNIE dla tych testów (domyślnie wyłączony).
+[[ $(id -u) -ne 0 || ${WLB_SMOKE_ALLOW_ROOT:-0} == 1 ]] || fail not_researcher "uruchom jako badacz, nie root (XFCE pod rootem jest niewspierany)" 1
 
 if [[ -n $DISPLAY_NUM ]]; then
   if [[ ! $DISPLAY_NUM =~ ^:[0-9]{1,3}$ ]]; then
