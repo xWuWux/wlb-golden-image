@@ -21,7 +21,9 @@ pierwszym Laboratorium na klastrze).
   `42-pulpit-wartosci.sh` porównuje wartości efektywne (xfconf-query, xrdb/xfsettingsd,
   fc-match, xdpyinfo, setxkbmap, locale) i rozwiązywalność `Icon=` launcherów; testy
   negatywne dla zmienionej/brakującej wartości i martwej ikony. Kopiowanie ikony FSLeyes
-  bez cichego fallbacku (brak pliku = błąd budowy).
+  bez cichego fallbacku (brak pliku = błąd budowy). Kontrakt ma wersję
+  (`desktop_contract_version`). Uwaga: `LANG=C.UTF-8` w `/etc/default/locale` jest zmianą
+  systemową (formaty, sortowanie, komunikaty), nie tylko pulpitu.
 
 - **Pulpit (#106/#135):** poprawna składnia konfiguracji TigerVNC na Ubuntu 24.04;
   test rzeczywistego uruchomienia i parametrów blokujących schowek w izolowanym kontenerze.

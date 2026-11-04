@@ -9,7 +9,7 @@
     out: "{{ playbook_dir }}/../build/rendered"
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   tasks:
-    - name: Katalog wynikow
+    - name: Katalog wyników
       ansible.builtin.file:
         path: "{{ out }}"
         state: directory
@@ -70,5 +70,7 @@
             assert any(l.startswith("xfconf|xsettings|/Net/ThemeName|string|") for l in lines)
             assert any(l.startswith("xfconf|xfce4-panel|/panels/panel-1/position|string|") for l in lines)
             assert any(l.startswith("locale|LANG|") for l in lines)
+            assert any(l.startswith("contract|version|") for l in lines)
+            assert any(l.startswith("xfconf|xfwm4|/general/theme|string|") for l in lines)
           - "{{ out }}/desktop-contract"
       changed_when: false

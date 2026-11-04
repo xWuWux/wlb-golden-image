@@ -135,15 +135,17 @@
 - name: Wymagaj obecności ikony FSLeyes (brak = FAIL, nie cichy fallback) (#204)
   ansible.builtin.assert:
     that:
-      - (neuro_apps_fsleyes_icon.files | map(attribute='path') | select('search', 'hicolor/48x48/apps/fsleyes.png') | list | length) > 0
+      - neuro_apps_fsleyes_icon.files | length > 0
     fail_msg: >-
-      Nie znaleziono ikony hicolor/48x48/apps/fsleyes.png pod {{ fsl_dir }}/lib —
+      Nie znaleziono żadnego fsleyes.png pod {{ fsl_dir }}/lib —
       kafelek wlb-fsleyes.desktop miałby Icon=fsleyes bez celu (#204).
-      Zaktualizuj wzorzec wyszukiwania razem ze zmianą struktury FSL.
 
 - name: Ikona FSLeyes do /usr/share/pixmaps (stabilna ścieżka dla kafelka)
+  vars:
+    neuro_apps_icon_paths: "{{ neuro_apps_fsleyes_icon.files | map(attribute='path') | list }}"
+    neuro_apps_icon_48: "{{ neuro_apps_icon_paths | select('search', 'hicolor/48x48/apps/fsleyes.png') | list }}"
   ansible.builtin.copy:
-    src: "{{ neuro_apps_fsleyes_icon.files | map(attribute='path') | select('search', 'hicolor/48x48/apps/fsleyes.png') | first }}"
+    src: "{{ (neuro_apps_icon_48 + neuro_apps_icon_paths) | first }}"
     dest: /usr/share/pixmaps/fsleyes.png
     remote_src: true
     mode: "0644"

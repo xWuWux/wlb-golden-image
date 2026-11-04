@@ -54,7 +54,7 @@
     name: adwaita-icon-theme
     state: present
 
-# xfce4-panel dostarcza /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml jako plik
+# xfce4-settings dostarcza /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml jako plik
 # konfiguracyjny pakietu; bez dywersji nasza kopia kontraktowa byłaby nadpisywana przy
 # aktualizacji pakietu (albo wpadłaby w prompt conffile — nieinteraktywnie: cicha podmiana).
 - name: Sprawdz istnienie dywersji systemowego xsettings.xml (#204)

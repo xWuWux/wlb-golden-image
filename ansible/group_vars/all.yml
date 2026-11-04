@@ -123,8 +123,32 @@ desktop_xfconf:
     Net:
       ThemeName: {type: string, value: Adwaita}
       IconThemeName: {type: string, value: Adwaita}
+      # Pozostałe klucze: domyślne z pakietowego xsettings.xml (xfce4-settings) — plik jest
+      # odsunięty dpkg-divert, więc przenosimy je tu, by dywersja niczego nie gubiła.
+      DoubleClickTime: {type: int, value: 400}
+      DoubleClickDistance: {type: int, value: 5}
+      DndDragThreshold: {type: int, value: 8}
+      CursorBlink: {type: bool, value: "true"}
+      CursorBlinkTime: {type: int, value: 1200}
+      SoundThemeName: {type: string, value: default}
+      EnableEventSounds: {type: bool, value: "false"}
+      EnableInputFeedbackSounds: {type: bool, value: "false"}
     Gtk:
       CursorThemeName: {type: string, value: Adwaita}
+      CanChangeAccels: {type: bool, value: "false"}
+      ColorPalette: {type: string, value: "black:white:gray50:red:purple:blue:light blue:green:yellow:orange:lavender:\
+        brown:goldenrod4:dodger blue:pink:light green:gray10:gray30:gray75:gray90"}
+      IconSizes: {type: string, value: ""}
+      KeyThemeName: {type: string, value: ""}
+      ToolbarStyle: {type: string, value: icons}
+      ToolbarIconSize: {type: int, value: 3}
+      MenuImages: {type: bool, value: "true"}
+      ButtonImages: {type: bool, value: "true"}
+      MenuBarAccel: {type: string, value: F10}
+      CursorThemeSize: {type: int, value: 0}
+      DecorationLayout: {type: string, value: "menu:minimize,maximize,close"}
+      DialogsUseHeader: {type: bool, value: "false"}
+      TitlebarMiddleClick: {type: string, value: lower}
       FontName: {type: string, value: "Sans 10"}
       MonospaceFontName: {type: string, value: "Monospace 10"}
     Xft:
@@ -133,6 +157,8 @@ desktop_xfconf:
       Hinting: {type: int, value: -1}
       HintStyle: {type: string, value: hintnone}
       RGBA: {type: string, value: none}
+    Gdk:
+      WindowScalingFactor: {type: int, value: 1}
   xfwm4:
     general:
       workspace_count: {type: int, value: 4}
@@ -186,7 +212,10 @@ desktop_xfconf:
           workspace3: *wlb_desktop_workspace
 
 # Pozostałe wartości kontraktu wizualnego (poza kanałami xfconf).
-desktop_contract_locale: C.UTF-8            # LANG w /etc/default/locale (domyślny Ubuntu, bez ryzyka dla istniejących profili)
+# Wersja kontraktu: podbij przy każdej zmianie zestawu/znaczenia wartości (emitowana do
+# /etc/wlb/desktop-contract jako contract|version|N; test i CI sprawdzają jej obecność).
+desktop_contract_version: 1
+desktop_contract_locale: C.UTF-8            # LANG w /etc/default/locale — zmiana SYSTEMOWA (nie tylko pulpitu): formaty/sortowanie/komunikaty C.UTF-8
 desktop_contract_keyboard: {rules: evdev, model: pc105, layout: us} # efektywny default Xvnc; XFCE nie wymusza Xkb (#204 zachowawczo)
 desktop_contract_geometry: 1024x768         # geometria sesji = default Xtigervnc (proxy nie nadpisuje); test sprawdzaja na swiezym X
 desktop_contract_fonts: {sans: "DejaVu Sans", mono: "DejaVu Sans Mono"} # oczekiwany wynik fc-match dla aliasów Sans/Monospace

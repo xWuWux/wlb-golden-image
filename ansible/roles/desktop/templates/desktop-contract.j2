@@ -22,7 +22,7 @@
 {%- endmacro -%}
 {%- for channel, data in desktop_xfconf.items() -%}{{ emit(data, '', channel) }}
 {%- endfor -%}
-{{ "locale|LANG|%s\nkeyboard|rules|%s\nkeyboard|model|%s\nkeyboard|layout|%s\ngeometry|screen|%s\nfont|sans|%s\nfont|mono|%s" | format(
-       desktop_contract_locale, desktop_contract_keyboard.rules, desktop_contract_keyboard.model,
+{{ "contract|version|%s\nlocale|LANG|%s\nkeyboard|rules|%s\nkeyboard|model|%s\nkeyboard|layout|%s\ngeometry|screen|%s\nfont|sans|%s\nfont|mono|%s" | format(
+       desktop_contract_version, desktop_contract_locale, desktop_contract_keyboard.rules, desktop_contract_keyboard.model,
        desktop_contract_keyboard.layout, desktop_contract_geometry,
        desktop_contract_fonts.sans, desktop_contract_fonts.mono) }}{{ "\n" }}
