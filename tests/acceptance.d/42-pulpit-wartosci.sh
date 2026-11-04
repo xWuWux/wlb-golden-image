@@ -13,7 +13,7 @@ if /opt/tljh/user/bin/python -c "import jupyter_remote_desktop_proxy" 2>/dev/nul
     # w204_q HOME KANAŁ SCIEŻKA — wartość efektywna przez xfconf-query na izolowanym dbus,
     # tablice znormalizowane do "v1 v2 ..." (nagłówek "Value is an array..." odrzucany).
     w204_q() {
-      HOME=$1 dbus-run-session -- xfconf-query -c "$2" -p "$3" 2>/dev/null |
+      LC_ALL=C HOME=$1 dbus-run-session -- xfconf-query -c "$2" -p "$3" 2>/dev/null |
         grep -vE '^Value is an array|^$' | tr '\n' ' ' | sed -e 's/ $//'
     }
 
@@ -114,7 +114,10 @@ if /opt/tljh/user/bin/python -c "import jupyter_remote_desktop_proxy" 2>/dev/nul
     w204_icon_ok() {
       local name=$1 theme=$2 d
       case $name in
-        /*) [ -f "$name" ] ;;
+        /*)
+          [ -f "$name" ]
+          return
+          ;;
       esac
       for d in /usr/share/icons/"$theme" /usr/share/icons/hicolor; do
         if find "$d" -maxdepth 5 \( -name "$name.png" -o -name "$name.svg" -o -name "$name.xpm" \) 2>/dev/null | grep -q .; then
@@ -148,15 +151,16 @@ if /opt/tljh/user/bin/python -c "import jupyter_remote_desktop_proxy" 2>/dev/nul
       "$W204_BAD/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
     expect_fail "Zmieniona wartość motywu NIE przechodzi kontraktu (test negatywny, #204)" \
       w204_scope_ok "$W204_BAD"
-    # b) wartość usunięta: skasowanie wpisu /Xft/DPI w pliku profilu (typ "empty" kasuje wartość).
-    W204_MISS=$W204_TMP/braki
-    mkdir -p "$W204_MISS/.config/xfce4/xfconf/xfce-perchannel-xml"
-    printf '%s\n' '<!DOCTYPE properties SYSTEM "xfdo-settings-1.0.dtd">' \
+    # b) nadpisana wartość liczbowa (DPI=120 w profilu) — kontrakt musi to wykryć.
+    #    (Plik użytkownika z type="empty" NIE kasuje wartości systemowej — xfconf spada do /etc/xdg.)
+    W204_DPI=$W204_TMP/dpi
+    mkdir -p "$W204_DPI/.config/xfce4/xfconf/xfce-perchannel-xml"
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
       '<channel name="xsettings" version="1.0">' \
-      '  <property name="Xft" type="empty"><property name="DPI" type="empty"/></property>' \
-      '</channel>' >"$W204_MISS/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
-    expect_fail "Usunięta wartość /Xft/DPI nie jest raportowana jako zgodna (test negatywny, #204)" \
-      bash -c "test \"\$( w204_q '$W204_MISS' xsettings /Xft/DPI )\" = \"\$( awk -F'|' '\$3==\"/Xft/DPI\" {print \$5}' '$CONTRACT' )\""
+      '  <property name="Xft" type="empty"><property name="DPI" type="int" value="120"/></property>' \
+      '</channel>' >"$W204_DPI/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml"
+    expect_fail "Nadpisane /Xft/DPI=120 NIE przechodzi kontraktu (test negatywny, #204)" \
+      w204_scope_ok "$W204_DPI"
     # c) ikon nie ma — resolver musi powiedziec NIE (gwarancja, że "brak ikony = FAIL" nie jest puste).
     expect_fail "Nierozwiązywalna nazwa ikony jest odrzucana (test negatywny, #204)" \
       w204_icon_ok "wlb-ikona-nieistniejaca-xyz" "$W204_ICONS"

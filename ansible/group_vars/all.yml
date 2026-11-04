@@ -116,7 +116,7 @@ desktop_proxy_spec: jupyter-remote-desktop-proxy
 # elementary-xfce-dark) wskazują pakiety NIEzainstalowane w tym obrazie — faktycznie i
 # deterministycznie dostępne jest tylko Adwaita (GTK3 wbudowany w libgtk-3 + adwaita-icon-theme).
 # Fonty: stockowe aliasy fontconfig Sans/Monospace, które resolving dają DejaVu (pinned na obrazie).
-# DPI 96 (Xfconf trzyma /Xft/DPI jako DPI*1024), geometria/klawiatura/locale = wartości efektywne
+# DPI 96 (xfsettingsd sam mnoży /Xft/DPI przez 1024 dla XSETTINGS — w xfconf zwykłe 96, NIE 98304), geometria/klawiatura/locale = wartości efektywne
 # dzisiejszego obrazu, przypięte, aby ich cicha zmiana była wykrywana przez test (#204).
 desktop_xfconf:
   xsettings:
@@ -128,7 +128,7 @@ desktop_xfconf:
       FontName: {type: string, value: "Sans 10"}
       MonospaceFontName: {type: string, value: "Monospace 10"}
     Xft:
-      DPI: {type: int, value: 98304} # 96 DPI × 1024 — konwencja xfsettingsd
+      DPI: {type: int, value: 96} # zwykłe DPI; xfsettingsd: CLAMP(50..500)*1024 (98304 dałoby 500 DPI)
       Antialias: {type: int, value: -1} # -1 = decyzja fontconfiga (stock XFCE)
       Hinting: {type: int, value: -1}
       HintStyle: {type: string, value: hintnone}
@@ -136,6 +136,7 @@ desktop_xfconf:
   xfwm4:
     general:
       workspace_count: {type: int, value: 4}
+      theme: {type: string, value: Default} # motyw okien; Default dostarcza pakiet xfwm4
   xfce4-panel:
     configver: {type: int, value: 2}
     panels:
@@ -143,7 +144,7 @@ desktop_xfconf:
       etype: int
       values: [1]
       panel-1:
-        position: {type: string, value: "p=6;x=0;y=0"} # dół, pełna szerokość (enum XFCE 6)
+        position: {type: string, value: "p=12;x=0;y=0"} # SNAP_POSITION_S = dół (enum panel-window.c: 6 = NW, 12 = S)
         position-locked: {type: bool, value: "true"}
         size: {type: uint, value: 28}
         length: {type: uint, value: 100}
@@ -175,10 +176,10 @@ desktop_xfconf:
       screen0:
         monitorVNC-0: # TigerVNC zgłasza jedyny monitor jako VNC-0 (wykryte empirycznie, #204)
           workspace0: &wlb_desktop_workspace
-            color-style: {type: int, value: 1} # 1 = jednolity kolor (bez pliku tapety)
+            color-style: {type: int, value: 0} # 0 = XFCE_BACKDROP_COLOR_SOLID (1 = gradient poziomy)
             first-color: {type: string, value: "#303030"}
             image-show: {type: bool, value: "false"}
-            image-style: {type: uint, value: 5} # pełny ekran — spójnie ze stockowym defaultem
+            image-style: {type: uint, value: 5} # SCALED; przy image-show=false bez wpływu, wartość stockowa
             last-image: {type: string, value: /usr/share/backgrounds/xfce/xfce-shapes.svg}
           workspace1: *wlb_desktop_workspace
           workspace2: *wlb_desktop_workspace

@@ -74,6 +74,19 @@
   when: desktop_divert_xsettings.stdout == ""
   changed_when: true
 
+# template nie tworzy katalogów nadrzędnych — jawnie zakładamy drzewa docelowe.
+- name: Katalogi docelowe kontraktu wizualnego (#204)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/wlb
+    - /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
+    - /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
+
 # Systemowe domyślne xfconf (XDG_CONFIG_DIRS) — docierają do wszystkich profili, w tym
 # kont badaczy tworzonych useradd -M bez /etc/skel. Świeży profil = te wartości; pliki
 # użytkownika (nadpiski badacza) mają priorytet — kontrakt NIE jest egzekwowany siłą (#204).
