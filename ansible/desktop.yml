@@ -10,6 +10,11 @@
     - memory_apps
 
   post_tasks:
+    - name: "Egzekwowanie trybu profili po instalacji aplikacji flavora (#65, #105)"
+      ansible.builtin.import_role:
+        name: base
+        tasks_from: apparmor-enforce.yml
+
     # Obraz wlb-general ma w /etc/wlb/image-release nazwę "wlb-general" — nadpisujemy na flavor.
     - name: Zaktualizuj metadane obrazu na flavor wlb-memory
       ansible.builtin.lineinfile:

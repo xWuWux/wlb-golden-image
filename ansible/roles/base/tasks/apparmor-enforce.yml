@@ -1,0 +1,67 @@
+# Profile dystrybucyjne (m.in. transmission z bazowego pakietu `apparmor`) Ubuntu ładowuje w trybie
+# complain, przez co CIS 1.6.3 („żaden profil w complain") pada na profilach aplikacji, których w obrazie
+# nie ma (#65). Naprawa dotyczy wyłącznie profili wskazanych jako complaining — profile `unconfined`
+# (w obrazie ~90, m.in. Discord, brave, 1password) to inny tryb, poza zakresem CIS 1.6.3.
+#
+# Kształt outputu i zachowanie narzędzi sprawdzono na VM z obrazu (Ubuntu 24.04, apparmor 4.0.1):
+#   - `aa-status --json` zwraca `{"profiles": {"<nazwa>": "<tryb>"}, ...}` — tryb jest WARTOŚCIĄ,
+#     nie kluczem (błąd poprzedniej implementacji: szukała kluczy z „complain" i nie znajdowała nic);
+#   - `aa-enforce <nazwa profilu>` NIE działa: aa-enforce szuka ścieżki binarki (`/usr/bin/x`), dla
+#     nieobecnej wypisuje ostrzeżenie i **kończy się rc=0, nic nie zmieniając**;
+#   - `aa-enforce <plik>` działa: usuwa `flags=(complain)` z pliku i przeładowuje profil;
+#   - jeden plik może definiować kilka profili (`/etc/apparmor.d/transmission` → 4 nazwy), więc
+#     nazwę dopasowujemy przez `apparmor_parser -N <plik>`, a nie po nazwie pliku.
+# Guardy: licznik > 0 bez nazw — build pada; licznik niezerowy po przełączeniu — build pada.
+- name: Profile AppArmor z trybu complain przełączone na enforce (#65, CIS 1.6.3)
+  ansible.builtin.shell: |
+    set -eo pipefail
+    before=$(aa-status --complaining)
+    if [[ ! $before =~ ^[0-9]+$ ]]; then
+      echo "BŁĄD (#65): aa-status --complaining zwróciło '${before}' — nie znam liczby profili w complain" >&2
+      exit 1
+    fi
+    if ((before == 0)); then
+      echo "aa-status --complaining=0 — brak profili do przełączenia (CIS 1.6.3, #65)"
+      echo "WLB_SWITCHED=0"
+      exit 0
+    fi
+    profiles=$(aa-status --json | python3 -c 'import json,sys; [print(n) for n,m in json.load(sys.stdin)["profiles"].items() if m=="complain"]')
+    mapfile -t names <<<"$profiles"
+    if [[ -z "${names[*]:-}" ]]; then
+      echo "BŁĄD (#65): $before profili w complain, ale aa-status --json nie zwróciło żadnej nazwy" >&2
+      exit 1
+    fi
+    echo "Profile w trybie complain (before=$before): ${names[*]}"
+    # Tryb może pochodzić z force-complain albo z listy kilku flag.
+    # Przetwarzamy tylko aktywne definicje z głównego katalogu, nigdy kopie pakietowe.
+    switched=0
+    for f in /etc/apparmor.d/*; do
+      [[ -f $f ]] || continue
+      case ${f##*/} in *.dpkg-*|*.ucf-*|*.bak|*.orig|*.rej|*~|README*) continue ;; esac
+      [[ ! -e /etc/apparmor.d/disable/${f##*/} ]] || continue
+      defined=$(apparmor_parser -N "$f" 2>/dev/null) || continue
+      for n in "${names[@]}"; do
+        if grep -qxF -- "$n" <<<"$defined"; then
+          if aa-enforce "$f"; then
+            echo "  aa-enforce $f (m.in. profil $n): OK"
+          else
+            echo "BŁĄD: aa-enforce $f" >&2
+            exit 1
+          fi
+          switched=1
+          break
+        fi
+      done
+    done
+    after=$(aa-status --complaining)
+    echo "aa-status --complaining: before=$before after=$after"
+    if [[ $after != 0 ]]; then
+      echo "BŁĄD (#65): po aa-enforce nadal $after profili w trybie complain: $(aa-status --filter.mode=complain --show=profiles 2>/dev/null | tr '\n' ' ')" >&2
+      exit 1
+    fi
+    echo "WLB_SWITCHED=$switched"
+  args:
+    executable: /bin/bash
+  register: base_complain_enforce
+  # Zmiana tylko gdy coś faktycznie przełączaliśmy (before>0); przy before=0 zadanie jest no-opem.
+  changed_when: "'WLB_SWITCHED=1' in base_complain_enforce.stdout"

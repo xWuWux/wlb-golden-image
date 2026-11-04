@@ -14,13 +14,26 @@ if grep -qx "WLB_IMAGE_NAME=wlb-memory" /etc/wlb/image-release 2>/dev/null; then
   # ładuje rdzeń, filtry arkusza i zapis ODF, a nie tylko sprawdza, że binarka istnieje. Render pod VNC
   # pokrywa osobno desktop render-smoke (#138); start GUI LibreOffice nie ma czystego „otwórz i wyjdź",
   # więc tu zostaje przy funkcjonalnym smoke silnika.
-  # shellcheck disable=SC2016  # $d i $$ celowo rozwijane w wewnętrznym bash -c, nie tu
-  expect_ok "Calc konwertuje CSV->ODS (silnik arkusza, #105)" bash -c '
-    d=$(mktemp -d) || exit 1
-    trap "rm -rf \"$d\"" EXIT
-    printf "a,b\n1,2\n" > "$d/t.csv"
-    HOME="$d" timeout --kill-after=10s 150s libreoffice --headless \
-      -env:UserInstallation=file://"$d/profile" --convert-to ods --outdir "$d" "$d/t.csv" >/dev/null 2>&1
-    test -f "$d/t.ods"
-  '
+  expect_ok "Calc zapisuje dwie komórki w ODS jako badacz (#105)" as "$R1" bash -se <<'CALC_SMOKE'
+d=$(mktemp -d)
+trap 'rm -rf -- "$d"' EXIT
+printf 'WLB-header\nWLB-result\n' >"$d/t.csv"
+HOME="$d" timeout --kill-after=10s 150s /usr/bin/libreoffice --headless \
+  -env:UserInstallation="file://$d/profile" --convert-to ods --outdir "$d" "$d/t.csv"
+python3 - "$d/t.ods" <<'CHECK_ODS'
+import sys
+from xml.etree import ElementTree
+from zipfile import ZipFile
+
+with ZipFile(sys.argv[1]) as document:
+    if document.read("mimetype") != b"application/vnd.oasis.opendocument.spreadsheet":
+        sys.exit("niepoprawny typ dokumentu")
+    root = ElementTree.fromstring(document.read("content.xml"))
+ns = {"t": "urn:oasis:names:tc:opendocument:xmlns:table:1.0",
+      "text": "urn:oasis:names:tc:opendocument:xmlns:text:1.0"}
+cells = root.findall(".//t:table/t:table-row/t:table-cell/text:p", ns)
+if [cell.text for cell in cells] != ["WLB-header", "WLB-result"]:
+    sys.exit("utracone lub zmienione dane arkusza")
+CHECK_ODS
+CALC_SMOKE
 fi
