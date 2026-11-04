@@ -5,6 +5,7 @@ Nie jest to mechanizm CD ani narzędzie do uruchamiania na działającej VM bada
 """
 
 import argparse
+import fcntl
 import os
 import re
 import shutil
@@ -26,21 +27,30 @@ def export_packages(conda: Path, prefix: Path) -> str:
 def migrate(user: Path, envs: Path, version: str) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,79}", version):
         raise ValueError("niepoprawna wersja obrazu")
-    target = envs / ("python-" + version)
+    envs.mkdir(parents=True, exist_ok=True)
+    fd = os.open(envs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        migrate_locked(user, envs / ("python-" + version))
+    finally:
+        os.close(fd)
+
+
+def migrate_locked(user: Path, target: Path) -> None:
+    """Migrate one build prefix while holding the lock on its environment store."""
     backup = user.with_name(user.name + ".wlb-build-backup")
     link = user.with_name(user.name + ".wlb-build-new")
+    if os.path.lexists(backup) or os.path.lexists(link):
+        raise ValueError("pozostałość poprzedniej migracji wymaga sprawdzenia")
+    if target.is_symlink():
+        raise ValueError("docelowy prefiks jest dowiązaniem")
     if user.is_symlink():
         if user.resolve(strict=True) != target.resolve(strict=True):
             raise ValueError("istniejące dowiązanie wskazuje inne środowisko")
-        if backup.exists() or link.exists() or link.is_symlink():
-            raise ValueError("pozostałość poprzedniej migracji wymaga sprawdzenia")
         return
-    if backup.exists() or link.exists() or link.is_symlink():
-        raise ValueError("pozostałość poprzedniej migracji wymaga sprawdzenia")
     if not user.is_dir() or not (user / "bin/conda").is_file():
         raise ValueError("brak źródłowego środowiska conda TLJH")
-    envs.mkdir(parents=True, exist_ok=True)
-    if target.exists() or target.is_symlink():
+    if target.exists():
         raise ValueError("docelowy prefiks już istnieje — nie nadpisuję")
     try:
         subprocess.run(  # noqa: S603  # nosec B603: argv, prefiks z zaufanej budowy
