@@ -17,7 +17,7 @@ setup() {
 @test "raport: wypisuje rozmiar wirtualny i faktyczny w GiB (#135)" {
   run "$REPO_ROOT/ci/image-size-report.sh" "$IMG" wlb-radiologia
   [ "$status" -eq 0 ]
-  [[ $output == *"wirtualny 80.00 GiB, plik 10.00 GiB"* ]]
+  [[ $output == *"wirtualny 80.00 GiB, alokacja 10.00 GiB"* ]]
   [[ $output == *"| 80.00 GiB | 10.00 GiB |"* ]]
 }
 
@@ -42,4 +42,30 @@ setup() {
   [ "$status" -eq 1 ]
   run "$REPO_ROOT/ci/image-size-report.sh"
   [ "$status" -eq 1 ]
+}
+
+@test "brak pomiaru jest błędem również bez progu (#135)" {
+  stub qemu-img 0 '{"virtual-size": 32}'
+  run "$REPO_ROOT/ci/image-size-report.sh" "$IMG"
+  [ "$status" -ne 0 ]
+}
+
+@test "próg jest dziesiętny, dokładny i nie interpretuje wyrażeń Bash (#135)" {
+  WLB_IMAGE_SIZE_MAX_GIB=010 run "$REPO_ROOT/ci/image-size-report.sh" "$IMG"
+  [ "$status" -eq 0 ]
+  WLB_IMAGE_SIZE_MAX_GIB=5+5 run "$REPO_ROOT/ci/image-size-report.sh" "$IMG"
+  [ "$status" -ne 0 ]
+  stub qemu-img 0 '{"virtual-size": 21474836480, "actual-size": 10737418241}'
+  WLB_IMAGE_SIZE_MAX_GIB=10 run "$REPO_ROOT/ci/image-size-report.sh" "$IMG"
+  [ "$status" -ne 0 ]
+}
+
+@test "prawdziwy mały qcow2 daje raport i blokuje zerowy limit (#135)" {
+  rm "$STUBS/qemu-img"
+  command -v qemu-img >/dev/null || skip "wymaga qemu-img"
+  qemu-img create -f qcow2 "$IMG" 64M
+  run "$REPO_ROOT/ci/image-size-report.sh" "$IMG"
+  [ "$status" -eq 0 ]
+  WLB_IMAGE_SIZE_MAX_GIB=0 run "$REPO_ROOT/ci/image-size-report.sh" "$IMG"
+  [ "$status" -ne 0 ]
 }
