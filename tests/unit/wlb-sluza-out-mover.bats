@@ -268,6 +268,7 @@ receipt_file() { find "$WLB_SLUZA_RECEIPTS" -maxdepth 1 -name '*.potwierdzenie.*
 
 @test "#208: blad zapisu potwierdzenia nie przerywa przyjecia" {
   # Atrapa mktemp zawodzi tylko dla katalogu potwierdzeń (chmod nie działa jako root — CI to root).
+  # shellcheck disable=SC2016  # $1 i $WLB_SLUZA_RECEIPTS mają się rozwinąć dopiero w atrapie
   printf '%s\n' '#!/usr/bin/env bash' \
     'case "$1" in "$WLB_SLUZA_RECEIPTS"/*) exit 1 ;; esac' \
     'exec /usr/bin/mktemp "$@"' >"$STUBS/mktemp"
