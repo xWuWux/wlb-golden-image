@@ -1,11 +1,13 @@
 # Warstwa pulpitu flavora wlb-memory (#106). Nakładana na GOTOWY obraz wlb-general, więc
-# uruchamia TYLKO rolę desktop — nie przebudowuje OS/Python/R (warstwowy build Packera).
-# Pełny build bazy pozostaje w site.yml; tam rola desktop jest gated wlb_desktop_enabled.
-- name: WLB wlb-memory — warstwa pulpitu na obrazie wlb-general
+# uruchamia role desktop (pulpit) + memory_apps (aplikacje GUI „pod pamięć", #105) — nie przebudowuje
+# OS/Python/R (warstwowy build Packera). Pełny build bazy pozostaje w site.yml; tam rola desktop jest
+# gated wlb_desktop_enabled.
+- name: WLB wlb-memory — pulpit + aplikacje GUI na obrazie wlb-general
   hosts: all
   become: true
   roles:
     - desktop
+    - memory_apps
 
   post_tasks:
     # Obraz wlb-general ma w /etc/wlb/image-release nazwę "wlb-general" — nadpisujemy na flavor.
