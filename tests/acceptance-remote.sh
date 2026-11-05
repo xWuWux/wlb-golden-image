@@ -344,10 +344,25 @@ else
 fi
 
 echo "== 7. Limity sesji (§9.5) =="
+# Oczekiwany limit sesji zależy od Laboratorium: domyślnie 12 h (43200 s), ale Lab z wydłużeniem
+# (MAX_SESSION_HOURS, #78) ma MAX_SESSION_HOURS*3600. Czytamy efektywną wartość z lab.env, żeby test
+# przechodził na obu konfiguracjach. Idle culling (30 min) jest niezależny od długości sesji.
+wlb_max_h=$(sed -n 's/^MAX_SESSION_HOURS=//p' /etc/wlb/lab.env 2>/dev/null | tail -1)
+if [[ $wlb_max_h =~ ^([1-9]|[1-3][0-9]|4[0-8])$ ]]; then wlb_sess_s=$((wlb_max_h * 3600)); else wlb_sess_s=43200; fi
 expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--timeout=1800"'
-expect_ok "Twardy limit 12 h (culler --max-age)" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--max-age=43200"'
-expect_ok "Wygaśnięcie ciasteczka i tokenów po 12 h" grep -q 'oauth_token_expires_in = 43200' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
-skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
+expect_ok "Twardy limit sesji (culler --max-age=${wlb_sess_s})" \
+  bash -c "pgrep -af jupyterhub_idle_culler | grep -q -- '--max-age=${wlb_sess_s}'"
+# TTL ciasteczka/tokenu: na Labie z wydłużeniem nadpisanie 11-wlb-session.py przebija 10-wlb.py
+# (wyższy numer = ładowane później), więc sprawdzamy je tam, gdzie wartość faktycznie obowiązuje.
+wlb_sess_override=/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py
+if [[ -f $wlb_sess_override ]]; then
+  expect_ok "Wygaśnięcie ciasteczka i tokenów po ${wlb_sess_s} s (nadpisanie 11-wlb-session.py)" \
+    grep -q "oauth_token_expires_in = ${wlb_sess_s}" "$wlb_sess_override"
+else
+  expect_ok "Wygaśnięcie ciasteczka i tokenów po 12 h" \
+    grep -q 'oauth_token_expires_in = 43200' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
+fi
+skip "Faktyczne wylogowanie po limicie sesji — test ręczny (zob. README)"
 
 echo "== 7a. Czas (znaczniki audytu, §21) =="
 expect_ok "chrony używa serwerów z NTP_SERVERS" bash -c 'chronyc -n sources | grep -q "10\.0\.2\.2"'

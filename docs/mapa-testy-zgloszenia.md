@@ -120,6 +120,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Audyt: zmiana MAC/AppArmor (#66)`, `Audyt: zmiana konta/PAM (#66)`, *8. Logi i audyt*
 
+### #78 — Długie obliczenia (> 12 h) odpięte od limitu sesji §9.5  ·  _otwarte_
+- `tests/acceptance-remote.sh` — *7. Limity sesji (§9.5)*
+- `tests/unit/wlb-firstboot.bats` — `limit sesji: --force po usunięciu MAX_SESSION_HOURS cofa wydłużenie do domyślnego (#78)`, `limit sesji: MAX_SESSION_HOURS niepoprawne (zakres, zera wiodące, nieliczba) -> blad firstboot (#78)`, `limit sesji: MAX_SESSION_HOURS=48 -> cull.max_age + TTL ciasteczka/tokenu spojnie (#78)`, `limit sesji: domyslnie (bez MAX_SESSION_HOURS) brak override i ZADNEGO set cull.max_age (#78)`
+
 ### #84 — CI: zmiany dokumentacji w obrazie nie powinny wyzwalać etapu 5 (allowlista changes.sh)  ·  _otwarte_
 - `tests/unit/changes.bats` — `push tylko z CHANGELOG.md: etap 5 pominięty (#84)`
 
