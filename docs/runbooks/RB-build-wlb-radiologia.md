@@ -29,7 +29,8 @@ packer build -only='wlb-radiologia.*' \
 ```
 Wynik: `output/wlb-radiologia-0.1.0-<DATA>/wlb-radiologia-0.1.0-<DATA>.qcow2` + checksum + manifest.
 
-Rozmiar sprawdź od razu: `qemu-img info output/wlb-radiologia-*/*.qcow2`.
+Po udanej budowie radiologii etap 5 raportuje pojemność wirtualną oraz alokację qcow2 na hoście, mierzoną przez `qemu-img info`. Lokalnie podaj jeden konkretny plik, np. `ci/image-size-report.sh output/wlb-radiologia-0.1.0-20261030/wlb-radiologia-0.1.0-20261030.qcow2`. Opcjonalna etykieta przyjmuje litery ASCII, cyfry i znaki `._+-`. Domyślna etykieta to nazwa pliku.
+`WLB_IMAGE_SIZE_MAX_GIB` jest opcjonalnym ciągiem cyfr dziesiętnych (GiB, 1 GiB = 2³⁰ B). Pusta wartość wyłącza limit. Zero jest limitem 0 B. Równość przechodzi, przekroczenie choćby o bajt lub brak pomiaru kończy krok przed akceptacją. Alokacja zależy od systemu plików hosta. Budżet miejsca na budowanie, transfer i wolumen badacza wymaga odrębnych pomiarów.
 
 ## 4. Weryfikacja
 
