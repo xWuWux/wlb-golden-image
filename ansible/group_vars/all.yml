@@ -28,6 +28,8 @@ wlb_directories:
   - { path: /sluza-in, owner: root, group: jupyterhub-users, mode: "0750" }          # tylko odczyt
   - { path: /sluza-out, owner: root, group: jupyterhub-users, mode: "1730" }         # tylko zapis, bez listowania
   - { path: /sluza-odrzucone, owner: root, group: jupyterhub-users, mode: "0750" }   # zwrotne powody odrzuceń eksportu (#162/IMG-008); badacz czyta
+  # potwierdzenia przyjęcia do kolejki (#208); treść pliku 0640 tylko dla właściciela
+  - { path: /sluza-potwierdzenia, owner: root, group: jupyterhub-users, mode: "0750" }
   - { path: /data-mart, owner: root, group: jupyterhub-users, mode: "0750" }         # tylko odczyt
   - { path: /docs, owner: root, group: root, mode: "0755" }                          # tylko odczyt
   # wspólny katalog projektu (§10, #50): setgid + grupa zespołu; domyślny ACL g::rwX ustawia wlb-firstboot.

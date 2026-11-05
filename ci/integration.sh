@@ -345,6 +345,7 @@ radiologia_flavor() {
     echo "build flavora wlb-radiologia nieudany (packer-radiologia.log w artefaktach etapu 5)"
     return 1
   fi
+  ci/image-size-report.sh "$rad_img" "$rad_full" || return 1
   echo "== Akceptacja wlb-radiologia =="
   acceptance "$rad_img" acceptance-radiologia
 }

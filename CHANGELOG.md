@@ -25,6 +25,15 @@ pierwszym Laboratorium na klastrze).
   (`desktop_contract_version`). Uwaga: `LANG=C.UTF-8` w `/etc/default/locale` jest zmianą
   systemową (formaty, sortowanie, komunikaty), nie tylko pulpitu.
 
+- **Śluza wyjściowa (#208):** pozytywne potwierdzenie przyjęcia do kolejki — po udanym
+  przyjęciu badacz znajdzie w `/sluza-potwierdzenia` (0750, jak `/sluza-odrzucone`) plik
+  `*.potwierdzenie.*` z metadanymi: liczba plików, łączny rozmiar, `sha256-inventory` i
+  identyfikator wniosku; treść (0640, właściciel UID) tylko dla właściciela. Potwierdzenie
+  = przyjęcie do kolejki, NIE zgoda na eksport (#20); błąd zapisu potwierdzenia nigdy nie
+  przerywa przyjęcia. Prywatność jak `/sluza-odrzucone`: nazwa pliku widoczna dla grupy przez
+  listowanie katalogu, treść wyłącznie dla właściciela. Testy bats + akceptacja VM;
+  [runbook](docs/runbooks/RB-eksport-kolejka.md).
+
 - **Pulpit (#106/#135):** poprawna składnia konfiguracji TigerVNC na Ubuntu 24.04;
   test rzeczywistego uruchomienia i parametrów blokujących schowek w izolowanym kontenerze.
 
@@ -98,6 +107,10 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
 - Hooki cyklu życia sesji badacza + korelacja sesji w SIEM (#97/#114).
 
 ### Bezpieczeństwo i zgodność
+- Opcjonalny wydłużony limit sesji per-Laboratorium: `MAX_SESSION_HOURS` (1–48) w `lab.env` — `wlb-firstboot`
+  spójnie ustawia `cull.max_age` oraz TTL ciasteczka/tokenu (`11-wlb-session.py`). Domyślnie 12 h; >12 h to
+  świadome odstępstwo §9.5 (dłuższe okno re-auth). Nie czyni obliczenia odpornym na awarię — checkpoint
+  dalej konieczny. Runbook podmiany na działającej VM: `docs/runbooks/RB-sesja-48h.md` (#78).
 - Konta stanowiskowe `u01`…`uNN` i Administrator Klienta `a01` tworzone przez `wlb-firstboot`
   (`RESEARCHER_ACCOUNTS`), samodzielna rejestracja wyłączona (IMG-002 Faza 1, #102/#185).
   Loginy `u01`–`u99` zarezerwowane dla badaczy; hasło początkowe przez plik `.pending`, więc
