@@ -14,6 +14,17 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Kontrakt wizualny pulpitu (#204):** wartości wyglądu XFCE (motyw/ikony/kursor/fonty/DPI/
+  panel/tapeta/locale/klawiatura/geometria) z jednego źródła w `ansible/group_vars/all.yml`;
+  wdrożenie jako systemowe domyślne xfconf (`/etc/xdg/xfce4/...`, bo konta badacza powstają
+  `useradd -M`) + `/etc/skel` + plik `/etc/wlb/desktop-contract` dla testów. Akceptacja
+  `42-pulpit-wartosci.sh` porównuje wartości efektywne (xfconf-query, xrdb/xfsettingsd,
+  fc-match, xdpyinfo, setxkbmap, locale) i rozwiązywalność `Icon=` launcherów; testy
+  negatywne dla zmienionej/brakującej wartości i martwej ikony. Kopiowanie ikony FSLeyes
+  bez cichego fallbacku (brak pliku = błąd budowy). Kontrakt ma wersję
+  (`desktop_contract_version`). Uwaga: `LANG=C.UTF-8` w `/etc/default/locale` jest zmianą
+  systemową (formaty, sortowanie, komunikaty), nie tylko pulpitu.
+
 - **Śluza wyjściowa (#208):** pozytywne potwierdzenie przyjęcia do kolejki — po udanym
   przyjęciu badacz znajdzie w `/sluza-potwierdzenia` (0750, jak `/sluza-odrzucone`) plik
   `*.potwierdzenie.*` z metadanymi: liczba plików, łączny rozmiar, `sha256-inventory` i
