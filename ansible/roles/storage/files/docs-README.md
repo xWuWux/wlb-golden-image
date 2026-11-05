@@ -7,6 +7,7 @@
 | `/data-mart` | kohorta OMOP przypisana do Laboratorium            | tylko czytać            |
 | `/sluza-out` | wyniki do eksportu                                 | tylko zapisywać         |
 | `/sluza-odrzucone` | powody odrzuconych wniosków eksportu         | tylko czytać            |
+| `/sluza-potwierdzenia` | potwierdzenia przyjęcia wniosków do kolejki | tylko czytać            |
 | `/docs`      | dokumentacja platformy i skrypty pomocnicze        | tylko czytać            |
 
 **Eksport wyników — przygotuj najpierw, skopiuj na końcu:**
@@ -41,6 +42,11 @@ status dla badacza, zgoda Lidera i publikacja pozostają do wdrożenia (#20).
 - **Gdy wniosek zostanie odrzucony**, element znika ze `/sluza-out`, a **powód pojawia się w katalogu
   `/sluza-odrzucone`** (plik `*.powod.*` z wyjaśnieniem). Jeśli plik zniknął, a nie dotarł do operatora —
   zajrzyj tam najpierw.
+- **Gdy wniosek zostanie przyjęty do kolejki**, w katalogu `/sluza-potwierdzenia` pojawia się plik
+  `*.potwierdzenie.*` z metadanymi: **liczba plików, łączny rozmiar i sha256-inventory** spisu z wniosku
+  plus jego identyfikator. **Porównaj liczby z tym, co zamierzałeś wysłać** — to potwierdza, że wniosek
+  trafił do kolejki w komplecie. Potwierdzenie dotyczy wyłącznie przyjęcia do kolejki, **nie zgody na
+  eksport**; jego treść jest czytelna tylko dla Ciebie.
 - **Jeśli eksport przestał działać** (nowe pliki nie znikają ze śluzy), wniosek mógł utknąć w kwarantannie
   operatora i wstrzymać kolejkę — **zgłoś to HelpDeskowi**; operator odblokuje.
 

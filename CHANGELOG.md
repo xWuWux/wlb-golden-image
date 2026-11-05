@@ -14,6 +14,15 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Śluza wyjściowa (#208):** pozytywne potwierdzenie przyjęcia do kolejki — po udanym
+  przyjęciu badacz znajdzie w `/sluza-potwierdzenia` (0750, jak `/sluza-odrzucone`) plik
+  `*.potwierdzenie.*` z metadanymi: liczba plików, łączny rozmiar, `sha256-inventory` i
+  identyfikator wniosku; treść (0640, właściciel UID) tylko dla właściciela. Potwierdzenie
+  = przyjęcie do kolejki, NIE zgoda na eksport (#20); błąd zapisu potwierdzenia nigdy nie
+  przerywa przyjęcia. Prywatność jak `/sluza-odrzucone`: nazwa pliku widoczna dla grupy przez
+  listowanie katalogu, treść wyłącznie dla właściciela. Testy bats + akceptacja VM;
+  [runbook](docs/runbooks/RB-eksport-kolejka.md).
+
 - **Pulpit (#106/#135):** poprawna składnia konfiguracji TigerVNC na Ubuntu 24.04;
   test rzeczywistego uruchomienia i parametrów blokujących schowek w izolowanym kontenerze.
 
