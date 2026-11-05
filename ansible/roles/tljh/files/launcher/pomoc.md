@@ -51,7 +51,26 @@ i wznawianie**:
 - **Nie licz w jednej komórce przez wiele godzin bez zapisu** — po 12 h stracisz całość.
 
 Jeśli Twoje obliczenia regularnie przekraczają 12 h i trudno je checkpointować, **zgłoś to HelpDeskowi** —
-planowany jest tryb uruchamiania długich zadań odpięty od limitu sesji.
+Twoje Laboratorium może dostać wydłużony limit sesji (patrz niżej).
+
+## Wydłużona sesja (48 h na wniosek)
+
+Domyślnie sesja trwa 12 godzin. Jeśli prowadzisz długie obliczenie, które się w tym nie mieści, możesz
+**wnioskować o wydłużenie limitu do maksymalnie 48 godzin**. Wydłużenie ustawiane jest dla całego
+Laboratorium (całej VM) i usuwa 12-godzinny limit jako przyczynę przerwania liczenia. Twoje zasoby
+(RAM, CPU) się przy tym nie zmieniają.
+
+> **WAŻNE: 48 godzin to NIE jest gwarancja, że nic nie przepadnie.** Wydłużony limit chroni tylko przed
+> automatycznym zamknięciem sesji — **nie** czyni obliczenia odpornym na awarię. Stan w pamięci (jądro,
+> zmienne, wynik w trakcie) **ginie bezpowrotnie** przy restarcie/reboocie VM, aktualizacji (wymianie)
+> obrazu oraz awarii hosta. Reboot w 30. godzinie 48-godzinnego liczenia zabierze cały niezapisany
+> postęp; pliki w `/workspace` zostają. Dlatego **regularny checkpoint do `/workspace` jest nadal
+> konieczny**, niezależnie od długości sesji. Obliczenie trwające ponad 48 h i tak zostanie ucięte.
+
+**Uwaga:** po wygaśnięciu sesji **zaloguj się ponownie**, a nie klikaj „Wyloguj" — wylogowanie
+zatrzymuje serwer notebooków (`shutdown_on_logout=True`) i może przerwać niezapisane obliczenie.
+
+**Jak wnioskować:** zgłoś się do **HelpDesku** lub do **Administratora Klienta** swojego Laboratorium.
 
 ## Eksport wyników — limity i odrzucenia
 
@@ -69,6 +88,14 @@ Obowiązują ograniczenia operacyjne (decyzje IMG-008, §14.7/§24 Regulaminu):
   odrzuca **cały** wniosek.
 - **Powód odrzucenia** znajdziesz w katalogu **`/sluza-odrzucone`** (plik z wyjaśnieniem). Jeśli plik
   zniknął ze śluzy, a nie dotarł do operatora — zajrzyj tam najpierw.
+- **Potwierdzenie przyjęcia do kolejki** znajdziesz w katalogu **`/sluza-potwierdzenia`**
+  (plik `*.potwierdzenie.*`): **liczbę plików, łączny rozmiar i sha256-inventory** spisu z wniosku
+  plus jego identyfikator. **Porównaj liczby z tym, co zamierzałeś wysłać** — to dowód, że wniosek
+  trafił do kolejki w komplecie. Potwierdzenie dotyczy wyłącznie przyjęcia do kolejki, **nie zgody
+  na eksport**; jego treść jest czytelna tylko dla Ciebie.
+- **Szybka kontrola** bez czekania na potwierdzenie: `ls -l /sluza-out/<dokładna-nazwa>` — plik
+  **wciąż jest** → śluza go jeszcze nie podjęła (poczekaj); **zniknął** i nic nie ma w
+  `/sluza-odrzucone` → przyjęty (potwierdzenie pojawi się za chwilę); **powód** w `/sluza-odrzucone` → odrzucony.
 - **Jeśli eksport w ogóle przestał działać** (nowe pliki nie znikają ze śluzy), wniosek mógł utknąć
   i wstrzymać kolejkę — **zgłoś HelpDeskowi**; operator odblokuje.
 
