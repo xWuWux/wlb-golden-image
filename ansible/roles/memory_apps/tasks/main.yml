@@ -1,7 +1,8 @@
 # Aplikacje GUI flavora wlb-memory (#105). Nakładane na warstwę pulpitu (rola desktop) — analogicznie
 # do roli neuro_apps na flavorze wlb-radiologia. Pierwsza aplikacja: LibreOffice Calc (arkusz, zamiennik
-# GraphPad Prism — warstwa arkuszowa). Kolejne pozycje #105 (jamovi #90, LabPlot/SciDAVis, kafelek Leaf)
-# dojdą do TEJ roli osobnymi PR-ami. Build warstwowy Packera (desktop.yml): role desktop + memory_apps
+# GraphPad Prism — warstwa arkuszowa), RKWard (statystyka z GUI, frontend R, #108). Kolejne pozycje #105
+# (LabPlot/SciDAVis #109, kafelek Leaf) dojdą osobnymi PR-ami; jamovi/JASP (#90) odrzucone — dla Linuksa
+# tylko Flatpak, niezgodne z modelem obrazu (offline/apt). Build warstwowy Packera (desktop.yml): role desktop + memory_apps
 # na gotowym obrazie wlb-general — baza zostaje lekka (§ „Poza zakresem obrazu" w #105).
 
 - name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
@@ -15,11 +16,19 @@
       - libreoffice-gtk3
     state: present
 
-# libreoffice-common dostarcza profile AppArmor z flags=(complain), a rola base wymusza enforce
-# PRZED tą warstwą (obraz wlb-general). Bez przełączenia akceptacja 20-apparmor.sh pada na liczniku
-# profili w complain (CIS 1.6.3, #65). Przełączamy wszystkie nowe profile w complain — nie tylko
-# znane z nazwy, bo zależności mogą dołożyć kolejne.
-- name: Profile AppArmor w trybie enforce po instalacji LibreOffice (#65, CIS 1.6.3)
+# Statystyka z GUI klik-klik (#108). RKWard = graficzny frontend R (R już w obrazie), zamiennik warstwy
+# statystycznej GraphPad Prism. Instalujemy PRZED taskiem enforce poniżej — pakiety Qt/KDE mogą dołożyć
+# profile AppArmor w trybie complain.
+- name: Statystyka z GUI — RKWard, frontend R (#108)
+  ansible.builtin.apt:
+    name: rkward
+    state: present
+
+# libreoffice-common dostarcza profile AppArmor z flags=(complain); RKWard (Qt/KDE) może dołożyć kolejne —
+# rola base wymusza enforce PRZED tą warstwą (obraz wlb-general). Bez przełączenia akceptacja 20-apparmor.sh
+# pada na liczniku profili w complain (CIS 1.6.3, #65). Przełączamy wszystkie nowe profile w complain — nie
+# tylko znane z nazwy, bo zależności mogą dołożyć kolejne.
+- name: Profile AppArmor w trybie enforce po instalacji LibreOffice i RKWard (#65, CIS 1.6.3)
   ansible.builtin.shell: |
     set -o pipefail
     before=$(aa-status --complaining)

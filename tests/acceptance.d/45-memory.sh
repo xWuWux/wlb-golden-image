@@ -2,7 +2,7 @@
 # Adaptacyjna: tylko na flavorze wlb-memory sprawdza aplikacje GUI „pod pamięć" (rola memory_apps, #105);
 # na innych flavorach pomija. Lekkość bazy (brak pulpitu/GUI na wlb-general) pilnuje 40-pulpit.sh.
 if grep -qx "WLB_IMAGE_NAME=wlb-memory" /etc/wlb/image-release 2>/dev/null; then
-  echo "== Aplikacje GUI flavora wlb-memory (LibreOffice Calc, #105) =="
+  echo "== Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, RKWard #108) =="
   expect_ok "LibreOffice obecny (binarka)" test -x /usr/bin/libreoffice
   # Stockowy kafelek LibreOffice Calc wystarcza: Exec=libreoffice rozwiązuje się przez /usr/bin, które
   # JEST w PATH sesji XFCE (inaczej niż /usr/local/bin z wrapperami neuro — #199).
@@ -23,4 +23,11 @@ if grep -qx "WLB_IMAGE_NAME=wlb-memory" /etc/wlb/image-release 2>/dev/null; then
       -env:UserInstallation=file://"$d/profile" --convert-to ods --outdir "$d" "$d/t.csv" >/dev/null 2>&1
     test -f "$d/t.ods"
   '
+
+  # RKWard (#108): statystyka z GUI klik-klik (frontend R; R już w obrazie). Sprawdzamy binarkę i wpis
+  # menu — nazwa .desktop zależy od wersji pakietu KDE, akceptujemy oba warianty. Działanie analiz R
+  # pokrywa osobno test jąder/R; pełny GUI to render-smoke (#138).
+  expect_ok "RKWard obecny (binarka, #108)" bash -c "command -v rkward"
+  expect_ok "Kafelek RKWard w menu XFCE (#108)" bash -c \
+    "test -f /usr/share/applications/org.kde.rkward.desktop || test -f /usr/share/applications/rkward.desktop"
 fi
