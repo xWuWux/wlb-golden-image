@@ -1,0 +1,35 @@
+{#
+  Kontrakt wizualny pulpitu (#204) — generator plików kanałów xfconf z JEDNEGO źródła.
+  Źródło: desktop_xfconf w ansible/group_vars/all.yml.
+  Wymagane vars: channel_name (np. xsettings), channel_data (poddrzewo tego kanału).
+  Klucze zarezerowane w węźle (NIE są nazwami właściwości): type, value (skalar),
+  values + etype (tablica). Węzeł bez 'type' jest kontenerem typu "empty".
+  Wartości bool zapisuj w group_vars jako napisy "true"/"false" (porównuje je test).
+  Konwencja odstępów: wszystkie tagi sterujące w pełni wycięte {%- -%}; każdy wiersz
+  wyjścia kończy się jawnym {{ "\n" }}.
+#}
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Wygenerowane przez Ansible (rola desktop, kontrakt wizualny #204).
+     Źródło prawdy: desktop_xfconf w ansible/group_vars/all.yml — nie edytować ręcznie. -->
+
+<channel name="{{ channel_name }}" version="1.0">
+{{ "\n" }}{%- macro render(nodes, path, depth) -%}
+{%-   for it in nodes | dict2items | rejectattr('key', 'in', ['type', 'value', 'values', 'etype']) -%}
+{%-     set name = it.key -%}
+{%-     set node = it.value -%}
+{%-     set kids = node | dict2items | rejectattr('key', 'in', ['type', 'value', 'values', 'etype']) | list -%}
+{%-     set is_array = 'values' in node -%}
+{%-     set ntype = 'array' if is_array else node.get('type', 'empty') -%}
+{%-     set scalar = 'value' in node -%}
+{%-     set open = '  ' * depth ~ '<property name="' ~ name ~ '" type="' ~ ntype ~ '"' ~ (' value="' ~ (node['value'] | e) ~ '"' if scalar else '') -%}
+{%-     if not kids and not is_array -%}
+{{ open }}/>{{ "\n" }}
+{%-     else -%}
+{{ open }}>{% for v in node.get('values', []) %}{{ "\n" ~ '  ' * (depth + 1) }}<value type="{{ node.get('etype', 'int') }}" value="{{ v | e }}"/>{% endfor %}{{ "\n" }}
+{%-       for kit in kids -%}{{ render({kit.key: kit.value}, path ~ '/' ~ kit.key, depth + 1) }}
+{%-       endfor -%}
+{{ '  ' * depth }}</property>{{ "\n" }}
+{%-     endif -%}
+{%-   endfor -%}
+{%- endmacro -%}
+{{ render(channel_data, '', 1) }}</channel>

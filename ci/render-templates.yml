@@ -27,5 +27,50 @@
         - { role: logging, file: wlb-shell-audit.sh.j2 }
         - { role: r_env, file: Rprofile.site.j2 }
         - { role: storage, file: 60-resources.conf.j2 }
+        - { role: desktop, file: desktop-contract.j2 }
       loop_control:
         label: "{{ item.file }}"
+
+    # Kontrakt wizualny pulpitu (#204): ten sam szablon kanału renderowany per kanał do
+    # xfconf-<kanał>.xml (w obrazie trafia do /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/).
+    - name: Kanały xfconf kontraktu wizualnego (#204)
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../ansible/roles/desktop/templates/xfconf-channel.xml.j2"
+        dest: "{{ out }}/xfconf-{{ item }}.xml"
+        mode: "0644"
+      vars:
+        channel_name: "{{ item }}"
+        channel_data: "{{ desktop_xfconf[item] }}"
+      loop: "{{ desktop_xfconf.keys() | list }}"
+      loop_control:
+        label: "xfconf-{{ item }}.xml"
+
+    - name: Kontrakt wizualny — wygenerowany XML kanałów jest poprawny składniowo (#204)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import glob, sys, xml.etree.ElementTree as ET
+            files = glob.glob(sys.argv[1])
+            assert files, "brak plików do sprawdzenia: " + sys.argv[1]
+            for f in files:
+                ET.parse(f)
+          - "{{ out }}/xfconf-*.xml"
+      changed_when: false
+
+    - name: Kontrakt wizualny — plik kontraktu nie jest pusty (#204)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import sys
+            lines = [l for l in open(sys.argv[1]) if l.strip() and not l.startswith("#")]
+            assert any(l.startswith("xfconf|xsettings|/Net/ThemeName|string|") for l in lines)
+            assert any(l.startswith("xfconf|xfce4-panel|/panels/panel-1/position|string|") for l in lines)
+            assert any(l.startswith("locale|LANG|") for l in lines)
+            assert any(l.startswith("contract|version|") for l in lines)
+            assert any(l.startswith("xfconf|xfwm4|/general/theme|string|") for l in lines)
+          - "{{ out }}/desktop-contract"
+      changed_when: false

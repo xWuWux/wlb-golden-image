@@ -102,6 +102,126 @@ rstudio_rsession_proxy_spec: jupyter-rsession-proxy
 wlb_desktop_enabled: false
 desktop_proxy_spec: jupyter-remote-desktop-proxy
 
+# --- Kontrakt wizualny pulpitu XFCE (#204) ----------------------------------------
+# JEDYNE źródło prawdy dla wyglądu na flavorach z pulpitem. Rola desktop renderuje z tego:
+#   1) /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/<kanał>.xml — systemowe domyślne xfconf
+#      (mechanizm XDG_CONFIG_DIRS). To główny kanał wdrożenia: konta badaczy powstają
+#      `useradd -M` (bez kopiowania /etc/skel!), więc sam /etc/skel ich by nie dotyczył.
+#   2) /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/<kanał>.xml — dla kont zakładanych
+#      z -m oraz jako jawna deklaracja „wygląd świeżego profilu" (decyzja z #204: kontrakt
+#      dotyczy ŚWIEŻEGO profilu + wartości domyślnych; badacz może nadpisać wygląd u siebie,
+#      pliki użytkownika mają priorytet nad systemowymi; bez migracji istniejących profili).
+#   3) /etc/wlb/desktop-contract — płaski, maszynowo czytelny widok tego samego słownika;
+#      czytają go testy (tests/acceptance.d/42-pulpit-wartosci.sh) — wartości NIE są
+#      duplikowane w teście.
+# Motyw/ikony/kursor = Adwaita: na minimalnym XFCE stockowe domyślne Ubuntu (Greybird,
+# elementary-xfce-dark) wskazują pakiety NIEzainstalowane w tym obrazie — faktycznie i
+# deterministycznie dostępne jest tylko Adwaita (GTK3 wbudowany w libgtk-3 + adwaita-icon-theme).
+# Fonty: stockowe aliasy fontconfig Sans/Monospace, które resolving dają DejaVu (pinned na obrazie).
+# DPI 96 (xfsettingsd sam mnoży /Xft/DPI przez 1024 dla XSETTINGS — w xfconf zwykłe 96, NIE 98304), geometria/klawiatura/locale = wartości efektywne
+# dzisiejszego obrazu, przypięte, aby ich cicha zmiana była wykrywana przez test (#204).
+desktop_xfconf:
+  xsettings:
+    Net:
+      ThemeName: {type: string, value: Adwaita}
+      IconThemeName: {type: string, value: Adwaita}
+      # Pozostałe klucze: domyślne z pakietowego xsettings.xml (xfce4-settings) — plik jest
+      # odsunięty dpkg-divert, więc przenosimy je tu, by dywersja niczego nie gubiła.
+      DoubleClickTime: {type: int, value: 400}
+      DoubleClickDistance: {type: int, value: 5}
+      DndDragThreshold: {type: int, value: 8}
+      CursorBlink: {type: bool, value: "true"}
+      CursorBlinkTime: {type: int, value: 1200}
+      SoundThemeName: {type: string, value: default}
+      EnableEventSounds: {type: bool, value: "false"}
+      EnableInputFeedbackSounds: {type: bool, value: "false"}
+    Gtk:
+      CursorThemeName: {type: string, value: Adwaita}
+      CanChangeAccels: {type: bool, value: "false"}
+      ColorPalette: {type: string, value: "black:white:gray50:red:purple:blue:light blue:green:yellow:orange:lavender:\
+        brown:goldenrod4:dodger blue:pink:light green:gray10:gray30:gray75:gray90"}
+      IconSizes: {type: string, value: ""}
+      KeyThemeName: {type: string, value: ""}
+      ToolbarStyle: {type: string, value: icons}
+      ToolbarIconSize: {type: int, value: 3}
+      MenuImages: {type: bool, value: "true"}
+      ButtonImages: {type: bool, value: "true"}
+      MenuBarAccel: {type: string, value: F10}
+      CursorThemeSize: {type: int, value: 0}
+      DecorationLayout: {type: string, value: "menu:minimize,maximize,close"}
+      DialogsUseHeader: {type: bool, value: "false"}
+      TitlebarMiddleClick: {type: string, value: lower}
+      FontName: {type: string, value: "Sans 10"}
+      MonospaceFontName: {type: string, value: "Monospace 10"}
+    Xft:
+      DPI: {type: int, value: 96} # zwykłe DPI; xfsettingsd: CLAMP(50..500)*1024 (98304 dałoby 500 DPI)
+      Antialias: {type: int, value: -1} # -1 = decyzja fontconfiga (stock XFCE)
+      Hinting: {type: int, value: -1}
+      HintStyle: {type: string, value: hintnone}
+      RGBA: {type: string, value: none}
+    Gdk:
+      WindowScalingFactor: {type: int, value: 1}
+  xfwm4:
+    general:
+      workspace_count: {type: int, value: 4}
+      theme: {type: string, value: Default} # motyw okien; Default dostarcza pakiet xfwm4
+  xfce4-panel:
+    configver: {type: int, value: 2}
+    panels:
+      type: array
+      etype: int
+      values: [1]
+      panel-1:
+        position: {type: string, value: "p=12;x=0;y=0"} # SNAP_POSITION_S = dół (enum panel-window.c: 6 = NW, 12 = S)
+        position-locked: {type: bool, value: "true"}
+        size: {type: uint, value: 28}
+        length: {type: uint, value: 100}
+        icon-size: {type: uint, value: 16}
+        plugin-ids:
+          type: array
+          etype: int
+          values: [1, 2, 3, 4, 5, 6, 7]
+    plugins:
+      plugin-1: {type: string, value: applicationsmenu}
+      plugin-2:
+        type: string
+        value: separator
+        expand: {type: bool, value: "true"}
+        style: {type: uint, value: 0}
+      plugin-3:
+        type: string
+        value: tasklist
+        grouping: {type: uint, value: 1}
+      plugin-4: {type: string, value: separator}
+      plugin-5:
+        type: string
+        value: systray
+        square-icons: {type: bool, value: "true"}
+      plugin-6: {type: string, value: clock}
+      plugin-7: {type: string, value: actions}
+  xfce4-desktop:
+    backdrop:
+      screen0:
+        monitorVNC-0: # TigerVNC zgłasza jedyny monitor jako VNC-0 (wykryte empirycznie, #204)
+          workspace0: &wlb_desktop_workspace
+            color-style: {type: int, value: 0} # 0 = XFCE_BACKDROP_COLOR_SOLID (1 = gradient poziomy)
+            first-color: {type: string, value: "#303030"}
+            image-show: {type: bool, value: "false"}
+            image-style: {type: uint, value: 5} # SCALED; przy image-show=false bez wpływu, wartość stockowa
+            last-image: {type: string, value: /usr/share/backgrounds/xfce/xfce-shapes.svg}
+          workspace1: *wlb_desktop_workspace
+          workspace2: *wlb_desktop_workspace
+          workspace3: *wlb_desktop_workspace
+
+# Pozostałe wartości kontraktu wizualnego (poza kanałami xfconf).
+# Wersja kontraktu: podbij przy każdej zmianie zestawu/znaczenia wartości (emitowana do
+# /etc/wlb/desktop-contract jako contract|version|N; test i CI sprawdzają jej obecność).
+desktop_contract_version: 1
+desktop_contract_locale: C.UTF-8            # LANG w /etc/default/locale — zmiana SYSTEMOWA (nie tylko pulpitu): formaty/sortowanie/komunikaty C.UTF-8
+desktop_contract_keyboard: {rules: evdev, model: pc105, layout: us} # efektywny default Xvnc; XFCE nie wymusza Xkb (#204 zachowawczo)
+desktop_contract_geometry: 1024x768         # geometria sesji = default Xtigervnc (proxy nie nadpisuje); test sprawdzaja na swiezym X
+desktop_contract_fonts: {sans: "DejaVu Sans", mono: "DejaVu Sans Mono"} # oczekiwany wynik fc-match dla aliasów Sans/Monospace
+
 # --- Stos neuroobrazowania (flavor wlb-radiologia, #135; rola neuro_apps) ----------
 # Używane tylko przez ansible/radiologia.yml. FSL (conda-based) instaluje też FSLeyes.
 # Licencja FSL: niekomercyjnie — potwierdzone (#134).

@@ -129,15 +129,26 @@
     file_type: file
   register: neuro_apps_fsleyes_icon
 
+# #204: dawniej kopiowanie było warunkowane `when: ... | length > 0` — brak ikony
+# przechodził cicho, a kafelek zostawał z Icon=fsleyes wskazującym donikąd.
+# Teraz: brak ikony = błąd budowy (assert), kopiowanie bezwarunkowe.
+- name: Wymagaj obecności ikony FSLeyes (brak = FAIL, nie cichy fallback) (#204)
+  ansible.builtin.assert:
+    that:
+      - neuro_apps_fsleyes_icon.files | length > 0
+    fail_msg: >-
+      Nie znaleziono żadnego fsleyes.png pod {{ fsl_dir }}/lib —
+      kafelek wlb-fsleyes.desktop miałby Icon=fsleyes bez celu (#204).
+
 - name: Ikona FSLeyes do /usr/share/pixmaps (stabilna ścieżka dla kafelka)
   vars:
-    fsleyes_app_icon: "{{ neuro_apps_fsleyes_icon.files | map(attribute='path') | select('search', 'hicolor/48x48/apps/fsleyes.png') | list }}"
+    neuro_apps_icon_paths: "{{ neuro_apps_fsleyes_icon.files | map(attribute='path') | list }}"
+    neuro_apps_icon_48: "{{ neuro_apps_icon_paths | select('search', 'hicolor/48x48/apps/fsleyes.png') | list }}"
   ansible.builtin.copy:
-    src: "{{ fsleyes_app_icon[0] }}"
+    src: "{{ (neuro_apps_icon_48 + neuro_apps_icon_paths) | first }}"
     dest: /usr/share/pixmaps/fsleyes.png
     remote_src: true
     mode: "0644"
-  when: fsleyes_app_icon | length > 0
 
 # FSLeyes/FSL wymagają FSLDIR — opakowujemy je skryptem, który źródłuje profile.d/fsl.sh i wywołuje
 # narzędzie. Dzięki temu Exec kafelka jest prosty (bez zagnieżdżonego "sh -c", którego nie przepuszcza
