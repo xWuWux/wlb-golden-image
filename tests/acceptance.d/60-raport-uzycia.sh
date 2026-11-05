@@ -16,14 +16,15 @@ UNIT=jupyter-$R1.service
 NOW=$(date +%s)
 mkdir -p /run/wlb/usage
 
-# Izolacja od ŻYWEGO samplera (naprawa flake'a #98): UNIT=jupyter-$R1.service to prawdziwa jednostka,
-# którą wlb-usage-sampler.timer próbkuje okresowo w tle. Gdyby timer wystrzelił między zapisem
-# syntetycznego .kv a wlb-usage-record, nadpisałby go realnymi wartościami → zapisana próbka ≠
-# oczekiwana → FAIL. Wyścig trafiał częściej na wolniejszych/obciążonych flavorach (wlb-radiologia:
-# dłuższe okno + presja OOM), stąd „PASS na wlb-memory, FAIL na wlb-radiologia" w tym samym przebiegu.
-# Zatrzymujemy TIMER na czas scenariuszy syntetycznych; ręczny start sampler.service w fazie „na żywo"
-# niżej dalej działa. is-enabled (sprawdzone wyżej) nie zmienia się przez stop; timer wznawiamy na końcu.
-systemctl stop wlb-usage-sampler.timer 2>/dev/null || true
+# Izolacja scenariuszy SYNTETYCZNYCH od ŻYWEGO samplera (naprawa flake'a #98): UNIT=jupyter-$R1.service to
+# prawdziwa jednostka, którą wlb-usage-sampler.timer próbkuje okresowo (co ~120 s) w tle do /run/wlb/usage.
+# Gdyby timer wystrzelił między zapisem syntetycznego .kv a odczytem przez wlb-usage-record, nadpisałby go
+# realnymi wartościami → próbka ≠ oczekiwana → FAIL. Kolizja jest fazowa: dłuższy suite radiologii trafia
+# oknem w sekcję krytyczną, krótszy wlb-memory nie — stąd „PASS na memory, FAIL na radiologii" w jednym
+# przebiegu. Zamiast mutować globalny timer (ryzyko, gdyby skrypt padł), kierujemy syntetyczne zapisy/odczyty
+# do PRYWATNEGO katalogu: WLB_USAGE_RUN_DIR honoruje i sampler, i wlb-usage-record; sampler pisze do
+# /run/wlb/usage, więc kolizja znika u źródła. Faza „na żywo" niżej celowo używa /run/wlb/usage.
+W98_RUN=$(mktemp -d)
 
 cat >/tmp/wlb-98-verify.py <<'PY'
 import glob, json, sys
@@ -48,8 +49,8 @@ sys.exit(0 if ok else 1)
 PY
 
 printf 'Unit=%s\nBootID=%s\nInvocationID=inv-akceptacja\nSampledAtEpoch=%s\nMONO=%s\nMemoryPeak=1048576\nCPUUsageNSec=1000000000\nCPUIntervalMax=0.500000\n' \
-  "$UNIT" "$(cat /proc/sys/kernel/random/boot_id)" "$NOW" "$NOW" >"/run/wlb/usage/$UNIT.kv"
-/opt/wlb/bin/wlb-usage-record "$UNIT" testsession lab-test01 $((NOW - 60)) "$NOW" 60 spawner_env
+  "$UNIT" "$(cat /proc/sys/kernel/random/boot_id)" "$NOW" "$NOW" >"$W98_RUN/$UNIT.kv"
+WLB_USAGE_RUN_DIR="$W98_RUN" /opt/wlb/bin/wlb-usage-record "$UNIT" testsession lab-test01 $((NOW - 60)) "$NOW" 60 spawner_env
 expect_ok "Rekord complete: tozsama probka w oknie sesji, pelne wartosci (#98)" \
   python3 /tmp/wlb-98-verify.py testsession complete
 expect_ok "Plik raportu 0640 od narodzin (#98)" \
@@ -70,12 +71,10 @@ fi
 
 # Próbka z innego bootu (reboot miedzy sesjami) nie moze podrobić rekordu wartosciami (#98).
 printf 'Unit=%s\nBootID=inny-boot-id\nSampledAtEpoch=%s\nMemoryPeak=999999999\nCPUUsageNSec=1\n' \
-  "$UNIT" "$NOW" >"/run/wlb/usage/$UNIT.kv"
-/opt/wlb/bin/wlb-usage-record "$UNIT" testsession-stary lab-test01 $((NOW - 60)) "$NOW" 60 spawner_env
+  "$UNIT" "$NOW" >"$W98_RUN/$UNIT.kv"
+WLB_USAGE_RUN_DIR="$W98_RUN" /opt/wlb/bin/wlb-usage-record "$UNIT" testsession-stary lab-test01 $((NOW - 60)) "$NOW" 60 spawner_env
 expect_ok "Probka z obcego bootu -> no_samples i null, nie zero udajace pomiar (#98)" \
   python3 /tmp/wlb-98-verify.py testsession-stary no_samples
 
 rm -f /tmp/wlb-98-verify.py
-
-# Przywróć okresowy sampler — stop obejmował tylko czas scenariuszy syntetycznych (#98).
-systemctl start wlb-usage-sampler.timer 2>/dev/null || true
+rm -rf "$W98_RUN"
