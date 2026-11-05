@@ -350,6 +350,31 @@ radiologia_flavor() {
   acceptance "$rad_img" acceptance-radiologia
 }
 
+# Flavor wlb-memory (#105): opt-in (etykieta build-memory / zmiana plików flavora / nocny build —
+# workflow ustawia WLB_BUILD_MEMORY=1). Buduje warstwowo na obrazie bazowym i uruchamia tę samą
+# akceptację (adaptacyjne 45-memory + 40-pulpit wykryją flavor). Potwierdza instalację LibreOffice Calc
+# i konwersję CSV->ODS na realnym obrazie.
+memory_flavor() {
+  [[ ${WLB_BUILD_MEMORY:-0} == 1 ]] || {
+    echo "pominięto: brak etykiety build-memory ani zmiany plików flavora (#105)"
+    return 0
+  }
+  local mem_full="wlb-memory-$IMAGE_VERSION-$IMAGE_DATE" mem_img
+  mem_img="$REPO_ROOT/output/$mem_full/$mem_full.qcow2"
+  rm -rf "output/$mem_full"
+  echo "== Build flavora wlb-memory (base_image=$IMAGE) =="
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-memory.log" packer build -color=false -only='wlb-memory.*' \
+    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
+    -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    echo "build flavora wlb-memory nieudany (packer-memory.log w artefaktach etapu 5)"
+    return 1
+  fi
+  echo "== Akceptacja wlb-memory =="
+  acceptance "$mem_img" acceptance-memory
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -375,4 +400,5 @@ run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 run_check "Jedno jądro w obrazie (#9)" kernel_single
 run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
+run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
 finish
