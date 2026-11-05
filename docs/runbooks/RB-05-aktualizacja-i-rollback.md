@@ -22,7 +22,11 @@ Zweryfikowane w kodzie — nie zgadywać ścieżek:
 
 ## 2. Warunki wstępne
 
-1. **Okno serwisowe** ogłoszone badaczom (≥24 h). Sesje żyją do 12 h (§9.5, `cull.max_age`).
+1. **Okno serwisowe** ogłoszone badaczom (≥24 h). Sesje domyślnie żyją do 12 h (§9.5,
+   `cull.max_age`), ale Laby z wydłużoną sesją (`MAX_SESSION_HOURS`, do 48 h, #78) wymagają
+   odpowiednio dłuższego okna i ostrzeżenia: aktualizacja obrazu (podmiana dysku systemowego)
+   może przerwać trwające obliczenie w połowie — to ryzyko opisane w pomocy badacza. Przed
+   aktualizacją sprawdź aktywne sesje i ogłoś okno ≥ max(24 h, `MAX_SESSION_HOURS`).
 2. **Kolejka eksportu pusta** albo pisemna zgoda Kontrolera Przesyłu Danych:
    ```sh
    q=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf); ls -A "$q"
