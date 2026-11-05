@@ -2,13 +2,13 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
 ### #4 — Kolejka eksportu na jednorazowym dysku systemowym — utrata wniosków przy wymianie obrazu  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Badacz nie ma dostępu do kolejki`
-- `tests/acceptance.d/70-radiologia.sh` — `3DSlicer na PATH (Slicer)`, `3DSlicer startuje pod wirtualnym X — biblioteki xcb + Qt (#4)`, `FSLeyes uruchamia się (--version, #4)`, `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Uruchamialność GUI stosu neuro (#4)*
+- `tests/acceptance.d/70-radiologia.sh` — `3DSlicer startuje pod wirtualnym X — biblioteki xcb + Qt (#4)`, `FSLeyes uruchamia się (--version, #4)`, `Kafelek czytnika PDF w menu (#200)`, `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Uruchamialność GUI stosu neuro (#4)*
 - `tests/migration-remote.sh` — `Wniosek o eksport z poprzedniej VM jest w kolejce (#4)`
 - `tests/unit/wlb-firstboot.bats` — `pełna konfiguracja Laboratorium`
 
@@ -43,6 +43,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 - `tests/unit/changes.bats` — `PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)`
 - `tests/unit/test_network_gates.py` — `test_connect_denial_over_real_socket`, `test_connect_requires_explicit_proxy_denial`
 
+### #17 — SIEM: Wazuh/OpenSearch — dekodery i reguły na podstawie kontraktu obserwowalności  ·  _otwarte_
+- `tests/unit/test_observability_contract.py` — `test_zdarzenie_uslugi_tylko_od_jej_programu`, *Wazuh: dekodery i reguły powiązane z kontraktem (#17)*
+- `tests/unit/test_wazuh_check.py` — *walidator wyników logtest (#17)*
+- `tests/unit/test_wazuh_logtest_client.py` — *protokół logtest: długość + JSON, jedna sesja na plik (#17)*
+
 ### #18 — Dostęp: MFA (Keycloak / Entra ID) i HTTPS przez portal WLB lub bramkę VDI  ·  _otwarte_
 - `tests/acceptance.d/15-dostep-tls-cidr.sh` — `443 nie jest otwarte przy HUB_TLS=0 (#18)`, `HTTP na 80 przekierowuje na HTTPS (#18)`, `HTTPS bez zaufanej CA jest odrzucone (#18)`, `Hub odpowiada po HTTPS na 443 z zaufanym certem (#18)`, `Polityka wejścia: drop (#18)`, `nftables: SSH tylko z ADMIN_SSH_CIDR na porcie 22 (#18)`, `nftables: brak 0.0.0.0/0 w aktywnym rulesecie (#18)`, `nftables: hub z HUB_ALLOWED_CIDR na 80 i 443 (TLS, #18)`, `nftables: hub z HUB_ALLOWED_CIDR tylko na 80 (HUB_TLS=0, #18)`, *Dostęp: wymuszony CIDR + TLS huba (#18)*
 - `tests/unit/wlb-firstboot.bats` — `#18 CIDR: HUB_ALLOWED_CIDR=0.0.0.0/0 jest odrzucane (/0)`, `#18 CIDR: brak HUB_ALLOWED_CIDR przerywa konfigurację`, `#18 CIDR: końcowa spacja w HUB_ALLOWED_CIDR jest odrzucana`, `#18 CIDR: lista adresów w ADMIN_SSH_CIDR jest odrzucana`, `#18 CIDR: prefiks > 32 jest odrzucany`, `#18 TLS: certyfikat i klucz nie są parą — odrzucone`, `#18 TLS: klucz huba o zbyt szerokich prawach jest odrzucany`, `#18 dostęp: HUB_TLS domyślnie 1 — HTTPS włączone, cert i klucz ustawione`, `#18 dostęp: HUB_TLS=0 — hub tylko po HTTP (port 80, bez 443), z ostrzeżeniem`, `#18 fail-secure: błąd TLS huba nie otwiera portu huba ani nie kończy firstboot`, `SIEM TLS: nieczytelny certyfikat CA przerywa konfigurację`, `pełna konfiguracja Laboratorium`, *#18: dostęp (CIDR fail-secure, TLS huba)*, *Uwierzytelnianie: native / OIDC (#18)*
@@ -52,6 +57,12 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 - `tests/migration-remote.sh` — `Manifest i kopia przeżywają wymianę VM (#20)`
 - `tests/unit/test_wlb_export_snapshot.py` — *#20: integralność kopii, manifest, wyścigi i awarie*
 - `tests/unit/wlb-sluza-out-mover.bats` — `#20: niedozwolony element zatrzymuje cały katalog w kwarantannie`, `#20: suma katalogu odtwarzalna przez weryfikator po przeniesieniu pakietu`
+
+### #22 — Metryki VM (np. node_exporter, /hub/metrics) — wybór systemu monitoringu  ·  _otwarte_
+- `tests/acceptance.d/65-node-exporter.sh` — `Badacz nie może zapisać metryk (#22)`, `Metryki dostępne lokalnie (#22)`, `brak ekspozycji metryk bez MONITORING_CIDR (#22)`, `nftables: metryki tylko z MONITORING_CIDR na 9100 (#22)`, `node_exporter działa (#22)`, `node_exporter nasłuchuje tylko na IPv4 loopback (#22)`, `node_exporter słucha poza pętlą (#22)`, `node_exporter włączony (#22)`, `override eksportera pochodzi z firstboot (#22)`, *Metryki systemowe (#22)*
+- `tests/acceptance.d/66-wlb-health.sh` — `Kolejka eksportu poprawnie zmierzona (#22)`, `Pliki kolejki SIEM poprawnie zmierzone (#22)`, `Pomiar wlb-health kończy się poprawnie (#22)`, `Timer wlb-health działa (#22)`, `Timer wlb-health włączony (#22)`, *Zagregowane metryki stanu WLB (#22)*, `Świeża próbka wlb-health (#22)`
+- `tests/unit/test_node_exporter_config.py` — `test_firstboot_overrides_the_dropin_installed_by_the_role`
+- `tests/unit/wlb-firstboot.bats` — `#22 metryki: --force po usunięciu MONITORING_CIDR cofa ekspozycję`, `#22 metryki: MONITORING_CIDR=/32 wystawia 9100 tylko z tego źródła`, `#22 metryki: bez MONITORING_CIDR nic się nie zmienia (eksporter tylko na pętli)`, `#22 metryki: brak pliku eksportera z obrazu przerywa konfigurację`, `#22 metryki: nieprawidłowy MONITORING_CIDR przerywa przed zmianą zapory`, *Metryki VM dla sieci monitoringu (#22)*
 
 ### #23 — Decyzja regulaminowa: czy badacz może instalować pakiety z mirrora PyPI/CRAN (§24.c)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Allowlista proxy (mirror PyPI/CRAN) — brak testowego proxy na hoście (#16)`, `deny: interpreter TLJH z pipem dostępny dla badacza`
@@ -72,7 +83,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 ### #33 — Niedokończone eksporty: śluza może przenieść plik zapisywany w kilku otwarciach  ·  _otwarte_
 - `tests/unit/wlb-sluza-out-mover.bats` — `plik tymczasowy po zmianie nazwy na docelową trafia do kolejki (#33)`, `pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)`
 
-### #35 — Telemetria CI: walidacja OTLP/JSON oficjalnym schematem w testach  ·  _otwarte_
+### #35 — Telemetria CI: walidacja OTLP/JSON oficjalnym schematem w testach  ·  _scalone_
 - `tests/unit/test_ci_telemetry.py` — *#35: walidacja trzech sygnałów oficjalnym schematem OTLP + semantyka*, *Walidacja OTLP/JSON oficjalnym schematem (#35)*
 
 ### #36 — Test akceptacyjny: faktyczna synchronizacja czasu z NTP_SERVERS  ·  _otwarte_
@@ -112,7 +123,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 ### #84 — CI: zmiany dokumentacji w obrazie nie powinny wyzwalać etapu 5 (allowlista changes.sh)  ·  _otwarte_
 - `tests/unit/changes.bats` — `push tylko z CHANGELOG.md: etap 5 pominięty (#84)`
 
-### #86 — CI: etap 5/6a rzadziej lub lokalnie — bramkowanie weryfikacji ciężkiej (do czasu self-hosted #25)  ·  _otwarte_
+### #86 — CI: etap 5/6a rzadziej lub lokalnie — bramkowanie weryfikacji ciężkiej (do czasu self-hosted #25)  ·  _scalone_
 - `tests/unit/changes.bats` — `PR bez etykiet: etap 5/6 pominięty (#86)`, `PR z etykietą run-integration: etap 5 na żądanie (#86)`, `PR ze zmianą poza siecią, bez etykiety: bez etapu 5 (#86)`
 
 ### #97 — Hooki sesji badacza (pre/post-spawn): montaż, znacznik audytu, sprzątanie — inspiracja AppStream  ·  _otwarte_
@@ -130,12 +141,14 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 
 ### #105 — Flavor „pod pamięć”: pulpit w przeglądarce + aplikacje GUI (arkusz, zamiennik Prism) i kafelek Leaf  ·  _otwarte_
 - `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+- `tests/acceptance.d/45-memory.sh` — `Calc konwertuje CSV->ODS (silnik arkusza, #105)`, *Aplikacje GUI flavora wlb-memory (LibreOffice Calc, #105)*
+- `tests/unit/changes.bats` — `memory: etykieta build-memory wyzwala flavor na żądanie (#105)`, `memory: zmiana plików flavora wyzwala build+test memory (#105)`, `memory: zmiana spoza flavora nie wyzwala memory (#105)`
 
 ### #106 — Pulpit w przeglądarce: rola desktop + flavor wlb-memory (remote-desktop-proxy, kafelek „Pulpit”)  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Schowek VNC wyłączony — konfiguracja obecna (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Konfiguracja TigerVNC ma poprawną składnię Perla (#106)`, `Schowek VNC: polityka wrappera wyłącza odbiór (#106)`, `Schowek VNC: polityka wrappera wyłącza wysyłanie (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
 
-### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
+### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, *2. Notebook Python, R i Julia*
 
 ### #123 — Bramka etapu 1: nierozwiązane znaczniki konfliktu gita w plikach nielintowanych  ·  _scalone_
@@ -151,6 +164,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 - `tests/acceptance.d/70-radiologia.sh` — `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Kafelki pulpitu stosu neuro (#135)*, *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 - `tests/unit/changes.bats` — `radiologia: etykieta build-radiologia wyzwala flavor na żądanie (#135)`, `radiologia: zmiana plików flavora wyzwala build+test radiologii (#135)`, `radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)`
 
+### #138 — Testy wizualne pulpitu (render-smoke → regresja perceptualna), etapami  ·  _otwarte_
+- `tests/acceptance.d/45-memory.sh` — `Integracja GTK3 LibreOffice (render pod XFCE)`
+
 ### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
 - `tests/unit/changes.bats` — `śluza: PR i merge_group wymagają integracji bez etykiety (#149)`
 
@@ -163,6 +179,16 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 
 ### #180 — CI: kontrakt zmiennych wdrożeniowych (lab.env ↔ wlb-firstboot ↔ przykłady cloud-init)  ·  _scalone_
 - `tests/unit/test_deployment_vars.py` — *kontrakt zmiennych wdrożeniowych (#180)*
+
+### #193 — CD na żywą VM Laboratorium: polityka L/D i bezpieczna aktywacja wersjonowanych narzędzi  ·  _otwarte_
+- `tests/acceptance.d/55-python-prefiks.sh` — *Wersjonowany prefiks środowiska Pythona (#193, M0)*
+
+### #199 — wlb-radiologia: wrappery neuro poza PATH sesji XFCE; fsl.sh powiela wpis w PATH  ·  _otwarte_
+- `tests/acceptance.d/45-memory.sh` — `LibreOffice obecny (binarka)`
+- `tests/acceptance.d/70-radiologia.sh` — `Kafelek 3DSlicer wskazuje Slicer (Exec)`, `Kafelek FSL wskazuje wrapper absolutnie (Exec, #199)`, `Kafelek FSLeyes wskazuje wrapper absolutnie (Exec, #199)`, `fsl.sh w pełni idempotentny: 2. źródłowanie nie zmienia PATH (#199)`, `Środowisko FSL (profile.d/fsl.sh)`
+
+### #200 — wlb-radiologia: soft z pierwszego wdrożenia — MRtrix3 (dwidenoise/mp-pca) + czytnik PDF  ·  _scalone_
+- `tests/acceptance.d/70-radiologia.sh` — `3DSlicer na PATH (Slicer)`, `Czytnik PDF evince na PATH (#200)`, `Kafelek czytnika PDF w menu (#200)`, `MRtrix3 dwidenoise na PATH (#200)`, `MRtrix3 dwidenoise uruchamia się (-version, #200)`, *Dodatkowe narzędzia (MRtrix3, czytnik PDF, #200)*
 
 ## Uwagi
 

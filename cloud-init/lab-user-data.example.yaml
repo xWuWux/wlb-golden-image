@@ -100,6 +100,7 @@ write_files:
       #RESEARCHER_MEM_LIMIT=16G
       #RESEARCHER_CPU_LIMIT=4
       #RESEARCHER_TASKS_MAX=2048
+      #MONITORING_CIDR=172.16.25.58/32   # metryki VM dla sieci monitoringu (jedno źródło scrape'a, #22)
   # CA, które wystawiło certyfikat SIEM (sam certyfikat publiczny — bez klucza prywatnego)
   - path: /etc/wlb/siem-ca.pem
     permissions: "0644"

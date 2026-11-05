@@ -19,6 +19,8 @@ DIRS_CONF=$R/etc/wlb/directories.conf
 STATE_DIR=$R/var/lib/wlb
 DONE=$STATE_DIR/firstboot.done
 HUB_CONFIG_D=$R/opt/tljh/config/jupyterhub_config.d
+NODE_EXPORTER_DROPIN=$R/etc/systemd/system/prometheus-node-exporter.service.d/10-wlb.conf
+NODE_EXPORTER_MONITORING_DROPIN=$R/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf
 ADMIN_PASSWORD_FILE=$R/root/wlb-hub-admin-initial-password
 TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
 HUB_USER_TOOL=${WLB_HUB_USER_TOOL:-/usr/local/sbin/wlb-hub-user}
@@ -67,25 +69,33 @@ CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
 # rozstrzygać kwestii regulaminowej — dlatego domyślnie deny, a nie „mirror, gdy URL ustawiony”.
 RESEARCHER_PACKAGE_INSTALL=${RESEARCHER_PACKAGE_INSTALL:-deny}
 EGRESS_ALLOW=${EGRESS_ALLOW:-}
+# Metryki VM dla centralnego monitoringu (#22). Puste = brak ekspozycji: node_exporter słucha tylko
+# na 127.0.0.1:9100. Niepuste = pojedyncza sieć źródłowa scrape'a (zwykle /32 serwera Prometheus);
+# eksporter słucha na wszystkich interfejsach, a dostęp ogranicza zapora. Scrape idzie po HTTP bez
+# TLS i bez auth — kontrola wyłącznie siecią (§9.5/§20: metryki nie zawierają danych badaczy).
+MONITORING_CIDR=${MONITORING_CIDR:-}
 # Fail-secure (#18/IMG-005): wymagany jawny zakres źródłowy — brak domyślnego 0.0.0.0/0. Zakres jest
 # walidowany jako pojedyncza kanoniczna sieć IPv4 (prefiks 1–32); listy, zakresy, dodatkowe tokeny,
 # spacje, /0 i IPv6 są odrzucane PRZED modyfikacją zapory. To walidacja składni konfiguracji
 # administratora platformy, nie twierdzenie, że badacz może edytować lab.env.
-validate_cidr() { # $1=nazwa zmiennej $2=wartość
-  local name=$1 val=$2 prefix o
+validate_cidr() { # $1=nazwa zmiennej $2=wartość [$3=tag zgłoszenia do komunikatu]
+  local name=$1 val=$2 tag=${3:-#18} prefix o
   [[ $val =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] ||
-    die "${name}='${val}' — oczekiwano pojedynczej sieci IPv4 w zapisie A.B.C.D/prefiks, bez list, spacji i IPv6 (#18)"
+    die "${name}='${val}' — oczekiwano pojedynczej sieci IPv4 w zapisie A.B.C.D/prefiks, bez list, spacji i IPv6 (${tag})"
   for o in "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}"; do
-    ((10#$o <= 255)) || die "${name}='${val}' — oktet ${o} poza zakresem 0–255 (#18)"
+    ((10#$o <= 255)) || die "${name}='${val}' — oktet ${o} poza zakresem 0–255 (${tag})"
   done
   prefix=${BASH_REMATCH[5]}
   ((10#$prefix >= 1 && 10#$prefix <= 32)) ||
-    die "${name}='${val}' — prefiks musi być 1–32 (/0 otwierające cały internet i >32 są zabronione, #18)"
+    die "${name}='${val}' — prefiks musi być 1–32 (/0 otwierające cały internet i >32 są zabronione, ${tag})"
 }
 : "${ADMIN_SSH_CIDR:?ADMIN_SSH_CIDR jest wymagane (#18): zakres źródłowy SSH administratora platformy}"
 : "${HUB_ALLOWED_CIDR:?HUB_ALLOWED_CIDR jest wymagane (#18): zakres źródłowy dostępu do huba}"
 validate_cidr ADMIN_SSH_CIDR "$ADMIN_SSH_CIDR"
 validate_cidr HUB_ALLOWED_CIDR "$HUB_ALLOWED_CIDR"
+# Metryki (#22): walidacja PRZED zmianą zapory i bindowaniem eksportera — błędne źródło nie może
+# doprowadzić do wystawienia metryk na sieć.
+[[ -z $MONITORING_CIDR ]] || validate_cidr MONITORING_CIDR "$MONITORING_CIDR" "#22"
 # TLS huba (#18/IMG-005, §20): domyślnie włączony. HUB_TLS=0 tylko świadomie (dev/izolowana sieć,
 # z ostrzeżeniem). HUB_TLS=1 wymaga certyfikatu i klucza z cloud-init write_files (jak SIEM_CA_CERT) —
 # traefik/TLJH słucha HTTPS na 443, a 80 przekierowuje. Wewnętrzne sprawdzenia huba idą wtedy po HTTPS.
@@ -366,6 +376,10 @@ done
 
 # Porty huba (#18): przy TLS otwieramy 80 (przekierowanie traefika) i 443; bez TLS tylko 80.
 hub_dports=$([[ $HUB_TLS == 1 ]] && echo '{ 80, 443 }' || echo '80')
+# Metryki (#22): port 9100 tylko z sieci monitoringu — nigdy z całego internetu. Ta reguła jest
+# niezależna od fazy huba, więc wchodzi już w fazie 1.
+mon_rule=""
+[[ -z $MONITORING_CIDR ]] || mon_rule="        ip saddr ${MONITORING_CIDR} tcp dport 9100 accept"$'\n'
 # Fail-secure (#18): zaporę ładujemy NAJPIERW bez reguły portu huba — SSH administratora, egress i polityka
 # drop działają od razu, ale hub jest niedostępny z sieci, dopóki nie potwierdzimy TLS i gotowości huba po
 # HTTPS. Samo przesunięcie walidacji nie wystarcza: proxy mogło już działać po HTTP, więc trzymamy port zamknięty.
@@ -386,7 +400,7 @@ table inet wlb {
         meta l4proto { icmp, ipv6-icmp } accept
         udp dport { 68, 546 } accept
         ip saddr ${ADMIN_SSH_CIDR} tcp dport 22 accept
-${hub_rule}        limit rate 5/second log prefix "wlb-in-deny " level info
+${hub_rule}${mon_rule}        limit rate 5/second log prefix "wlb-in-deny " level info
     }
 
     chain output {
@@ -407,6 +421,41 @@ EOF
 }
 # Faza 1: zapora bez portu huba (hub zamknięty do potwierdzenia TLS + gotowości).
 write_nftables 0
+
+# --- 4b. Metryki VM dla sieci monitoringu (#22) -----------------------------------------------
+# Domyślnie node_exporter słucha wyłącznie na 127.0.0.1:9100 (rola monitoring) — metryki nie
+# wychodzą z VM. MONITORING_CIDR zdejmuje ten limit: eksporter słucha na wszystkich interfejsach,
+# a dostęp ogranicza reguła zapory do jednego źródła. Bindowanie idzie PO załadowaniu zapory —
+# odwrotna kolejność wystawiłaby metryki na sieć, zanim reguły zdążą zadziałać (fail-open).
+# Metryki są w formacie Prometheus (scrape pull); własne metryki WLB dokłada textfile collector
+# (wlb-health). Bez MONITORING_CIDR nic się nie zmienia — obraz zachowuje się jak dotąd.
+if [[ -n $MONITORING_CIDR ]]; then
+  exporter_exec=$(grep -m1 '^ExecStart=/usr/bin/prometheus-node-exporter' "$NODE_EXPORTER_DROPIN" 2>/dev/null || true)
+  [[ -n $exporter_exec ]] ||
+    die "brak ${NODE_EXPORTER_DROPIN} albo nieoczekiwany ExecStart — nie mogę wystawić metryk (#22)"
+  exposed_exec=${exporter_exec/--web.listen-address=127.0.0.1:9100/--web.listen-address=0.0.0.0:9100}
+  [[ $exposed_exec == *"--web.listen-address=0.0.0.0:9100"* ]] ||
+    die "${NODE_EXPORTER_DROPIN} nie zawiera --web.listen-address=127.0.0.1:9100 (#22)"
+  # Wyższy numer niż 10-wlb.conf, więc nadpisuje ExecStart. Pozostałe flagi (textfile collector)
+  # pochodzą z pliku obrazu, żeby nie rozjechać się z rolą monitoring przy zmianie ścieżki metryk.
+  cat >"$NODE_EXPORTER_MONITORING_DROPIN" <<EOF
+# Wygenerowane przez wlb-firstboot (${LAB_NAME}) — metryki dla sieci monitoringu ${MONITORING_CIDR} (#22).
+# Nadpisuje ExecStart z 10-wlb.conf (wyższy numer = ładowane później); flagi textfile z obrazu.
+[Service]
+ExecStart=
+${exposed_exec}
+EOF
+  chmod 0644 "$NODE_EXPORTER_MONITORING_DROPIN"
+  systemctl daemon-reload
+  systemctl restart prometheus-node-exporter.service
+  log "metryki VM: node_exporter na 0.0.0.0:9100, dostęp tylko z ${MONITORING_CIDR} (#22)"
+elif [[ -e $NODE_EXPORTER_MONITORING_DROPIN ]]; then
+  # --force po usunięciu MONITORING_CIDR: cofamy ekspozycję, zamiast zostawiać ją na zawsze.
+  rm -f "$NODE_EXPORTER_MONITORING_DROPIN"
+  systemctl daemon-reload
+  systemctl restart prometheus-node-exporter.service
+  log "metryki VM: usunięto ekspozycję node_exportera (brak MONITORING_CIDR) — powrót na 127.0.0.1:9100 (#22)"
+fi
 
 # --- 5. Przekazywanie logów do centralnego SIEM (§21) ------------------------------
 SIEM_CONF=$R/etc/rsyslog.d/60-wlb-siem.conf

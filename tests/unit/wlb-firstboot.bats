@@ -968,3 +968,75 @@ hub_env() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"; }
     refute called 'wlb-hub-user'
   done
 }
+
+# --- Metryki VM dla sieci monitoringu (#22) ---------------------------------------------------
+
+# node_exporter_dropin — plik z obrazu (rola monitoring), który firstboot tylko rozszerza.
+# W piaskownicy nie ma instalacji pakietu, więc odwzorowujemy dokładnie zawartość roli.
+node_exporter_dropin() {
+  mkdir -p "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d"
+  cat >"$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d/10-wlb.conf" <<'CONF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter
+CONF
+}
+monitoring_dropin() { cat "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf"; }
+
+@test "#22 metryki: MONITORING_CIDR=/32 wystawia 9100 tylko z tego źródła" {
+  node_exporter_dropin
+  lab_env MONITORING_CIDR=172.16.25.58/32
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  grep -q 'ip saddr 172.16.25.58/32 tcp dport 9100 accept' "$SANDBOX/etc/nftables.conf"
+  # nadpisanie ExecStart (wyższy numer pliku) z zachowaniem flag textfile z obrazu
+  monitoring_dropin | grep -qx 'ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=0.0.0.0:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter'
+  monitoring_dropin | grep -qx 'ExecStart='
+  calls | grep -qx 'systemctl daemon-reload'
+  calls | grep -qx 'systemctl restart prometheus-node-exporter.service'
+  [[ $output == *"metryki VM: node_exporter na 0.0.0.0:9100, dostęp tylko z 172.16.25.58/32"* ]]
+}
+
+@test "#22 metryki: bez MONITORING_CIDR nic się nie zmienia (eksporter tylko na pętli)" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf" ]
+  refute grep -q 'dport 9100' "$SANDBOX/etc/nftables.conf"
+  refute called 'systemctl restart prometheus-node-exporter.service'
+}
+
+@test "#22 metryki: --force po usunięciu MONITORING_CIDR cofa ekspozycję" {
+  node_exporter_dropin
+  lab_env MONITORING_CIDR=172.16.25.58/32
+  "$FIRSTBOOT" >/dev/null
+  sed -i '/^MONITORING_CIDR=/d' "$SANDBOX/etc/wlb/lab.env"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf" ]
+  refute grep -q 'dport 9100' "$SANDBOX/etc/nftables.conf"
+  calls | grep -qx 'systemctl restart prometheus-node-exporter.service'
+  [[ $output == *"usunięto ekspozycję node_exportera"* ]]
+}
+
+@test "#22 metryki: nieprawidłowy MONITORING_CIDR przerywa przed zmianą zapory" {
+  local value
+  for value in 0.0.0.0/0 172.16.25.58 172.16.25.0/33 172.16.25.58/32,10.0.0.0/8; do
+    sed -i '/^MONITORING_CIDR=/d' "$SANDBOX/etc/wlb/lab.env"
+    lab_env MONITORING_CIDR="$value"
+    : >"$CALLS"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"MONITORING_CIDR='${value}'"* ]]
+    [ ! -e "$SANDBOX/etc/nftables.conf" ]
+    [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  done
+}
+
+@test "#22 metryki: brak pliku eksportera z obrazu przerywa konfigurację" {
+  lab_env MONITORING_CIDR=172.16.25.58/32
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"nie mogę wystawić metryk"* ]]
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}

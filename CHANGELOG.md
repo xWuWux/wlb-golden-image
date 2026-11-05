@@ -21,6 +21,12 @@ pierwszym Laboratorium na klastrze).
   miejsca, auditd i chrony oraz kontrola kontraktu na odpowiedzi node_exportera.
   Brak zdalnego scrape i alertowania; [runbook](docs/runbooks/RB-wlb-health.md).
 
+- **Ekspozycja metryk dla monitoringu (#22):** opcjonalny `MONITORING_CIDR` w `lab.env` wystawia
+  `node_exporter` na `0.0.0.0:9100`, a zapora dopuszcza port 9100 tylko z jednego źródła scrape'a
+  (domyślnie nadal `127.0.0.1`). Model zbierania i odstępstwo od OPZ CH.8: [IMG-010](docs/adr/IMG-010-monitoring.md);
+  procedura, weryfikacja NAT i rollback: [RB-monitoring](docs/runbooks/RB-monitoring.md).
+  Nadal brak alertingu po stronie monitoringu i `/hub/metrics`.
+
 - **SIEM / Wazuh (#17):** dekodery RFC 5424, reguły zdarzeń i audytu oraz testy
   na menedżerze Wazuh dla próbki i logu integracyjnego. Instrukcja i ograniczenia:
   [`observability/siem/wazuh/README.md`](observability/siem/wazuh/README.md).
