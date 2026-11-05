@@ -159,6 +159,32 @@ repo_with_base() {
   has_line "radiologia=false"
 }
 
+@test "memory: zmiana plików flavora wyzwala build+test memory (#105)" {
+  for file in ansible/roles/memory_apps/tasks/main.yml ansible/desktop.yml \
+    packer/wlb-memory.pkr.hcl tests/acceptance.d/45-memory.sh; do
+    repo_with_base "$file"
+    run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+    [ "$status" -eq 0 ]
+    has_line "memory=true"
+    has_line "image=true" # memory layered na bazie — baza musi się zbudować
+  done
+}
+
+@test "memory: etykieta build-memory wyzwala flavor na żądanie (#105)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='["build-memory"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "memory=true"
+  has_line "image=true"
+}
+
+@test "memory: zmiana spoza flavora nie wyzwala memory (#105)" {
+  repo_with_base envs/r/renv.lock
+  run env EVENT=pull_request LABELS='["dokumentacja"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "memory=false"
+}
+
 @test "PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)" {
   for file in ansible/roles/base/tasks/main.yml ansible/roles/lab_config/files/wlb-firstboot \
     ansible/roles/tljh/templates/config.j2 cloud-init/lab.env.example tests/proxy_sink.py \
