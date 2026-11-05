@@ -174,3 +174,23 @@ muszą przekazywać UUID v4 (mover już pobiera go z jądra).
 Walidacja potwierdza strukturę, nie autentyczność tożsamości, poprawność zegara,
 zgodę na eksport ani odporność na modyfikację przez roota. Nie wdraża rejestru #102,
 limitu całej kolejki, automatycznego recovery ani procesu Kontrolera #20.
+
+## Potwierdzenie przyjęcia dla badacza (#208)
+
+Po udanym przyjęciu mover zapisuje w `/sluza-potwierdzenia` (0750,
+`root:jupyterhub-users`, jak `/sluza-odrzucone`) plik `*.potwierdzenie.*` z wylacznie
+metadanymi wg kontraktu #208: `Element`, `Czas (UTC)`, `Wniosek` (= `request_id`
+manifestu), `Liczba plików`, `Łączny rozmiar`, `sha256-inventory`, `Status`
+(przyjęto do kolejki — nie zgoda na eksport, to nadal #20). Format kolejki i manifestu
+bez zmian — odczyt spisu z `manifest.json` gotowego wniosku.
+
+- Plik ma `0640` i właściciela UID badacza — treść tylko dla właściciela; błąd zapisu
+  potwierdzenia **nigdy** nie przerywa przyjęcia (brak pliku to sygnal diagnostyczny,
+  nie odrzucenie — wniosek i tak jest w kolejce, log `export_request` w SIEM bez zmian).
+- Prywatnosc §14.7 identyczna jak `/sluza-odrzucone`: katalog 0750 umozliwia grupie
+  badaczy **listowanie**, wiec *nazwa* pliku (znacznik czasu + sanitowana nazwa wpisu)
+  jest widoczna dla pozostalych badaczy; tresc nie. Pelne odizolowanie wymagalyby
+  podkatalogow per-UID (wspolna zmiana z `/sluza-odrzucone` — niezatwierdzone).
+- Weryfikacja: testy jednostkowe `tests/unit/wlb-sluza-out-mover.bats`, akceptacja VM
+  `tests/acceptance-remote.sh` (sekcja 5: tresc i rozmiar etykiet, wlasnosc pliku, brak
+  treści danych, brak potwierdzenia przy odrzuceniu).
