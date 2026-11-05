@@ -100,6 +100,7 @@ write_files:
       #RESEARCHER_MEM_LIMIT=16G
       #RESEARCHER_CPU_LIMIT=4
       #RESEARCHER_TASKS_MAX=2048
+      #MAX_SESSION_HOURS=12               # limit sesji 1–48 h; >12 na wniosek badacza, za zgodą §9.5 (#78)
   # CA, które wystawiło certyfikat SIEM (sam certyfikat publiczny — bez klucza prywatnego)
   - path: /etc/wlb/siem-ca.pem
     permissions: "0644"
