@@ -88,6 +88,14 @@ Obowiązują ograniczenia operacyjne (decyzje IMG-008, §14.7/§24 Regulaminu):
   odrzuca **cały** wniosek.
 - **Powód odrzucenia** znajdziesz w katalogu **`/sluza-odrzucone`** (plik z wyjaśnieniem). Jeśli plik
   zniknął ze śluzy, a nie dotarł do operatora — zajrzyj tam najpierw.
+- **Potwierdzenie przyjęcia do kolejki** znajdziesz w katalogu **`/sluza-potwierdzenia`**
+  (plik `*.potwierdzenie.*`): **liczbę plików, łączny rozmiar i sha256-inventory** spisu z wniosku
+  plus jego identyfikator. **Porównaj liczby z tym, co zamierzałeś wysłać** — to dowód, że wniosek
+  trafił do kolejki w komplecie. Potwierdzenie dotyczy wyłącznie przyjęcia do kolejki, **nie zgody
+  na eksport**; jego treść jest czytelna tylko dla Ciebie.
+- **Szybka kontrola** bez czekania na potwierdzenie: `ls -l /sluza-out/<dokładna-nazwa>` — plik
+  **wciąż jest** → śluza go jeszcze nie podjęła (poczekaj); **zniknął** i nic nie ma w
+  `/sluza-odrzucone` → przyjęty (potwierdzenie pojawi się za chwilę); **powód** w `/sluza-odrzucone` → odrzucony.
 - **Jeśli eksport w ogóle przestał działać** (nowe pliki nie znikają ze śluzy), wniosek mógł utknąć
   i wstrzymać kolejkę — **zgłoś HelpDeskowi**; operator odblokuje.
 
