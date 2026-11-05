@@ -1,8 +1,9 @@
 # Aplikacje GUI flavora wlb-memory (#105). Nakładane na warstwę pulpitu (rola desktop) — analogicznie
 # do roli neuro_apps na flavorze wlb-radiologia. Pierwsza aplikacja: LibreOffice Calc (arkusz, zamiennik
-# GraphPad Prism — warstwa arkuszowa). Kolejne pozycje #105 (jamovi #90, LabPlot/SciDAVis, kafelek Leaf)
-# dojdą do TEJ roli osobnymi PR-ami. Build warstwowy Packera (desktop.yml): role desktop + memory_apps
-# na gotowym obrazie wlb-general — baza zostaje lekka (§ „Poza zakresem obrazu" w #105).
+# GraphPad Prism — warstwa arkuszowa), LabPlot (wykresy naukowe + curve-fitting GUI, #109). Kolejne
+# pozycje #105 (jamovi #90, kafelek Leaf) dojdą do TEJ roli osobnymi PR-ami. Build warstwowy Packera
+# (desktop.yml): role desktop + memory_apps na gotowym obrazie wlb-general — baza zostaje lekka
+# (§ „Poza zakresem obrazu" w #105).
 
 - name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
   ansible.builtin.apt:
@@ -15,11 +16,19 @@
       - libreoffice-gtk3
     state: present
 
-# libreoffice-common dostarcza profile AppArmor z flags=(complain), a rola base wymusza enforce
-# PRZED tą warstwą (obraz wlb-general). Bez przełączenia akceptacja 20-apparmor.sh pada na liczniku
-# profili w complain (CIS 1.6.3, #65). Przełączamy wszystkie nowe profile w complain — nie tylko
-# znane z nazwy, bo zależności mogą dołożyć kolejne.
-- name: Profile AppArmor w trybie enforce po instalacji LibreOffice (#65, CIS 1.6.3)
+# Wykresy naukowe + curve-fitting GUI (#109). LabPlot zamiast SciDAVis: scidavis nie istnieje w apt
+# noble, a labplot 2.12.1 jest dostępny (decyzja 20.10). Instalujemy PRZED taskiem enforce poniżej —
+# pakiety Qt/KDE mogą dołożyć profile AppArmor w trybie complain.
+- name: Wykresy naukowe — LabPlot — GUI i curve-fitting (#109)
+  ansible.builtin.apt:
+    name: labplot
+    state: present
+
+# libreoffice-common dostarcza profile AppArmor z flags=(complain), a LabPlot (Qt/KDE) może dołożyć
+# kolejne — rola base wymusza enforce PRZED tą warstwą (obraz wlb-general). Bez przełączenia
+# akceptacja 20-apparmor.sh pada na liczniku profili w complain (CIS 1.6.3, #65). Przełączamy
+# wszystkie nowe profile w complain — nie tylko znane z nazwy, bo zależności mogą dołożyć kolejne.
+- name: Profile AppArmor w trybie enforce po instalacji LibreOffice i LabPlot (#65, CIS 1.6.3)
   ansible.builtin.shell: |
     set -o pipefail
     before=$(aa-status --complaining)
