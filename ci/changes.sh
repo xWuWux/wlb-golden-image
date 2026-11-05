@@ -59,6 +59,15 @@ radiologia_change() {
   grep -qE '^(ansible/roles/(neuro_apps|desktop)/|ansible/radiologia\.yml$|packer/wlb-radiologia\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|70-radiologia)\.sh$)' <<<"$changed"
 }
 
+# #105: zmiana flavora wlb-memory (memory_apps/desktop, desktop.yml/packer, testy flavora) wymaga
+# przebudowy i testu flavora (LibreOffice Calc na pulpicie) na realnym obrazie.
+memory_change() {
+  local changed
+  [[ -n $1 ]] || return 0
+  changed=$(git diff --name-only "$1" HEAD) || return 0
+  grep -qE '^(ansible/roles/(memory_apps|desktop)/|ansible/desktop\.yml$|packer/wlb-memory\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|45-memory)\.sh$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
@@ -95,6 +104,19 @@ case $EVENT in
 esac
 [[ $radiologia == true ]] && image=true
 
+# Memory (flavor pulpit+GUI): opt-in etykietą build-memory albo zmiana plików flavora na PR; nocny
+# build też go obejmuje. Buduje się na obrazie bazowym, więc wymusza image=true (etap 5 zbuduje bazę). #105
+memory=false
+case $EVENT in
+  pull_request | merge_group)
+    { has_label build-memory || memory_change "$BASE"; } && memory=true
+    ;;
+  schedule)
+    [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && memory=true
+    ;;
+esac
+[[ $memory == true ]] && image=true
+
 perf=false
 { has_label perf || [[ ${IN_PERF:-false} == true ]]; } && perf=true
 # nocny build obejmuje też benchmarki wydajności (wczesne wykrycie regresji wydajności)
@@ -106,5 +128,6 @@ ephemeral=false
 
 echo "image=$image"
 echo "radiologia=$radiologia"
+echo "memory=$memory"
 echo "perf=$perf"
 echo "ephemeral=$ephemeral"

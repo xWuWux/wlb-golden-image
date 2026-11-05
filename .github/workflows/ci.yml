@@ -60,6 +60,7 @@ jobs:
     outputs:
       image: ${{ steps.changes.outputs.image }}
       radiologia: ${{ steps.changes.outputs.radiologia }}
+      memory: ${{ steps.changes.outputs.memory }}
       perf: ${{ steps.changes.outputs.perf }}
       ephemeral: ${{ steps.changes.outputs.ephemeral }}
     steps:
@@ -184,7 +185,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Miejsce na dysku (obraz + VM testowe)
         run: |
-          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          # Flavor wlb-memory (LibreOffice) + baza + konwersje qemu-img przepełniały / runnera
+          # ("No space left" po ~22 GB, #203). Agresywniej zwalniamy preinstal runnera.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost \
+            /usr/lib/google-cloud-sdk /opt/microsoft /usr/local/graalvm 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo apt-get clean
           df -h /
       - name: Dostęp do KVM
         run: ci/enable-kvm.sh
@@ -202,6 +209,9 @@ jobs:
           # Flavor wlb-radiologia budowany+testowany tylko na żądanie (etykieta build-radiologia / zmiana
           # plików flavora / nocny build) — opt-in, bez kosztu na każdym PR (#135).
           WLB_BUILD_RADIOLOGIA: ${{ needs.lint.outputs.radiologia == 'true' && '1' || '0' }}
+          # Flavor wlb-memory analogicznie opt-in (etykieta build-memory / zmiana plików flavora / nocny
+          # build) — pulpit + LibreOffice Calc testowane na realnym obrazie (#105).
+          WLB_BUILD_MEMORY: ${{ needs.lint.outputs.memory == 'true' && '1' || '0' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
