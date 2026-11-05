@@ -16,6 +16,15 @@ UNIT=jupyter-$R1.service
 NOW=$(date +%s)
 mkdir -p /run/wlb/usage
 
+# Izolacja od ŻYWEGO samplera (naprawa flake'a #98): UNIT=jupyter-$R1.service to prawdziwa jednostka,
+# którą wlb-usage-sampler.timer próbkuje okresowo w tle. Gdyby timer wystrzelił między zapisem
+# syntetycznego .kv a wlb-usage-record, nadpisałby go realnymi wartościami → zapisana próbka ≠
+# oczekiwana → FAIL. Wyścig trafiał częściej na wolniejszych/obciążonych flavorach (wlb-radiologia:
+# dłuższe okno + presja OOM), stąd „PASS na wlb-memory, FAIL na wlb-radiologia" w tym samym przebiegu.
+# Zatrzymujemy TIMER na czas scenariuszy syntetycznych; ręczny start sampler.service w fazie „na żywo"
+# niżej dalej działa. is-enabled (sprawdzone wyżej) nie zmienia się przez stop; timer wznawiamy na końcu.
+systemctl stop wlb-usage-sampler.timer 2>/dev/null || true
+
 cat >/tmp/wlb-98-verify.py <<'PY'
 import glob, json, sys
 
@@ -67,3 +76,6 @@ expect_ok "Probka z obcego bootu -> no_samples i null, nie zero udajace pomiar (
   python3 /tmp/wlb-98-verify.py testsession-stary no_samples
 
 rm -f /tmp/wlb-98-verify.py
+
+# Przywróć okresowy sampler — stop obejmował tylko czas scenariuszy syntetycznych (#98).
+systemctl start wlb-usage-sampler.timer 2>/dev/null || true
