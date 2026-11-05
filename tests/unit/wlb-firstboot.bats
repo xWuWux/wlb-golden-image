@@ -46,6 +46,7 @@ WLB_RESEARCHER_UID_MIN=10000
 WLB_RESEARCHER_UID_MAX=59999
 WLB_RESEARCHER_GROUP=jupyterhub-users
 WLB_TLJH_ADMIN_SUDO=0
+WLB_DEFAULT_SESSION_SECONDS=43200
 EOF
   cat >"$SANDBOX/etc/wlb/directories.conf" <<'EOF'
 # ścieżka właściciel grupa tryb
@@ -705,6 +706,7 @@ meminfo() { # meminfo MiB — MemTotal w piaskownicy
 }
 limits() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"; }
 slice_conf() { cat "$SANDBOX/etc/systemd/system/wlb-badacze.slice.d/50-wlb-limits.conf"; }
+session_override() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py"; }
 lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   local kv
   for kv in "$@"; do echo "$kv" >>"$SANDBOX/etc/wlb/lab.env"; done
@@ -722,6 +724,58 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   calls | grep -qx 'systemctl daemon-reload'
   [[ $output == *"limity: RAM 16384 MiB, rezerwa 3072 MiB, badacze razem 13312 MiB (1 równolegle); na badacza 13312 MiB, CPU 8, procesy 2048"* ]]
   python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/60-wlb-limits.py"
+}
+
+@test "limit sesji: MAX_SESSION_HOURS=48 -> cull.max_age + TTL ciasteczka/tokenu spojnie (#78)" {
+  lab_env MAX_SESSION_HOURS=48
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'tljh-config set services.cull.max_age 172800'
+  session_override | grep -qx 'c.JupyterHub.oauth_token_expires_in = 172800'
+  session_override | grep -qx 'c.JupyterHub.cookie_max_age_days = 2.000000'
+  [[ $output == *"limit sesji: 48 h (172800 s)"* ]]
+  python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py"
+}
+
+@test "limit sesji: domyslnie (bez MAX_SESSION_HOURS) brak override i ZADNEGO set cull.max_age (#78)" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py" ]
+  # na pierwszym starcie bez wydłużenia firstboot nie dotyka cull.max_age w ogóle (nie tylko ≠172800)
+  refute called 'services\.cull\.max_age'
+}
+
+@test "limit sesji: MAX_SESSION_HOURS niepoprawne (zakres, zera wiodące, nieliczba) -> blad firstboot (#78)" {
+  # 0/49/99 poza zakresem; 012/08 zera wiodące (wcześniej 012 przechodziło jako ósemkowe 10 h!);
+  # abc/48h nieliczba. Każde MUSI zostać odrzucone czytelnym die, przed modyfikacją systemu.
+  for bad in 0 49 99 012 08 abc 48h; do
+    sed -i '/^MAX_SESSION_HOURS=/d' "$SANDBOX/etc/wlb/lab.env"
+    echo "MAX_SESSION_HOURS=$bad" >>"$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ] || {
+      echo "NIE odrzucono wartości: '$bad'"
+      false
+    }
+    [[ $output == *"MAX_SESSION_HOURS musi być liczbą 1–48"* ]] || {
+      echo "zły komunikat dla '$bad': $output"
+      false
+    }
+  done
+}
+
+@test "limit sesji: --force po usunięciu MAX_SESSION_HOURS cofa wydłużenie do domyślnego (#78)" {
+  SESSION_D=$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py
+  lab_env MAX_SESSION_HOURS=48
+  "$FIRSTBOOT" >/dev/null
+  [ -e "$SESSION_D" ]
+  calls | grep -qx 'tljh-config set services.cull.max_age 172800'
+  # badacz kończy wniosek: administrator usuwa wydłużenie z lab.env i odpala firstboot --force
+  sed -i '/^MAX_SESSION_HOURS=/d' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  [ ! -e "$SESSION_D" ]                                                # nadpisanie TTL skasowane
+  calls | grep -qx 'tljh-config set services.cull.max_age 43200'      # cull.max_age wrócił do domyślnego
+  [[ $output == *"cofnięto wydłużenie"* ]]                            # ślad w logu
 }
 
 @test "limity: duża VM — rezerwa 10% RAM" {
