@@ -60,3 +60,30 @@ git push origin v0.1.0
 - Przechowywanie niezmiennego qcow2 i promocja DEV→UAT→PROD — **#12b** (po #15).
 - Zamrożenie apt ze `snapshot.ubuntu.com` (powtarzalność pakietów systemowych) i podpis
   (cosign/GPG) — osobne, niższe priorytety.
+
+## Spójność obrazów kandydata platformy (#224)
+
+Katalog `release/image-catalog.json` przypisuje każdemu wymaganemu obrazowi nazwę
+bazy (dla obrazu bazowego: JSON `null`). Zmiana zestawu wymaga przeglądu.
+W prywatnym katalogu stagingowym umieść ukończone obrazy pod nazwami
+`<wariant>.qcow2`. Katalog i pliki muszą pozostawać pod kontrolą joba CI
+przez cały czas weryfikacji i przekazania do magazynu.
+
+```bash
+python3 ci/verify_platform_images.py 1.2.0 candidate-images.json staging/
+```
+
+Pierwszy argument to docelowa wersja bez prefiksu v, także podczas prób RC.
+Dokument wejściowy zawiera `schema` (liczba całkowita 1), `version` (tekst X.Y.Z)
+i `images` (mapa nazw z katalogu). Rekord obrazu zawiera wyłącznie `version`,
+`sha256` (64 małe cyfry szesnastkowe pliku qcow2) i `base_sha256`
+(digest faktycznego wejścia budowy warstwy albo null dla bazy).
+Producent ma pobrać digest wejścia w czasie budowania warstwy, a następnie
+przekazać zapis razem z zaufaną atestacją. Odtworzenie pola po budowie
+przez skopiowanie sumy z rekordu bazy nie dowodzi pochodzenia.
+
+Kod 0 oznacza zgodność zadeklarowanych wersji, zestawu, powiązań i sum plików.
+Kod 1 oznacza błąd walidacji lub odczytu. Testy etapu 4 sprawdzają ten kontrakt
+na małych plikach. Pełny proces wymaga jeszcze wytworzenia manifestu przez CI,
+testów uruchomienia wszystkich obrazów, odbioru pozostałych repozytoriów,
+podpisania manifestu i włączenia kontroli przed publikacją (#224).
