@@ -1,12 +1,19 @@
 # Warstwa pulpitu flavora wlb-memory (#106). Nakładana na GOTOWY obraz wlb-general, więc
-# uruchamia role desktop (pulpit) + memory_apps (aplikacje GUI „pod pamięć", #105) — nie przebudowuje
-# OS/Python/R (warstwowy build Packera). Pełny build bazy pozostaje w site.yml; tam rola desktop jest
-# gated wlb_desktop_enabled.
-- name: WLB wlb-memory — pulpit + aplikacje GUI na obrazie wlb-general
+# uruchamia role desktop (pulpit) + rstudio (R-GUI, #108) + memory_apps (aplikacje GUI „pod pamięć",
+# #105) — nie przebudowuje OS/Python/R (warstwowy build Packera). Pełny build bazy pozostaje w
+# site.yml; tam rola desktop jest gated wlb_desktop_enabled, a rstudio — wlb_rstudio_enabled.
+#
+# RStudio Server (przez jupyter-rsession-proxy, w przeglądarce) realizuje warstwę statystyki z GUI
+# z #108 — zamiennik GraphPad Prism dla niekodujących. jamovi/JASP (tylko Flatpak) i RKWard (ABI R:
+# obraz ma R z CRAN 4.6.x, rkward z Ubuntu wymaga r-graphics-engine-16 = R 4.4) okazały się
+# niewdrażalne na tym obrazie — RStudio jest już w repo (rola rstudio) i spójne z modelem (R z CRAN).
+# rstudio PRZED memory_apps: finalny task „AppArmor enforce" w memory_apps pokrywa też jego pakiety.
+- name: WLB wlb-memory — pulpit + R-GUI (RStudio) + aplikacje GUI na obrazie wlb-general
   hosts: all
   become: true
   roles:
     - desktop
+    - rstudio
     - memory_apps
 
   post_tasks:
