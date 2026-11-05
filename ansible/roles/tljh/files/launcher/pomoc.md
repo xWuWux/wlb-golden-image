@@ -67,6 +67,9 @@ Laboratorium (całej VM) i usuwa 12-godzinny limit jako przyczynę przerwania li
 > postęp; pliki w `/workspace` zostają. Dlatego **regularny checkpoint do `/workspace` jest nadal
 > konieczny**, niezależnie od długości sesji. Obliczenie trwające ponad 48 h i tak zostanie ucięte.
 
+**Uwaga:** po wygaśnięciu sesji **zaloguj się ponownie**, a nie klikaj „Wyloguj" — wylogowanie
+zatrzymuje serwer notebooków (`shutdown_on_logout=True`) i może przerwać niezapisane obliczenie.
+
 **Jak wnioskować:** zgłoś się do **HelpDesku** lub do **Administratora Klienta** swojego Laboratorium.
 
 ## Eksport wyników — limity i odrzucenia
