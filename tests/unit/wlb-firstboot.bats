@@ -742,7 +742,7 @@ lab_env() { # lab_env KLUCZ=WARTOŚĆ...
   [ "$status" -eq 0 ]
   [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py" ]
   # na pierwszym starcie bez wydłużenia firstboot nie dotyka cull.max_age w ogóle (nie tylko ≠172800)
-  ! calls | grep -q 'services\.cull\.max_age'
+  refute called 'services\.cull\.max_age'
 }
 
 @test "limit sesji: MAX_SESSION_HOURS niepoprawne (zakres, zera wiodące, nieliczba) -> blad firstboot (#78)" {
