@@ -119,6 +119,34 @@ expect_fail "W kolejce nie ma dowiązań ani plików specjalnych (#29)" bash -c 
 expect_ok "Badacz widzi katalog zwrotny /sluza-odrzucone" as $R1 ls /sluza-odrzucone
 expect_ok "Powód odrzucenia dowiązania czytelny dla badacza (#162)" \
   as $R1 bash -c "grep -rq unsupported_type /sluza-odrzucone/*link-test*.powod.* 2>/dev/null"
+# Pozytywne potwierdzenie przyjęcia do kolejki (#208): symetria sygnału zwrotnego dla badacza.
+expect_ok "Katalog potwierdzen ma tryb 0750 root:jupyterhub-users (#208)" \
+  bash -c "stat -c '%a %U %G' /sluza-potwierdzenia | grep -qx '750 root jupyterhub-users'"
+expect_ok "Badacz widzi katalog /sluza-potwierdzenia (#208)" as $R1 ls /sluza-potwierdzenia
+ZN208="ZNACZNIK208ABCD"  # znacznik treści — nie wolno go znaleźc w potwierdzeniu
+SZ208=$((${#ZN208} + 2)) # zawartość pliku: a<znacznik>b
+as $R1 bash -c "printf 'a%sb' '$ZN208' > /sluza-out/potwierdzenie-test.txt"
+for _ in $( # deterministycznie: czekamy na plik potwierdzenia, nie na ślepy sleep
+  seq 1 20
+); do
+  compgen -G '/sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.*' >/dev/null && break
+  sleep 1
+done
+expect_ok "Po przyjeciu pojawia się potwierdzenie (*potwierdzenie.*) (#208)" \
+  bash -c "compgen -G '/sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.*' >/dev/null"
+expect_ok "Potwierdzenie własnością badacza, tryb 0640 (#208)" \
+  bash -c "stat -c '%a %u' /sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.* | grep -qx '640 $(id -u jupyter-$R1)'"
+# shellcheck disable=SC2016  # zmienna lokalna rozwijana przed przekazaniem, $f celowo wewn.
+expect_ok "Potwierdzenie czytelne dla badacza i ze zgodnymi etykietami/rozmiarem kontraktu (#208)" \
+  as $R1 bash -c "grep -q 'przyjęty do kolejki' /sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -q '^Element:            potwierdzenie-test.txt$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -q '^Liczba plików:      1$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -q '^Łączny rozmiar:     $SZ208 B$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.* \
+    && grep -qE '^sha256-inventory:   [0-9a-f]{64}$' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.*"
+expect_fail "Potwierdzenie nie zawiera treści pliku — tylko metadane (§14.7, #208)" \
+  as $R1 bash -c "grep -q '$ZN208' /sluza-potwierdzenia/*potwierdzenie-test.txt.potwierdzenie.*"
+expect_fail "Wpis odrzucony (dowiązanie) NIE ma potwierdzenia — tylko powód (#208)" \
+  bash -c "compgen -G '/sluza-potwierdzenia/*link-test*' >/dev/null"
 
 echo "== 5c. Administrator Klienta: rola ograniczona, bez wglądu w dane badacza (IMG-003/#51) =="
 HUB_DB=sqlite:////workspace/.wlb-hub/jupyterhub.sqlite
@@ -344,10 +372,25 @@ else
 fi
 
 echo "== 7. Limity sesji (§9.5) =="
+# Oczekiwany limit sesji zależy od Laboratorium: domyślnie 12 h (43200 s), ale Lab z wydłużeniem
+# (MAX_SESSION_HOURS, #78) ma MAX_SESSION_HOURS*3600. Czytamy efektywną wartość z lab.env, żeby test
+# przechodził na obu konfiguracjach. Idle culling (30 min) jest niezależny od długości sesji.
+wlb_max_h=$(sed -n 's/^MAX_SESSION_HOURS=//p' /etc/wlb/lab.env 2>/dev/null | tail -1)
+if [[ $wlb_max_h =~ ^([1-9]|[1-3][0-9]|4[0-8])$ ]]; then wlb_sess_s=$((wlb_max_h * 3600)); else wlb_sess_s=43200; fi
 expect_ok "Idle culling 30 min" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--timeout=1800"'
-expect_ok "Twardy limit 12 h (culler --max-age)" bash -c 'pgrep -af jupyterhub_idle_culler | grep -q -- "--max-age=43200"'
-expect_ok "Wygaśnięcie ciasteczka i tokenów po 12 h" grep -q 'oauth_token_expires_in = 43200' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
-skip "Faktyczne wylogowanie po 12 h — test ręczny (zob. README)"
+expect_ok "Twardy limit sesji (culler --max-age=${wlb_sess_s})" \
+  bash -c "pgrep -af jupyterhub_idle_culler | grep -q -- '--max-age=${wlb_sess_s}'"
+# TTL ciasteczka/tokenu: na Labie z wydłużeniem nadpisanie 11-wlb-session.py przebija 10-wlb.py
+# (wyższy numer = ładowane później), więc sprawdzamy je tam, gdzie wartość faktycznie obowiązuje.
+wlb_sess_override=/opt/tljh/config/jupyterhub_config.d/11-wlb-session.py
+if [[ -f $wlb_sess_override ]]; then
+  expect_ok "Wygaśnięcie ciasteczka i tokenów po ${wlb_sess_s} s (nadpisanie 11-wlb-session.py)" \
+    grep -q "oauth_token_expires_in = ${wlb_sess_s}" "$wlb_sess_override"
+else
+  expect_ok "Wygaśnięcie ciasteczka i tokenów po 12 h" \
+    grep -q 'oauth_token_expires_in = 43200' /opt/tljh/config/jupyterhub_config.d/10-wlb.py
+fi
+skip "Faktyczne wylogowanie po limicie sesji — test ręczny (zob. README)"
 
 echo "== 7a. Czas (znaczniki audytu, §21) =="
 expect_ok "chrony używa serwerów z NTP_SERVERS" bash -c 'chronyc -n sources | grep -q "10\.0\.2\.2"'
