@@ -1,8 +1,10 @@
 # Aplikacje GUI flavora wlb-memory (#105). Nakładane na warstwę pulpitu (rola desktop) — analogicznie
 # do roli neuro_apps na flavorze wlb-radiologia. Pierwsza aplikacja: LibreOffice Calc (arkusz, zamiennik
-# GraphPad Prism — warstwa arkuszowa). Kolejne pozycje #105 (jamovi #90, LabPlot/SciDAVis, kafelek Leaf)
-# dojdą do TEJ roli osobnymi PR-ami. Build warstwowy Packera (desktop.yml): role desktop + memory_apps
-# na gotowym obrazie wlb-general — baza zostaje lekka (§ „Poza zakresem obrazu" w #105).
+# GraphPad Prism — warstwa arkuszowa). Statystyka z GUI (#108) jest realizowana przez RStudio Server
+# (rola rstudio w desktop.yml, przez jupyter-rsession-proxy), NIE w tej roli — jamovi/JASP (tylko
+# Flatpak) i RKWard (ABI R: obraz ma CRAN R 4.6.x, rkward wymaga r-graphics-engine-16 = R 4.4) odpadły.
+# Kolejne pozycje #105 (LabPlot #109, kafelek Leaf) dojdą do TEJ roli osobnymi PR-ami. Build warstwowy
+# Packera (desktop.yml): role desktop + rstudio + memory_apps na obrazie wlb-general — baza lekka.
 
 - name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
   ansible.builtin.apt:
