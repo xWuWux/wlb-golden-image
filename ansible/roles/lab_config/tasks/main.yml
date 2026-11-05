@@ -10,6 +10,9 @@
       WLB_SLUZA_OUT=/sluza-out
       WLB_EXPORT_QUEUE={{ wlb_export_queue_dir }}
       WLB_TLJH_ADMIN_SUDO={{ tljh_admins_have_sudo | bool | ternary(1, 0) }}
+      # Wkompilowany domyślny limit sesji §9.5 (12 h). wlb-firstboot przywraca do niego cull.max_age,
+      # gdy MAX_SESSION_HOURS zostanie usunięte z lab.env (--force cofa wydłużenie). #78
+      WLB_DEFAULT_SESSION_SECONDS={{ tljh_max_session_seconds }}
 
 - name: Wzór lab.env (dokumentacja zmiennych per-Lab)
   ansible.builtin.copy:

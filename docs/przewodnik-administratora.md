@@ -119,8 +119,8 @@ samego przypisania, nie przekazanie.
 ## Co dostaje badacz i jakie są granice
 
 - Python + R (IRkernel/HADES) + Julia (IJulia) w jednej sesji JupyterLab; `/data-mart` tylko do odczytu.
-- **Sesja max 12 h** niezależnie od aktywności (culler + ciasteczko/tokeny 12 h); długie
-  obliczenia — patrz pomoc w Launcherze i #78.
+- **Sesja max 12 h** (domyślnie; do 48 h per-Lab na wniosek, `MAX_SESSION_HOURS`, #78) niezależnie
+  od aktywności (culler + ciasteczko/tokeny o tym samym TTL); długie obliczenia — patrz pomoc w Launcherze.
 - **Śluza:** zapis do `/sluza-in` odrzucany; plik w `/sluza-out` znika z widoku i trafia do kolejki eksportu.
   Badacz dostaje sygnał zwrotny: `*.potwierdzenie.*` w `/sluza-potwierdzenia` (przyjęcie, #208)
   albo `*.powod.*` w `/sluza-odrzucone` (odrzucenie); oba katalogi 0750 z listowaniem dla grupy
