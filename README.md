@@ -201,8 +201,11 @@ node_exportera; semantykę, diagnostykę i ograniczenia opisuje [runbook](docs/r
 **Czego celowo nie ma:**
 - **śladów rozproszonych w VM,** bo nie ma tam usług wywołujących się nawzajem (zdarzenia koreluje się
   po `user`, `uid` i `session`),
-- **zdalnego dostępu do metryk VM**. `prometheus-node-exporter` udostępnia metryki wyłącznie lokalnie
-  na `127.0.0.1:9100`; podłączenie serwera monitoringu i otwarcie zapory wymaga kolejnej zmiany (#22).
+- **domyślnej ekspozycji metryk na sieć**. `prometheus-node-exporter` słucha `127.0.0.1:9100`;
+  scrape z sieci monitoringu włącza się jawnie przez `MONITORING_CIDR` (jedno źródło, zwykle `/32`)
+  — reguła zapory dopuszcza port 9100 tylko z tego zakresu. Procedura, weryfikacja adresu źródłowego
+  i rollback: [RB-monitoring](docs/runbooks/RB-monitoring.md); model zbierania i odstępstwo od OPZ CH.8:
+  [IMG-010](docs/adr/IMG-010-monitoring.md).
 
 ## Wdrożenie obrazu
 

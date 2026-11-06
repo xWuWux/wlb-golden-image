@@ -168,6 +168,7 @@ Najważniejsze:
 | `EGRESS_ALLOW` | adresy, z którymi procesy badaczy łączą się wprost (nftables, obrona w głębi) |
 | `ADMIN_SSH_CIDR` | pojedyncza kanoniczna sieć źródłowa SSH administratora (#18) |
 | `HUB_ALLOWED_CIDR` | skąd wolno łączyć się z hubem (portal/VDI) |
+| `MONITORING_CIDR` | skąd wolno scrape'ować metryki VM (`:9100`); puste = brak ekspozycji (#22) |
 | `HUB_TLS` (+`_CERT`/`_KEY`) | TLS huba; `1` domyślnie (HTTPS/443). `0` tylko dev/izolowana sieć — dane RODO nie mogą iść jawnym tekstem |
 | `NTP_SERVERS` | wewnętrzne serwery czasu |
 | `AUTH_MODE` | `native` (MVP) albo `oidc` |
@@ -183,6 +184,11 @@ wartości domyślnej zatrzymują PR — zamiast ujawnić się dopiero na postawi
 z `/etc/wlb/image.conf` są własnością obrazu (nie parametrem Laboratorium) i kontrakt ich nie obejmuje.
 Rotacja certyfikatu / zmiana `lab.env`: podmień pliki i uruchom `sudo wlb-firstboot --force`
 (przed blokadą audytu).
+
+`MONITORING_CIDR` włącza scrape metryk z sieci monitoringu: pojedyncze źródło (zwykle `/32`),
+reguła zapory na port 9100 i nasłuch eksportera poza pętlą. Adres źródłowy sprawdź empirycznie
+(NAT może go podmienić) — procedura, weryfikacja i rollback: [RB-monitoring](runbooks/RB-monitoring.md).
+Model zbierania i odstępstwo od OPZ CH.8 (Zabbix): [IMG-010](adr/IMG-010-monitoring.md).
 
 ## Aktualizacja i wycofanie
 
