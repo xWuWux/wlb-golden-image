@@ -353,7 +353,12 @@ def test_mixed_ownership_is_rejected(snapshot, tmp_path, monkeypatch):
     def other_owner(fd):
         st = real_fstat(fd)
         if snapshot.stat.S_ISREG(st.st_mode):
-            return SimpleNamespace(st_uid=st.st_uid + 1)
+            # Kopia WSZYSTKICH publicznych atrybutów stat, nie tylko st_uid: monkeypatch
+            # podmienia globalne os.fstat, więc z niekompletnego obiektu korzystają też
+            # inni (np. capture pytest-a czyta .st_size — pytest 9.2 dodał ten fast-path).
+            ns = SimpleNamespace(**{k: getattr(st, k) for k in dir(st) if not k.startswith("_")})
+            ns.st_uid = st.st_uid + 1
+            return ns
         return st
 
     monkeypatch.setattr(snapshot.os, "fstat", other_owner)
