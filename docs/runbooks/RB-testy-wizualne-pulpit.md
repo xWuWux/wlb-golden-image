@@ -2,7 +2,7 @@
 
 **Rola:** Operator budowy obrazu / QA
 **Odniesienia:** #138 (plan etapowy), #205 (hardening etapu 1), #106 (pulpit), #105 (flavor wlb-memory), #135 (radiologia GUI)
-**Co to:** render-smoke sprawdza, że pulpit **realnie się renderuje** i reaguje na interakcję, a nie tylko że pakiety są obecne. Etap 1 — samodzielny skrypt `tests/desktop-render-smoke.sh`, uruchamiany ręcznie na VM `wlb-memory`/`wlb-radiologia`. **Jeszcze nie** w bramkującej akceptacji (patrz §8).
+**Co to:** render-smoke sprawdza, że pulpit **realnie się renderuje** i reaguje na interakcję, a nie tylko że pakiety są obecne. Etap 1 — samodzielny skrypt `tests/desktop-render-smoke.sh`, uruchamiany ręcznie na VM `wlb-memory`/`wlb-radiologia` (a od etapu 1b także przez akceptację). Render-smoke jest już wpięty w akceptację jako fragment `tests/acceptance.d/45-pulpit-render.sh`, ale **nie-bramkująco**: błąd renderu daje `SKIP`, nie `FAIL`. Pełne bramkowanie (`ko`) włącza `WLB_RENDER_SMOKE_GATING=1` po walidacji — patrz §8.
 
 ## 1. Zasada działania
 
@@ -27,9 +27,11 @@ Liczba kolorów na ekranie jest **tylko diagnostyką** — niski wynik nie decyd
 
 ```bash
 # na VM wlb-memory/wlb-radiologia, jako administrator platformy:
-sudo -iu <badacz> /opt/wlb/tests/desktop-render-smoke.sh   # ścieżka = gdzie leży repo/skrypt
+sudo -iu <badacz> /opt/wlb/tests/desktop-render-smoke.sh
 echo "wynik: $?"    # 0 = OK, 1 = środowisko/start/gotowość, 2 = błąd renderu
 ```
+
+Na obrazie z pulpitem skrypt jest pod `/opt/wlb/tests/desktop-render-smoke.sh` — kopię wgrywa rola `desktop` (tryb `0755`). W repo źródło pozostaje w `tests/desktop-render-smoke.sh` (tam też leży helper `desktop_render_smoke.py`).
 
 Skrypt zawsze wypisuje ścieżkę `result.json`, np.:
 
@@ -126,13 +128,15 @@ jq '.reason, .checks, .colors' "$ARTIFACT_DIR/result.json"
 - Dwa równoległe przebiegi wybierają różne displaye; przy wymuszonym `WLB_SMOKE_DISPLAY` drugi przebieg kończy się `display_busy`.
 - Test nie łączy się z Hubem ani noVNC; to osobny etap (#206).
 
-## 8. Dlaczego jeszcze nie w akceptacji (świadoma decyzja, #138/#205)
+## 8. Akceptacja nie-bramkująca i kolejność promocji (świadoma decyzja, #138/#205)
 
-Render-smoke to test **runtime** (start X + XFCE + interakcja) — z natury wrażliwy na czas i wolniejszy niż lekkie fragmenty `acceptance.d/` (`command -v`). Wpięcie go teraz w bramkujący stage 5 (#86) groziłoby **fałszywymi czerwonymi**. Kolejność:
+Render-smoke to test **runtime** (start X + XFCE + interakcja) — z natury wrażliwy na czas i wolniejszy niż lekkie fragmenty `acceptance.d/` (`command -v`). Dlatego jest wpięty w akceptację **nie-bramkująco**: fragment `tests/acceptance.d/45-pulpit-render.sh` jest adaptacyjny (uruchamia się tylko na `wlb-memory`/`wlb-radiologia`, detekcja jak w `40-pulpit.sh` przez import `jupyter_remote_desktop_proxy`) i woła `/opt/wlb/tests/desktop-render-smoke.sh` jako badacz (`as R1`). Wynik `0` daje `PASS` (`ok`), a bez gatingu każdy inny kod — `SKIP` (`skip`, nie `ko`), więc błąd renderu **nie wnosi fałszywego czerwonego** do stage 5 (#86). Kolejność promocji:
 
 1. empiryczna walidacja na prawdziwym XFCE/TigerVNC (w tym cleanup i dwa równoległe przebiegi),
-2. co najmniej 20 kolejnych przebiegów bez niewyjaśnionych błędów,
-3. dopiero potem fragment `tests/acceptance.d/` (nazwa do ustalenia — `45-memory.sh` jest zajęte) i promocja do etapu 5.
+2. co najmniej 20 kolejnych przebiegów bez niewyjaśnionych błędów — **w toku**: nie-bramkujący fragment zbiera je w CI/VM automatycznie (sygnał + artefakty),
+3. **częściowo zrobione:** fragment `tests/acceptance.d/45-pulpit-render.sh` już istnieje i działa nie-bramkująco; po kroku 2 pozostaje włączyć `WLB_RENDER_SMOKE_GATING=1` (zamienia `SKIP`→`ko`) i promować fragment do bramkowania etapu 5.
+
+Skrypt i helper (`desktop_render_smoke.py`) są wgrywane do obrazu przez rolę `desktop` do `/opt/wlb/tests/` (tryb `0755`); źródło w repo pozostaje w `tests/`. Dzięki temu fragment akceptacji może wołać skrypt na VM, niezależnie od tego, czy repo jest zamontowane.
 
 ## 9. Testy jednostkowe (atrapy X)
 
