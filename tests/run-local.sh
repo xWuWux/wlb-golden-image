@@ -6,6 +6,7 @@
 #   KEEP_WORKSPACE=1 tests/run-local.sh  # ponownie użyj dysku roboczego (test migracji)
 #   SSH:  ssh -p 2222 -i build/test/id_ed25519 wlbadmin@127.0.0.1
 #   Hub:  http://localhost:8080  (z Windows także, WSL przekazuje localhost)
+#   Hub TLS: https://localhost:8443  (gdy HUB_TLS=1; m.in. E2E przeglądarkowe #206)
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -13,6 +14,7 @@ T="$ROOT/build/test"
 IMAGE=${1:-$(find "$ROOT/output" -name '*.qcow2' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)}
 SSH_PORT=${SSH_PORT:-2222}
 HUB_PORT=${HUB_PORT:-8080}
+HUB_TLS_PORT=${HUB_TLS_PORT:-8443}
 
 [[ -n $IMAGE && -f $IMAGE ]] || {
   echo "Brak obrazu — najpierw make build"
@@ -58,7 +60,7 @@ qemu-system-x86_64 -name wlb-lab-test01 -machine q35,accel=kvm -cpu host \
   -drive file="$T/system.qcow2",if=virtio,format=qcow2 \
   -drive file="$T/workspace.qcow2",if=virtio,format=qcow2 \
   -drive file="$T/seed.iso",if=virtio,format=raw,readonly=on \
-  -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:${HUB_PORT}-:80" \
+  -nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:${HUB_PORT}-:80,hostfwd=tcp:127.0.0.1:${HUB_TLS_PORT}-:443" \
   -display none -serial file:"$T/serial.log" \
   -daemonize -pidfile "$T/qemu.pid"
 
@@ -85,6 +87,7 @@ cat <<EOF
 VM testowa działa.
   SSH:  ssh -p $SSH_PORT -i build/test/id_ed25519 wlbadmin@127.0.0.1
   Hub:  http://localhost:$HUB_PORT
+  Hub TLS: https://localhost:$HUB_TLS_PORT  (gdy HUB_TLS=1)
   Hasło admina huba (a01): make test-password
 Testy: make test    Zatrzymanie: make test-down
 EOF

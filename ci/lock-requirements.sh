@@ -6,7 +6,7 @@
 # lock działa niezależnie od platformy runnera.
 #
 # Edytuj piny TYLKO w ci/requirements-*.in (top-level), potem uruchom ten skrypt i zacommituj .txt.
-#   ci/lock-requirements.sh
+#   ci/lock-requirements.sh [lint|security|unit|e2e]   # bez argumentów: wszystkie
 set -euo pipefail
 
 PY=3.12
@@ -17,7 +17,9 @@ command -v uv >/dev/null 2>&1 || {
 }
 
 cd "$(dirname "$0")/.."
-for name in lint security unit; do
+names=("$@")
+((${#names[@]})) || names=(lint security unit e2e)
+for name in "${names[@]}"; do
   in="ci/requirements-$name.in"
   out="ci/requirements-$name.txt"
   tmp=$(mktemp)
