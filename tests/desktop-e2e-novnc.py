@@ -133,18 +133,23 @@ def main() -> None:
             # Po zalogowaniu hub spawnuje serwer i przekierowuje do /user/<user>/lab.
             page.wait_for_url("**/user/**", timeout=left() * 1000)
 
-            # 2. Launcher → kafelek „Desktop". jrdp otwiera pulpit w NOWEJ karcie/oknie (kafelek
-            #    „Desktop [↗]"), więc PRZECHWYTUJEMY nową stronę (popup) i dalej próbkujemy JĄ, nie
-            #    Launcher — inaczej canvas nigdy się nie znajdzie (SKIP/FAIL). Fallback na tę samą
-            #    kartę, gdyby wersja otwierała pulpit w miejscu (iframe).
-            page.wait_for_selector("text=/^Desktop$/", timeout=left() * 1000)
+            # 2. Launcher → kafelek „Desktop" (LINK). jrdp otwiera pulpit w NOWEJ karcie, więc
+            #    PRZECHWYTUJEMY nową stronę (popup) i dalej próbkujemy JĄ, nie Launcher — inaczej canvas
+            #    nigdy się nie znajdzie (SKIP/FAIL). FALLBACK: bezpośredni goto /user/<user>/desktop/
+            #    (ten sam widok noVNC bez klikania kafelka), gdy kafelek niewidoczny / nie otworzył karty.
+            desktop = None
             try:
+                tile = page.get_by_role("link", name="Desktop")
+                tile.wait_for(timeout=min(left(), 30) * 1000)
                 with ctx.expect_page(timeout=min(left(), 30) * 1000) as popup_info:
-                    page.click("text=/^Desktop$/")
+                    tile.click()
                 desktop = popup_info.value
                 desktop.wait_for_load_state("domcontentloaded", timeout=left() * 1000)
             except PwTimeoutError:
-                desktop = page  # pulpit otwarty w tej samej karcie
+                desktop = None
+            if desktop is None:
+                desktop = ctx.new_page()
+                desktop.goto(f"{hub}/user/{user}/desktop/", wait_until="domcontentloaded", timeout=left() * 1000)
             desktop.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
 
             # 3. Sesja server-proxy: canvas noVNC na stronie pulpitu (desktop), z shadow-DOM pierce.
