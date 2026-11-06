@@ -1,0 +1,5 @@
+# ŹRÓDŁO pinów top-level (edytuj tutaj). Po zmianie uruchom ci/lock-requirements.sh e2e i zacommituj
+# wygenerowany lock z hashami ci/requirements-e2e.txt (instalowany w CI z --require-hashes, IMG-008 5b).
+# Stage 5: E2E renderu pulpitu przez Hub → proxy → noVNC (#206). Playwright + Chromium żyją tylko
+# w warstwie testowej runnera; pin ≥2 tygodnie od wydania, Chromium instaluje ci/install-tools.sh e2e.
+playwright==1.64.1

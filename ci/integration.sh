@@ -10,6 +10,8 @@
 #   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
 #   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
+#   8. E2E renderu pulpitu w przeglądarce: Playwright/Chromium na runnerze → Hub VM (#206) — raport,
+#      nie bramka (WLB_E2E_GATING=1 promuje wynik E2E do bramki)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
 #   REUSE_IMAGE=1            nie buduj ponownie, jeśli obraz tej wersji już jest w output/
@@ -26,6 +28,9 @@ IMAGE=$REPO_ROOT/output/$FULL/$FULL.qcow2
 ARTIFACTS=build/artifacts/$FULL
 LOGS=build/ci-logs
 mkdir -p "$LOGS"
+# Porty hostfwd z tests/run-local.sh — E2E na runnerze łączy się z Hubem VM przez localhost (#206).
+export HUB_PORT=${HUB_PORT:-8080}
+export HUB_TLS_PORT=${HUB_TLS_PORT:-8443}
 [[ -w /dev/kvm ]] || {
   echo "Brak dostępu do /dev/kvm — stage 5 wymaga KVM"
   exit 1
@@ -143,6 +148,36 @@ acceptance() {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
       rc=1
     }
+    # #206: E2E renderu pulpitu z runnera. Playwright/Chromium są w warstwie testowej
+    # (.tools/venv-e2e), nie w obrazie. Nie-bramkujący: rc zmienia tylko WLB_E2E_GATING=1.
+    if [[ -f tests/desktop-e2e-novnc.py && -x $TOOLS_DIR/venv-e2e/bin/python ]]; then
+      local e2e_rc=0 e2e_hub e2e_pass
+      if "${SSH[@]}" "grep -qE '^[[:space:]]*HUB_TLS=0[[:space:]]*$' /etc/wlb/lab.env" 2>/dev/null; then
+        e2e_hub="http://localhost:${HUB_PORT}"
+      else
+        e2e_hub="https://localhost:${HUB_TLS_PORT}"
+      fi
+      e2e_pass=$("${SSH[@]}" 'sudo cat /root/wlb-hub-u01-initial-password' 2>/dev/null || true)
+      if [[ -n $e2e_pass ]]; then
+        mkdir -p "$LOGS/e2e-$logname"
+        WLB_E2E_HUB=$e2e_hub WLB_E2E_USER=u01 WLB_E2E_PASS="$e2e_pass" \
+          WLB_E2E_ARTIFACT_DIR="$LOGS/e2e-$logname" \
+          "$TOOLS_DIR/venv-e2e/bin/python" tests/desktop-e2e-novnc.py \
+          >"$LOGS/e2e-$logname.log" 2>&1 || e2e_rc=$?
+        if [[ $e2e_rc -eq 0 ]]; then
+          echo "E2E pulpitu: PASS" | tee -a "$LOGS/$logname.log"
+        elif [[ ${WLB_E2E_GATING:-0} == 1 ]]; then
+          echo "E2E pulpitu: FAIL (rc=$e2e_rc; WLB_E2E_GATING=1)" | tee -a "$LOGS/$logname.log"
+          rc=1
+        else
+          echo "E2E pulpitu: SKIP (rc=$e2e_rc; nie bramkuje)" | tee -a "$LOGS/$logname.log"
+        fi
+      else
+        echo "E2E pulpitu: SKIP (brak hasła u01)" | tee -a "$LOGS/$logname.log"
+      fi
+    else
+      echo "E2E pulpitu: SKIP (brak venv-e2e — ci/install-tools.sh e2e)" | tee -a "$LOGS/$logname.log"
+    fi
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
     # tozsamosc systemu z TEJ SAMEJ VM co dpkg-status (#129): osv-scanner ekosystem pakietow
