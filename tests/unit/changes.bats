@@ -185,6 +185,33 @@ repo_with_base() {
   has_line "memory=false"
 }
 
+@test "histologia: zmiana plików flavora wyzwala build+test histologii (#108)" {
+  for file in ansible/roles/histo_apps/tasks/main.yml ansible/histologia.yml \
+    packer/wlb-histologia.pkr.hcl tests/acceptance.d/47-histologia.sh \
+    ansible/roles/rstudio/tasks/main.yml; do
+    repo_with_base "$file"
+    run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+    [ "$status" -eq 0 ]
+    has_line "histologia=true"
+    has_line "image=true" # histologia layered na bazie — baza musi się zbudować
+  done
+}
+
+@test "histologia: etykieta build-histologia wyzwala flavor na żądanie (#108)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='["build-histologia"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "histologia=true"
+  has_line "image=true"
+}
+
+@test "histologia: zmiana spoza flavora nie wyzwala histologii (#108)" {
+  repo_with_base envs/r/renv.lock
+  run env EVENT=pull_request LABELS='["dokumentacja"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "histologia=false"
+}
+
 @test "PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)" {
   for file in ansible/roles/base/tasks/main.yml ansible/roles/lab_config/files/wlb-firstboot \
     ansible/roles/tljh/templates/config.j2 cloud-init/lab.env.example tests/proxy_sink.py \
