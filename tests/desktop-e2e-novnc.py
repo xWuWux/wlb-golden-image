@@ -107,6 +107,7 @@ def main() -> None:
         _fail(art, 1, "brak WLB_E2E_USER/WLB_E2E_PASS")
 
     try:
+        from playwright.sync_api import TimeoutError as PwTimeoutError
         from playwright.sync_api import sync_playwright
     except ImportError:
         _fail(art, 1, "brak Playwrighta w warstwie testowej (pip install playwright; playwright install chromium)")
@@ -132,18 +133,25 @@ def main() -> None:
             # Po zalogowaniu hub spawnuje serwer i przekierowuje do /user/<user>/lab.
             page.wait_for_url("**/user/**", timeout=left() * 1000)
 
-            # 2. Launcher → kafelek „Desktop" (entry point server-proxy; label „Desktop").
-            #    Pulpit otwiera się w tej samej karcie (iframe server-proxy); gdyby otwierał nową,
-            #    wyszukiwanie canvasu niżej i tak przeszuka kontekst strony.
+            # 2. Launcher → kafelek „Desktop". jrdp otwiera pulpit w NOWEJ karcie/oknie (kafelek
+            #    „Desktop [↗]"), więc PRZECHWYTUJEMY nową stronę (popup) i dalej próbkujemy JĄ, nie
+            #    Launcher — inaczej canvas nigdy się nie znajdzie (SKIP/FAIL). Fallback na tę samą
+            #    kartę, gdyby wersja otwierała pulpit w miejscu (iframe).
             page.wait_for_selector("text=/^Desktop$/", timeout=left() * 1000)
-            page.click("text=/^Desktop$/")
+            try:
+                with ctx.expect_page(timeout=min(left(), 30) * 1000) as popup_info:
+                    page.click("text=/^Desktop$/")
+                desktop = popup_info.value
+                desktop.wait_for_load_state("domcontentloaded", timeout=left() * 1000)
+            except PwTimeoutError:
+                desktop = page  # pulpit otwarty w tej samej karcie
+            desktop.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
 
-            # 3. Sesja server-proxy: canvas noVNC. Pulpit może otworzyć się w tej samej karcie
-            #    (iframe) lub nowej — Playwright szuka canvas po całym kontekście (z shadow DOM).
+            # 3. Sesja server-proxy: canvas noVNC na stronie pulpitu (desktop), z shadow-DOM pierce.
             deadline_canvas = time.monotonic() + min(left(), 60)
             sample = {"found": False}
             while time.monotonic() < deadline_canvas:
-                sample = page.evaluate(_CANVAS_SAMPLE_JS)
+                sample = desktop.evaluate(_CANVAS_SAMPLE_JS)
                 if sample.get("found") and sample.get("readable") and sample.get("colors", 0) > 2:
                     break
                 time.sleep(1.5)
@@ -156,20 +164,20 @@ def main() -> None:
                     console_errors=console_errors[:20],
                 )
             if sample.get("colors", 0) <= 2:
-                page.screenshot(path=str(art / "canvas-empty.png"))
+                desktop.screenshot(path=str(art / "canvas-empty.png"))
                 _fail(
                     art, 2, "canvas pusty/jednolity (czarny ekran)", sample=sample, console_errors=console_errors[:20]
                 )
 
-            # 4. Interakcja zmienia obraz: ruch/klik + klawisz, ponowne próbkowanie.
-            before = page.evaluate(_CANVAS_SAMPLE_JS)
-            page.mouse.move(640, 400)
-            page.mouse.click(640, 400)
-            page.keyboard.type("echo wlb-e2e")
+            # 4. Interakcja zmienia obraz: ruch/klik + klawisz na stronie pulpitu, ponowne próbkowanie.
+            before = desktop.evaluate(_CANVAS_SAMPLE_JS)
+            desktop.mouse.move(640, 400)
+            desktop.mouse.click(640, 400)
+            desktop.keyboard.type("echo wlb-e2e")
             time.sleep(2)
-            after = page.evaluate(_CANVAS_SAMPLE_JS)
+            after = desktop.evaluate(_CANVAS_SAMPLE_JS)
             if after.get("luminance") == before.get("luminance") and after.get("colors") == before.get("colors"):
-                page.screenshot(path=str(art / "no-interaction.png"))
+                desktop.screenshot(path=str(art / "no-interaction.png"))
                 _fail(
                     art,
                     2,
@@ -180,13 +188,13 @@ def main() -> None:
                 )
 
             # 5. Resize + reconnect (regresja: po zmianie rozmiaru i ponownym połączeniu canvas dalej żyje).
-            page.set_viewport_size({"width": 1024, "height": 768})
+            desktop.set_viewport_size({"width": 1024, "height": 768})
             time.sleep(2)
-            page.reload(wait_until="domcontentloaded", timeout=left() * 1000)
+            desktop.reload(wait_until="domcontentloaded", timeout=left() * 1000)
             reconn = {"found": False}
             d2 = time.monotonic() + min(left(), 45)
             while time.monotonic() < d2:
-                reconn = page.evaluate(_CANVAS_SAMPLE_JS)
+                reconn = desktop.evaluate(_CANVAS_SAMPLE_JS)
                 if reconn.get("found") and reconn.get("colors", 0) > 2:
                     break
                 time.sleep(1.5)
@@ -194,7 +202,7 @@ def main() -> None:
                 _fail(art, 2, "reconnect: canvas nie wrócił", reconn=reconn, console_errors=console_errors[:20])
 
             art.mkdir(parents=True, exist_ok=True)
-            page.screenshot(path=str(art / "desktop-ok.png"))
+            desktop.screenshot(path=str(art / "desktop-ok.png"))
             (art / "console.log").write_text("\n".join(console_errors), encoding="utf-8")
             _fail(
                 art,
