@@ -92,6 +92,30 @@ repo_with_base() {
   has_line "image=false"
 }
 
+@test "tekst-w-obrazie: PR/push zmieniający tylko pomoc.md Launchera pomija etap 5 (#84)" {
+  repo_with_base ansible/roles/tljh/files/launcher/pomoc.md
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=false" # treść walidowana w etapie 4 (test_launcher_help.py), nie na KVM
+  run env EVENT=push bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=false"
+}
+
+@test "tekst-w-obrazie: pomoc.md razem z kodem nadal wyzwala etap 5 (#84)" {
+  repo_with_base ansible/roles/tljh/files/launcher/pomoc.md ansible/roles/tljh/tasks/main.yml
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=true" # zmiana roli tljh obok tekstu — build wymagany
+}
+
+@test "tekst-w-obrazie: konfiguracja Launchera (yaml) NIE jest zwolniona — wyzwala etap 5 (#84)" {
+  repo_with_base ansible/roles/tljh/files/launcher/jp_app_launcher.yaml
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=true" # kafelki/konfiguracja zmieniają zachowanie — tylko *.md jest tekstem
+}
+
 @test "push z pustą/zerową bazą: buduj dla bezpieczeństwa" {
   repo_with_base README.md
   run env EVENT=push BASE=0000000000000000000000000000000000000000 bash "$CHANGES"
