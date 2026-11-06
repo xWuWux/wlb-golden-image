@@ -23,6 +23,13 @@ BASE=${BASE:-}
 NIGHTLY_CRON="0 3 * * 2,5"          # dopóki w ci.yml nie ma tego crona, ta gałąź nigdy się nie wyzwala
 INTEGRATION_LABEL="run-integration" # etykieta PR wymuszająca etap 5 na żądanie
 
+# Pliki czysto tekstowe pakowane do obrazu, bez wpływu na jego DZIAŁANIE: strona pomocy Launchera i inne
+# .md pod launcher/ (#84/#79). Zmiana samej treści nie wymaga budowy obrazu na KVM (etap 5) — treść tych
+# plików waliduje szybki test źródłowy `tests/unit/test_launcher_help.py` (etap 4), więc wyjęcie ich spod
+# etapu 5 NIE traci pokrycia #54. Wyłączamy tylko `*.md` (tekst) — konfiguracja launchera (jp_app_launcher.yaml,
+# kafelki) nadal wyzwala etap 5, bo zmienia zachowanie. Anchor dokładamy w miejscu użycia.
+IMAGE_TEXT_MD='ansible/roles/tljh/files/launcher/[^/]*\.md$'
+
 has_label() { python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.loads(sys.argv[1] or "[]") else 1)' "$LABELS" "$1"; }
 
 # Prawda, gdy WSZYSTKIE pliki zmienione względem $1 to dokumentacja (brak wpływu na obraz).
@@ -30,7 +37,7 @@ has_label() { python3 -c 'import json,sys; sys.exit(0 if sys.argv[2] in json.loa
 doc_only() {
   local base=$1
   [[ -z $base || $base == 0000000000000000000000000000000000000000 ]] && return 1
-  ! git diff --name-only "$base" HEAD | grep -qvE '^(README\.md|CHANGELOG\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$)'
+  ! git diff --name-only "$base" HEAD | grep -qvE "^(README\.md|CHANGELOG\.md|przewodnik-vm\.sh|docs/|\.github/dependabot\.yml$|${IMAGE_TEXT_MD})"
 }
 
 # network_change BASE: kod 0 oznacza wymaganą integrację. Brak bazy/błąd git
@@ -39,6 +46,9 @@ network_change() {
   local changed
   [[ -n $1 ]] || return 0
   changed=$(git diff --name-only "$1" HEAD) || return 0
+  # Pliki tekstowe-w-obrazie (#84) nie liczą się jako zmiana sieci/obrazu — usuwamy je z listy przed
+  # klasyfikacją; jeśli zostaną same, końcowy grep nic nie znajdzie i integracja nie jest wymagana.
+  changed=$(grep -vE "^${IMAGE_TEXT_MD}" <<<"$changed") || true
   grep -qE '^(ansible/roles/(base|lab_config|tljh)/|cloud-init/|tests/(acceptance|cloud-init/|lib/|proxy_sink\.py)|ci/(changes|integration|ready)\.sh$|\.github/workflows/ci\.yml$)' <<<"$changed"
 }
 
