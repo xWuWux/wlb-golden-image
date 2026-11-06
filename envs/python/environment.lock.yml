@@ -369,7 +369,7 @@ dependencies:
       - nest-asyncio2==1.7.4
       - notebook==7.6.3
       - notebook-shim==0.2.4
-      - oauthlib==4.0.0
+      - oauthlib==4.0.1
       - packaging==25.0
       - pamela==1.2.0
       - pandocfilters==1.5.1

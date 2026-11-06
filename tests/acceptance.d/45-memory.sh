@@ -2,7 +2,7 @@
 # Adaptacyjna: tylko na flavorze wlb-memory sprawdza aplikacje GUI „pod pamięć" (rola memory_apps, #105);
 # na innych flavorach pomija. Lekkość bazy (brak pulpitu/GUI na wlb-general) pilnuje 40-pulpit.sh.
 if grep -qx "WLB_IMAGE_NAME=wlb-memory" /etc/wlb/image-release 2>/dev/null; then
-  echo "== Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, LabPlot #109) =="
+  echo "== Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, LabPlot #109, RStudio #108) =="
   expect_ok "LibreOffice obecny (binarka)" test -x /usr/bin/libreoffice
   # Stockowy kafelek LibreOffice Calc wystarcza: Exec=libreoffice rozwiązuje się przez /usr/bin, które
   # JEST w PATH sesji XFCE (inaczej niż /usr/local/bin z wrapperami neuro — #199).
@@ -30,4 +30,14 @@ if grep -qx "WLB_IMAGE_NAME=wlb-memory" /etc/wlb/image-release 2>/dev/null; then
       -env:UserInstallation=file://"$d/profile" --convert-to ods --outdir "$d" "$d/t.csv" >/dev/null 2>&1
     test -f "$d/t.ods"
   '
+
+  # RStudio Server (#108): warstwa statystyki z GUI — R-IDE w przeglądarce przez jupyter-rsession-proxy
+  # (rola rstudio w desktop.yml). Serwer zainstalowany, ale SAMODZIELNA usługa wyłączona: dostęp tylko
+  # przez hub (konta TLJH nie mają haseł PAM, więc osobny port z logowaniem PAM nie zadziała — i nie
+  # chcemy drugiej bramy uwierzytelniania). jamovi/JASP (Flatpak) i RKWard (ABI R vs CRAN) odrzucone.
+  expect_ok "RStudio Server zainstalowany (rserver, #108)" test -x /usr/lib/rstudio-server/bin/rserver
+  expect_fail "Samodzielna usługa rstudio-server WYŁĄCZONA — dostęp tylko przez hub (#108)" \
+    systemctl is-enabled rstudio-server
+  expect_ok "jupyter-rsession-proxy w środowisku TLJH — launcher RStudio w JupyterLab (#108)" \
+    /opt/tljh/user/bin/python -c "import jupyter_rsession_proxy"
 fi
