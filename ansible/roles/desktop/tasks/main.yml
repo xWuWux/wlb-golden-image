@@ -48,6 +48,24 @@
     dest: /etc/tigervnc/vncserver-config-mandatory
     mode: "0644"
 
+# Render-smoke pulpitu (#138, etap 1b): wgrywamy skrypt + helper do obrazu, żeby adaptacyjny
+# fragment akceptacji (tests/acceptance.d/45-pulpit-render.sh) mógł uruchomić go JAKO badacz na VM.
+# Źródło w repo (tests/) pozostaje kanoniczne — tu tylko kopia na obraz, bez duplikacji treści.
+- name: Katalog testów runtime na obrazie (#138)
+  ansible.builtin.file:
+    path: /opt/wlb/tests
+    state: directory
+    mode: "0755"
+
+- name: Render-smoke pulpitu + helper analizy na obrazie (#138, etap 1b)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../tests/{{ item }}"
+    dest: "/opt/wlb/tests/{{ item }}"
+    mode: "0755"
+  loop:
+    - desktop-render-smoke.sh
+    - desktop_render_smoke.py
+
 # --- Kontrakt wizualny pulpitu (#204) -----------------------------------------------
 # Wartości tylko z desktop_xfconf/desktop_contract_* w ansible/group_vars/all.yml.
 # Ścieżka ikon: stockowe domyślne Ubuntu (Greybird/elementary-xfce-dark) wskazują pakiety
