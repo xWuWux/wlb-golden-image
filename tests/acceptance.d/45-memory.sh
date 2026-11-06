@@ -2,13 +2,20 @@
 # Adaptacyjna: tylko na flavorze wlb-memory sprawdza aplikacje GUI „pod pamięć" (rola memory_apps, #105);
 # na innych flavorach pomija. Lekkość bazy (brak pulpitu/GUI na wlb-general) pilnuje 40-pulpit.sh.
 if grep -qx "WLB_IMAGE_NAME=wlb-memory" /etc/wlb/image-release 2>/dev/null; then
-  echo "== Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, RStudio #108) =="
+  echo "== Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, LabPlot #109, RStudio #108) =="
   expect_ok "LibreOffice obecny (binarka)" test -x /usr/bin/libreoffice
   # Stockowy kafelek LibreOffice Calc wystarcza: Exec=libreoffice rozwiązuje się przez /usr/bin, które
   # JEST w PATH sesji XFCE (inaczej niż /usr/local/bin z wrapperami neuro — #199).
   expect_ok "Kafelek Calc w menu XFCE" test -f /usr/share/applications/libreoffice-calc.desktop
   # Natywny render pod XFCE: plugin VCL GTK3 musi być zainstalowany (bez niego brzydki fallback „gen").
   expect_ok "Integracja GTK3 LibreOffice (render pod XFCE)" test -f /usr/lib/libreoffice/program/libvclplug_gtk3lo.so
+
+  # LabPlot (#109): wykresy naukowe + curve-fitting GUI. W Ubuntu noble (LabPlot 2.x) binarka i
+  # kafelek mają sufiks „2” (labplot2 / org.kde.labplot2.desktop); nazwa „labplot” bez sufiksu
+  # pojawia się dopiero w nowszych wydaniach Ubuntu — nie zakładać jej na tym obrazie.
+  expect_ok "LabPlot obecny (binarka)" bash -c "command -v labplot2"
+  expect_ok "Kafelek LabPlot w menu XFCE" bash -c \
+    "test -f /usr/share/applications/org.kde.labplot2.desktop || test -f /usr/share/applications/labplot2.desktop"
 
   # Silnik Calc działa END-TO-END: konwersja CSV -> ODS headless (bez X). Mocniejsze niż --version —
   # ładuje rdzeń, filtry arkusza i zapis ODF, a nie tylko sprawdza, że binarka istnieje. Render pod VNC
