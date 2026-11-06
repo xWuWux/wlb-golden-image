@@ -148,10 +148,13 @@ Wszystko przez `make` (pełna lista: `make help`). Szczegółowy pierwszy przebi
 | `make integration` | etap 5: build + akceptacja + migracja + dryf locków (KVM, ~1–2 h) |
 
 **Flavory** budują się warstwowo na gotowej bazie (nie przez `make build`, który celowo
-robi tylko bazę). Wzorzec i polecenia dla radiologii:
-[RB-build-wlb-radiologia.md](runbooks/RB-build-wlb-radiologia.md). W skrócie — flavor nakłada
-`base_image=<baza.qcow2>` szablonem `packer/` z `-only` właściwego źródła; bramka CI flavora
-radiologia jest opt-in (`WLB_BUILD_RADIOLOGIA=1`, #167).
+robi tylko bazę). Wzorzec i polecenia: radiologia —
+[RB-build-wlb-radiologia.md](runbooks/RB-build-wlb-radiologia.md), histologia (Calc + RStudio +
+jamovi/Flatpak) — [RB-build-wlb-histologia.md](runbooks/RB-build-wlb-histologia.md). W skrócie —
+flavor nakłada `base_image=<baza.qcow2>` szablonem `packer/` z `-only` właściwego źródła; bramki CI
+flavorów są opt-in (`WLB_BUILD_RADIOLOGIA=1` #167, `WLB_BUILD_HISTOLOGIA=1` #108). ⚠️ Histologia
+wymaga w buildzie dostępu do **Flathub** (`flathub.org`/`dl.flathub.org`) — na zamkniętej sieci dopisz
+do allowlisty (patrz runbook).
 
 ## Konfiguracja wdrożenia (`/etc/wlb/lab.env`)
 

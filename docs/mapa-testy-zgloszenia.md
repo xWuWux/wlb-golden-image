@@ -129,11 +129,16 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 - `tests/unit/wlb-firstboot.bats` — `HUB_ADMIN_USER nie może używać przestrzeni kont badaczy, nawet poza aktualną pulą (#102)`, `RESEARCHER_ACCOUNTS: błędny zapis i przepełnienie są odrzucane przed provisioningiem (#102)`, `pełna konfiguracja Laboratorium`, `plik hasła bez konta — konto nie jest odtwarzane, ostrzeżenie (#102)`, `plik oczekujący bez konta (przerwanie przed zapisem w bazie) — konto z hasłem z pliku (#102)`, `plik oczekujący, konto z dysku roboczego ma inne hasło — hasło bez zmian (#102)`, `pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)`, `przerwanie po zapisie konta, przed plikiem hasła — ponowienie odzyskuje hasło (#102)`, *Przerwanie provisioningu kont (#102)*
 
 ### #105 — Flavor „pod pamięć”: pulpit w przeglądarce + aplikacje GUI (arkusz, zamiennik Prism) i kafelek Leaf  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia/wlb-histologia (#105, #135, #108)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia/wlb-histologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
 
 ### #106 — Pulpit w przeglądarce: rola desktop + flavor wlb-memory (remote-desktop-proxy, kafelek „Pulpit”)  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Schowek VNC wyłączony — konfiguracja obecna (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Schowek VNC wyłączony — konfiguracja obecna (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
+
+### #108 — Statystyka z GUI: RStudio + jamovi (flavor wlb-histologia)  ·  _otwarte_
+- `tests/acceptance.d/47-histologia.sh` — `jamovi zainstalowany w Flatpak (systemowo)`, `jamovi: dostęp sandboxa do /workspace (override, #108)`, `jamovi: sandbox bwrap startuje (nieuprzywilejowane userns, #63/#108)`, `RStudio Server zainstalowany (rserver, #108)`, `Samodzielna usługa rstudio-server WYŁĄCZONA — dostęp tylko przez hub (#108)`, `Calc konwertuje CSV->ODS (silnik arkusza, #107)`, *Stos histologii: Calc + RStudio + jamovi (#107/#108)*
+- `tests/unit/changes.bats` — `histologia: etykieta build-histologia wyzwala flavor na żądanie (#108)`, `histologia: zmiana plików flavora wyzwala build+test histologii (#108)`, `histologia: zmiana spoza flavora nie wyzwala histologii (#108)`
+- `tests/unit/test_histologia_size_gate.py` — *Przekroczenie budżetu rozmiaru (#108) zatrzymuje akceptację*
 
 ### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _otwarte_
 - `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, *2. Notebook Python, R i Julia*
@@ -147,7 +152,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-10-30). Odświ
 - `tests/unit/wlb-sbom-gate.bats` — `SBOM bez dpkg-status pada, nie ostrzega (#129)`, `nieznane wydanie obrazu blokuje SBOM niezaleznie od hosta (#129)`, `obca dystrybucja z tym samym VERSION_ID odrzucona (#129)`, `pelna zgodna para tozsamosci przechodzi do skanu (#129)`
 
 ### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia/wlb-histologia (#105, #135, #108)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
 - `tests/acceptance.d/70-radiologia.sh` — `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Kafelki pulpitu stosu neuro (#135)*, *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 - `tests/unit/changes.bats` — `radiologia: etykieta build-radiologia wyzwala flavor na żądanie (#135)`, `radiologia: zmiana plików flavora wyzwala build+test radiologii (#135)`, `radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)`
 
