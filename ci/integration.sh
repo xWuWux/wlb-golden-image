@@ -375,6 +375,32 @@ memory_flavor() {
   acceptance "$mem_img" acceptance-memory
 }
 
+# Flavor wlb-histologia (#108): opt-in (etykieta build-histologia / zmiana plików flavora / nocny build —
+# workflow ustawia WLB_BUILD_HISTOLOGIA=1). Buduje warstwowo na obrazie bazowym i uruchamia tę samą
+# akceptację (adaptacyjne 47-histologia + 40-pulpit wykryją flavor). Łapie błędy runtime: instalację
+# jamovi-Flatpak i — kluczowo — start sandboxa bwrap (nieuprzywilejowane userns na utwardzonym jądrze).
+histologia_flavor() {
+  [[ ${WLB_BUILD_HISTOLOGIA:-0} == 1 ]] || {
+    echo "pominięto: brak etykiety build-histologia ani zmiany plików flavora (#108)"
+    return 0
+  }
+  local his_full="wlb-histologia-$IMAGE_VERSION-$IMAGE_DATE" his_img
+  his_img="$REPO_ROOT/output/$his_full/$his_full.qcow2"
+  rm -rf "output/$his_full"
+  echo "== Build flavora wlb-histologia (base_image=$IMAGE) =="
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-histologia.log" packer build -color=false -only='wlb-histologia.*' \
+    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
+    -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    echo "build flavora wlb-histologia nieudany (packer-histologia.log w artefaktach etapu 5)"
+    return 1
+  fi
+  ci/image-size-report.sh "$his_img" "$his_full" || return 1
+  echo "== Akceptacja wlb-histologia =="
+  acceptance "$his_img" acceptance-histologia
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -401,4 +427,5 @@ run_check "Jedno jądro w obrazie (#9)" kernel_single
 run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
 run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
+run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
 finish

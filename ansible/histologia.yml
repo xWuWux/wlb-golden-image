@@ -1,0 +1,26 @@
+# Warstwa flavora wlb-histologia. Nakładana na GOTOWY obraz wlb-general: pulpit (rola desktop, #106) +
+# RStudio w przeglądarce (rola rstudio, jupyter-rsession-proxy) + aplikacje histologii (rola histo_apps:
+# LibreOffice Calc, jamovi-Flatpak). Nie przebudowuje OS/Python/R (warstwowy build Packera), analogicznie
+# do wlb-memory (desktop.yml) i wlb-radiologia (radiologia.yml). Kolejność: rstudio PRZED histo_apps, by
+# wymuszenie AppArmor (sweep complain→enforce w histo_apps) objęło też profile wniesione przez RStudio.
+- name: WLB wlb-histologia — pulpit + RStudio + stos histologii (Calc, jamovi) na obrazie wlb-general
+  hosts: all
+  become: true
+  roles:
+    - desktop
+    - rstudio
+    - histo_apps
+
+  post_tasks:
+    # Obraz wlb-general ma w /etc/wlb/image-release nazwę "wlb-general" — nadpisujemy na flavor.
+    - name: Zaktualizuj metadane obrazu na flavor wlb-histologia
+      ansible.builtin.lineinfile:
+        path: /etc/wlb/image-release
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: WLB_IMAGE_NAME, value: "{{ wlb_image_name }}" }
+        - { key: WLB_IMAGE_VERSION, value: "{{ wlb_image_version }}" }
+        - { key: WLB_IMAGE_DATE, value: "{{ wlb_image_date }}" }
+      loop_control:
+        label: "{{ item.key }}"
