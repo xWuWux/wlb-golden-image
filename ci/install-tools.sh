@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Instaluje przypięte wersje narzędzi CI do $TOOLS_DIR (domyślnie .tools/) — bez sudo.
 #
-#   ci/install-tools.sh [lint] [unit] [security]   # bez argumentów: wszystko
+#   ci/install-tools.sh [lint] [unit] [security] [e2e]   # bez argumentów: wszystko poza e2e
 #
 # kcov (pokrycie testów powłoki) instaluje osobno CI (apt) — lokalnie: sudo apt install kcov.
 set -euo pipefail
@@ -110,13 +110,21 @@ install_security() {
   venv venv-security ci/requirements-security.txt
 }
 
+install_e2e() {
+  # Playwright + Chromium w warstwie TESTOWEJ runnera (#206); obraz badacza ich nie zawiera.
+  # Nie domyślna grupa: `make tools` nie ściąga ~150 MB przeglądarki bez potrzeby.
+  venv venv-e2e ci/requirements-e2e.txt
+  # --with-deps instaluje biblioteki systemowe Chromium przez sudo (na runnerze GitHub bez hasła).
+  "$TOOLS_DIR/venv-e2e/bin/python" -m playwright install --with-deps chromium
+}
+
 groups=("$@")
 ((${#groups[@]})) || groups=(lint unit security)
 for g in "${groups[@]}"; do
   case $g in
-    lint | unit | security) "install_$g" ;;
+    lint | unit | security | e2e) "install_$g" ;;
     *)
-      echo "Nieznana grupa: $g (lint | unit | security)"
+      echo "Nieznana grupa: $g (lint | unit | security | e2e)"
       exit 2
       ;;
   esac
