@@ -61,6 +61,7 @@ sam obraz jest wymienny (aktualizacja = podmiana obrazu, workspace zostaje).
 | `wlb-general` | baza: hub, kernele, hardening, śluza, obserwowalność | **gotowy** — baza zielona (akceptacja 144/0) |
 | `wlb-memory` | + pulpit w przeglądarce (XFCE/noVNC) + GUI pod analizę pamięciową | PoC pulpitu (#106) gotowy; aplikacje GUI w toku (#105) |
 | `wlb-radiologia` | + pulpit + stos neuroobrazowania (FSL, FSLeyes, 3DSlicer) | **gotowy technicznie**; zostaje certyfikujący build + kafelki pulpitu (#135) |
+| `wlb-histologia` | + pulpit + RStudio + Calc + jamovi (Flatpak) | **gotowy, CI-zielony** (etap 5: Calc/RStudio/jamovi + smoke sandboxa userns #108) |
 
 **Bezpieczeństwo i zgodność (wdrożone):** hub bez sudo w sesji badacza
 (SystemdSpawner, `NoNewPrivileges`), TLS huba wymuszony (#18/IMG-005), wymuszony
@@ -94,6 +95,13 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
   komplet bibliotek Qt xcb dla 3DSlicer + smoke faktycznego uruchomienia GUI (#4), bramka CI opt-in (#167).
   Narzędzia z pierwszego wdrożenia: **MRtrix3** (`dwidenoise`/mp-pca, pipeline dMRI) i **evince**
   (czytnik PDF na pulpicie) w roli `neuro_apps` (#200).
+- **Flavor `wlb-histologia`**: drugi flavor z pulpitem — **LibreOffice Calc** (#107), **RStudio**
+  (R-IDE w przeglądarce przez `jupyter-rsession-proxy`) i **jamovi** przez **Flatpak** na pulpicie (#108).
+  jamovi instaluje się z Flathub w warstwie build (ma sieć) i działa lokalnie w runtime (egress zamknięty);
+  sandbox jamovi dostaje dostęp do `/workspace`, kafelek XFCE ma absolutny `Exec` (#199). Etap 5 buduje i
+  testuje flavor opt-in (`build-histologia` / zmiana plików / nocny build; `WLB_BUILD_HISTOLOGIA`) —
+  akceptacja potwierdza Calc (CSV→ODS), RStudio oraz jamovi, w tym **gatingowy smoke startu sandboxa bwrap
+  przez nieuprzywilejowane userns** na utwardzonym noble (#63/#65). Build: [RB-build-wlb-histologia.md](docs/runbooks/RB-build-wlb-histologia.md).
 - **Rola `desktop` i PoC pulpitu w przeglądarce** (`wlb-memory`): remote-desktop-proxy, XFCE, TigerVNC/noVNC,
   kafelek „Pulpit", render-smoke (#106/#113, #138/#139).
 - Kompresja obrazów równoległym zstd zamiast jednowątkowego zlib (#71/#165).
