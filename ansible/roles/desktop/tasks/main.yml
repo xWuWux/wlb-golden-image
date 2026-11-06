@@ -65,3 +65,84 @@
   loop:
     - desktop-render-smoke.sh
     - desktop_render_smoke.py
+
+# --- Kontrakt wizualny pulpitu (#204) -----------------------------------------------
+# Wartości tylko z desktop_xfconf/desktop_contract_* w ansible/group_vars/all.yml.
+# Ścieżka ikon: stockowe domyślne Ubuntu (Greybird/elementary-xfce-dark) wskazują pakiety
+# nieobecne w minimalnym XFCE — kontrakt przypinamy do Adwaita (GTK3 wbudowany + paczka poniżej).
+- name: Paczka ikon Adwaita wymagana przez kontrakt wizualny (#204)
+  ansible.builtin.apt:
+    name: adwaita-icon-theme
+    state: present
+
+# xfce4-settings dostarcza /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml jako plik
+# konfiguracyjny pakietu; bez dywersji nasza kopia kontraktowa byłaby nadpisywana przy
+# aktualizacji pakietu (albo wpadłaby w prompt conffile — nieinteraktywnie: cicha podmiana).
+- name: Sprawdz istnienie dywersji systemowego xsettings.xml (#204)
+  ansible.builtin.command: dpkg-divert --list /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
+  register: desktop_divert_xsettings
+  changed_when: false
+
+- name: Dodaj dywersję systemowego xsettings.xml (#204)
+  ansible.builtin.command:
+    argv:
+      - dpkg-divert
+      - --add
+      - --divert
+      - /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml.dpkg-default
+      - --local
+      - /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
+  when: desktop_divert_xsettings.stdout == ""
+  changed_when: true
+
+# template nie tworzy katalogów nadrzędnych — jawnie zakładamy drzewa docelowe.
+- name: Katalogi docelowe kontraktu wizualnego (#204)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/wlb
+    - /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
+    - /etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml
+
+# Systemowe domyślne xfconf (XDG_CONFIG_DIRS) — docierają do wszystkich profili, w tym
+# kont badaczy tworzonych useradd -M bez /etc/skel. Świeży profil = te wartości; pliki
+# użytkownika (nadpiski badacza) mają priorytet — kontrakt NIE jest egzekwowany siłą (#204).
+- name: Systemowe domyślne ustawienia kanałów xfconf wg kontraktu (#204)
+  ansible.builtin.template:
+    src: xfconf-channel.xml.j2
+    dest: "/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/{{ item }}.xml"
+    mode: "0644"
+  vars:
+    channel_name: "{{ item }}"
+    channel_data: "{{ desktop_xfconf[item] }}"
+  loop: "{{ desktop_xfconf.keys() | list }}"
+
+# /etc/skel dla kont zakładanych z -m (kontrakt świeżego profilu; podwójne źródło nie
+# istnieje — te same drzewo desktop_xfconf co powyżej).
+- name: Kontrakt wizualny w /etc/skel (konta z useradd -m) (#204)
+  ansible.builtin.template:
+    src: xfconf-channel.xml.j2
+    dest: "/etc/skel/.config/xfce4/xfconf/xfce-perchannel-xml/{{ item }}.xml"
+    mode: "0644"
+  vars:
+    channel_name: "{{ item }}"
+    channel_data: "{{ desktop_xfconf[item] }}"
+  loop: "{{ desktop_xfconf.keys() | list }}"
+
+- name: Plik kontraktu dla testów akceptacyjnych (#204)
+  ansible.builtin.template:
+    src: desktop-contract.j2
+    dest: /etc/wlb/desktop-contract
+    mode: "0644"
+
+- name: Locale domyślna wg kontraktu (#204)
+  ansible.builtin.lineinfile:
+    path: /etc/default/locale
+    regexp: '^LANG='
+    line: "LANG={{ desktop_contract_locale }}"
+    create: true
+    mode: "0644"
