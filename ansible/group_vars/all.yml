@@ -102,6 +102,15 @@ rstudio_rsession_proxy_spec: jupyter-rsession-proxy
 wlb_desktop_enabled: false
 desktop_proxy_spec: jupyter-remote-desktop-proxy
 
+# --- jamovi (Flatpak, flavor wlb-histologia, #108) --------------------------------
+# jamovi dla Linuksa jest TYLKO jako Flatpak (brak apt/tarballa) — rola histo_apps instaluje go z Flathub
+# w czasie budowania (warstwa ma sieć) i uruchamia jako aplikację pulpitową w sesji XFCE (noVNC).
+jamovi_flatpak_id: org.jamovi.jamovi
+jamovi_flathub_repo_url: https://flathub.org/repo/flathub.flatpakrepo
+# Katalog danych badacza udostępniany sandboxowi jamovi (open/save plików). /workspace = trwały dysk
+# roboczy z homes badaczy (/workspace/jupyter-<login>).
+jamovi_data_path: /workspace
+
 # --- Kontrakt wizualny pulpitu XFCE (#204) ----------------------------------------
 # JEDYNE źródło prawdy dla wyglądu na flavorach z pulpitem. Rola desktop renderuje z tego:
 #   1) /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/<kanał>.xml — systemowe domyślne xfconf

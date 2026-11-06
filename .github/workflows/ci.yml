@@ -61,6 +61,7 @@ jobs:
       image: ${{ steps.changes.outputs.image }}
       radiologia: ${{ steps.changes.outputs.radiologia }}
       memory: ${{ steps.changes.outputs.memory }}
+      histologia: ${{ steps.changes.outputs.histologia }}
       perf: ${{ steps.changes.outputs.perf }}
       ephemeral: ${{ steps.changes.outputs.ephemeral }}
     steps:
@@ -212,6 +213,9 @@ jobs:
           # Flavor wlb-memory analogicznie opt-in (etykieta build-memory / zmiana plików flavora / nocny
           # build) — pulpit + LibreOffice Calc testowane na realnym obrazie (#105).
           WLB_BUILD_MEMORY: ${{ needs.lint.outputs.memory == 'true' && '1' || '0' }}
+          # Flavor wlb-histologia analogicznie opt-in (etykieta build-histologia / zmiana plików flavora /
+          # nocny build) — pulpit + Calc + RStudio + jamovi-Flatpak na realnym obrazie (#108).
+          WLB_BUILD_HISTOLOGIA: ${{ needs.lint.outputs.histologia == 'true' && '1' || '0' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
