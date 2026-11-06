@@ -68,6 +68,16 @@ memory_change() {
   grep -qE '^(ansible/roles/(memory_apps|desktop)/|ansible/desktop\.yml$|packer/wlb-memory\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|45-memory)\.sh$)' <<<"$changed"
 }
 
+# #108: zmiana flavora wlb-histologia (histo_apps/desktop/rstudio, histologia.yml/packer, testy flavora)
+# wymaga przebudowy i testu flavora (Calc + RStudio + jamovi-Flatpak) na realnym obrazie — sandbox
+# bwrap/userns jamovi łapie tylko realne jądro, nie test jednostkowy.
+histologia_change() {
+  local changed
+  [[ -n $1 ]] || return 0
+  changed=$(git diff --name-only "$1" HEAD) || return 0
+  grep -qE '^(ansible/roles/(histo_apps|desktop|rstudio)/|ansible/histologia\.yml$|packer/wlb-histologia\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|47-histologia)\.sh$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
@@ -117,6 +127,19 @@ case $EVENT in
 esac
 [[ $memory == true ]] && image=true
 
+# Histologia (flavor pulpit+Calc+RStudio+jamovi): opt-in etykietą build-histologia albo zmiana plików
+# flavora na PR; nocny build też go obejmuje. Buduje się na obrazie bazowym, więc wymusza image=true. #108
+histologia=false
+case $EVENT in
+  pull_request | merge_group)
+    { has_label build-histologia || histologia_change "$BASE"; } && histologia=true
+    ;;
+  schedule)
+    [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && histologia=true
+    ;;
+esac
+[[ $histologia == true ]] && image=true
+
 perf=false
 { has_label perf || [[ ${IN_PERF:-false} == true ]]; } && perf=true
 # nocny build obejmuje też benchmarki wydajności (wczesne wykrycie regresji wydajności)
@@ -129,5 +152,6 @@ ephemeral=false
 echo "image=$image"
 echo "radiologia=$radiologia"
 echo "memory=$memory"
+echo "histologia=$histologia"
 echo "perf=$perf"
 echo "ephemeral=$ephemeral"

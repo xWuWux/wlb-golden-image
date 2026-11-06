@@ -1,0 +1,143 @@
+# Aplikacje GUI flavora wlb-histologia. Nakładane na warstwę pulpitu (rola desktop) + RStudio (rola
+# rstudio) — analogicznie do memory_apps na wlb-memory i neuro_apps na wlb-radiologia. Stos histologii:
+# arkusz (LibreOffice Calc), statystyka z GUI w przeglądarce (RStudio — osobna rola w histologia.yml)
+# oraz jamovi. jamovi dla Linuksa istnieje WYŁĄCZNIE jako Flatpak (brak apt/tarballa), więc inaczej niż
+# RStudio nie da się go wpiąć przez jupyter-server-proxy natywnie — uruchamiamy go jako aplikację
+# pulpitową w sesji XFCE (dostępnej przez noVNC). Flatpak + app + runtime wchodzą w czasie BUDOWANIA
+# (warstwa ma sieć); w runtime VM (egress zamknięty) jamovi działa lokalnie, bez sieci.
+#
+# UWAGA INFRA: build musi mieć dostęp do Flathub (flathub.org / dl.flathub.org) — analogicznie do
+# mirrorów apt/PyPI/CRAN. Przy zamkniętej allowliście budowania trzeba je dopisać.
+#
+# UWAGA userns (#63/#65): jamovi-Flatpak uruchamia się przez bubblewrap, który potrzebuje
+# nieuprzywilejowanych przestrzeni nazw użytkownika. Ubuntu 24.04 ogranicza je przez AppArmor
+# (kernel.apparmor_restrict_unprivileged_userns); pakiet flatpak dostarcza profil AppArmor dopuszczający
+# bwrap mimo restrykcji. Realny start sandboxa weryfikuje akceptacja (47-histologia smoke) — jeśli
+# utwardzenie bazy zablokuje userns twardo, złapie to build+akceptacja, nie ciche przejście.
+
+- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      # Sam Calc + libreoffice-core; bez Writer/Impress/Base — mniejszy obraz niż metapakiet libreoffice.
+      - libreoffice-calc
+      # Natywny plugin VCL GTK3 — bez niego LibreOffice spada na plugin "gen" (czyste X11), który pod
+      # XFCE renderuje się brzydko i niespójnie z pulpitem. Zależności GTK3 są już w obrazie (XFCE).
+      - libreoffice-gtk3
+    state: present
+
+# --- jamovi (Flatpak) ---------------------------------------------------------------
+- name: Flatpak (menedżer aplikacji sandboxowanych dla jamovi)
+  ansible.builtin.apt:
+    update_cache: true
+    name: flatpak
+    state: present
+
+# Remote Flathub systemowy (nie per-user): app i runtime instalują się raz dla całego obrazu, dostępne
+# każdemu kontu badacza. --if-not-exists czyni krok idempotentnym.
+- name: Remote Flathub (systemowy, idempotentnie)
+  ansible.builtin.command:
+    argv:
+      - flatpak
+      - remote-add
+      - --system
+      - --if-not-exists
+      - flathub
+      - "{{ jamovi_flathub_repo_url }}"
+  register: histo_apps_flathub_remote
+  changed_when: false # remote-add --if-not-exists jest ciche i idempotentne
+
+- name: Czy jamovi już zainstalowany (Flatpak)
+  ansible.builtin.command: flatpak info --system {{ jamovi_flatpak_id }}
+  register: histo_apps_jamovi_info
+  failed_when: false
+  changed_when: false
+
+# Instalacja z Flathub ciągnie app + wymagany runtime (org.freedesktop.Platform). Z sieci — stąd retry
+# jak przy pip/deb w pozostałych rolach. Pomijana, gdy app już jest (idempotencja warstwy).
+- name: Instalacja jamovi z Flathub (systemowo)
+  ansible.builtin.command: flatpak install --system --noninteractive --assumeyes flathub {{ jamovi_flatpak_id }}
+  register: histo_apps_jamovi_install
+  until: histo_apps_jamovi_install is succeeded
+  retries: 3
+  delay: 30
+  when: histo_apps_jamovi_info.rc != 0
+  changed_when: true
+
+# Sandbox jamovi domyślnie nie widzi katalogów domowych badaczy. Nadanie dostępu do /workspace (tam żyją
+# dane badacza, /workspace/jupyter-<login>) pozwala otwierać i zapisywać pliki z poziomu jamovi. Override
+# systemowy obejmuje wszystkie konta (1 badacz na VM, więc brak wycieku między badaczami w sesji).
+- name: Dostęp jamovi do danych badacza (/workspace)
+  ansible.builtin.command:
+    argv:
+      - flatpak
+      - override
+      - --system
+      - --filesystem={{ jamovi_data_path }}
+      - "{{ jamovi_flatpak_id }}"
+  changed_when: true
+
+# Kafelek w /usr/share/applications z ABSOLUTNYM Exec (#199): sesja XFCE ma /usr/bin w PATH, ale katalog
+# eksportów Flatpaka (/var/lib/flatpak/exports/share/applications) bywa poza XDG_DATA_DIRS spawnera —
+# własny kafelek gwarantuje widoczność w menu niezależnie od eksportu Flatpaka.
+- name: Kafelek jamovi w menu XFCE — absolutny Exec (#199)
+  ansible.builtin.copy:
+    src: wlb-jamovi.desktop
+    dest: /usr/share/applications/wlb-jamovi.desktop
+    mode: "0644"
+
+# libreoffice-common / flatpak dostarczają profile AppArmor w trybie complain, a rola base wymusza enforce
+# PRZED tą warstwą (obraz wlb-general). Bez przełączenia akceptacja 20-apparmor.sh pada na liczniku profili
+# w complain (CIS 1.6.3, #65). Przełączamy wszystkie nowe profile w complain — nie tylko znane z nazwy, bo
+# zależności mogą dołożyć kolejne. (Blok współdzielony wzorcowo z memory_apps.)
+- name: Profile AppArmor w trybie enforce po instalacji Calc/Flatpak (#65, CIS 1.6.3)
+  ansible.builtin.shell: |
+    set -o pipefail
+    before=$(aa-status --complaining)
+    if [[ ! $before =~ ^[0-9]+$ ]]; then
+      echo "BŁĄD (#65): aa-status --complaining zwróciło '${before}'" >&2
+      exit 1
+    fi
+    if ((before == 0)); then
+      echo "aa-status --complaining=0 — brak profili do przełączenia"
+      echo "WLB_SWITCHED=0"
+      exit 0
+    fi
+    mapfile -t names < <(aa-status --json | python3 -c 'import json,sys; [print(n) for n,m in json.load(sys.stdin)["profiles"].items() if m=="complain"]')
+    if [[ -z "${names[*]:-}" ]]; then
+      echo "BŁĄD (#65): $before profili w complain, ale aa-status --json nie zwróciło nazw" >&2
+      exit 1
+    fi
+    echo "Profile w trybie complain (before=$before): ${names[*]}"
+    switched=0
+    mapfile -t files < <(grep -rl 'flags=(complain' /etc/apparmor.d/ 2>/dev/null || true)
+    for f in "${files[@]}"; do
+      defined=$(apparmor_parser -N "$f" 2>/dev/null || true)
+      for n in "${names[@]}"; do
+        if grep -qxF -- "$n" <<<"$defined"; then
+          aa-enforce "$f"
+          switched=1
+          break
+        fi
+      done
+    done
+    after=$(aa-status --complaining)
+    echo "aa-status --complaining: before=$before after=$after"
+    if [[ $after != 0 ]]; then
+      echo "BŁĄD (#65): po aa-enforce nadal $after profili w trybie complain" >&2
+      exit 1
+    fi
+    echo "WLB_SWITCHED=$switched"
+  args:
+    executable: /bin/bash
+  register: histo_apps_complain_enforce
+  changed_when: "'WLB_SWITCHED=1' in histo_apps_complain_enforce.stdout"
+
+# LibreOffice/Flatpak (zależności GUI) potrafią wciągnąć apport z powrotem — rola desktop już go usuwała
+# (#63), bo apport przy starcie ustawia fs.suid_dumpable=2 i niweczy nasz sysctl=0. Pilnujemy ponownie w
+# tej warstwie (idempotentne, jeśli apport już nieobecny).
+- name: Ponowne usunięcie apport ewentualnie wciągniętego przez Calc/Flatpak (#63)
+  ansible.builtin.apt:
+    name: apport
+    state: absent
+    purge: true
