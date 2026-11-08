@@ -36,7 +36,9 @@
       Description=WLB: reguły audytu po zamontowaniu udziałów, następnie blokada (-e 2)
       Requires=auditd.service
       After=auditd.service local-fs.target remote-fs.target
-      ConditionPathExists=/var/lib/wlb/firstboot.done
+      # Dwie alternatywy: gotowa konfiguracja audytu lub ukończona inicjalizacja starszego obrazu.
+      ConditionPathExists=|/var/lib/wlb/audit-config.ready
+      ConditionPathExists=|/var/lib/wlb/firstboot.done
 
       [Service]
       Type=oneshot

@@ -18,6 +18,7 @@ IMAGE_CONF=${WLB_IMAGE_CONF:-$R/etc/wlb/image.conf}
 DIRS_CONF=$R/etc/wlb/directories.conf
 STATE_DIR=$R/var/lib/wlb
 DONE=$STATE_DIR/firstboot.done
+AUDIT_READY=$STATE_DIR/audit-config.ready
 HUB_CONFIG_D=$R/opt/tljh/config/jupyterhub_config.d
 ADMIN_PASSWORD_FILE=$R/root/wlb-hub-admin-initial-password
 TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
@@ -667,10 +668,6 @@ for ((waited = 0; waited < HUB_WAIT_SECONDS; waited += 2)); do
   sleep 2
 done
 hub_ready || die "JupyterHub nie odpowiada"
-# Faza 2 (#18): hub potwierdzony (po HTTPS przy HUB_TLS=1) — dopiero teraz otwieramy port huba w zaporze.
-# Do tego momentu z sieci dostępny był wyłącznie SSH administratora; błąd TLS/gotowości nie wystawia HTTP.
-write_nftables 1
-
 # Pre-provisioning kont huba (IMG-002/#102): Administrator Klienta a01 + stanowiskowe u01..uNN.
 # Nazwy stanowisk nie zawierają danych osobowych; konta są aktywne od utworzenia. Hasła początkowe
 # znajdują się w /root (0600), do którego Administrator Klienta nie ma dostępu. Operator platformy
@@ -757,6 +754,9 @@ if [[ $LOCAL_TEST_MODE == 1 ]]; then
 fi
 
 # --- 8. Koniec: reguły audytu po montowaniach, potem blokada ---------------------------
+date -Is >"$AUDIT_READY"
+systemctl start wlb-audit-rules.service || die "nie udało się uruchomić finalizacji audytu"
+# #251: konta i finalizacja audytu muszą poprzedzać publikację huba dla sieci.
+write_nftables 1
 date -Is >"$DONE"
-systemctl start wlb-audit-rules.service
 log "Laboratorium ${LAB_NAME} skonfigurowane"

@@ -609,7 +609,39 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -ne 0 ]
   [[ $output == *"nie udało się założyć konta huba"* ]]
-  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ] # bez znacznika → reguły audytu nie są cicho pomijane
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  [ ! -e "$SANDBOX/var/lib/wlb/audit-config.ready" ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
+}
+
+@test "awaria finalizacji audytu nie otwiera portu huba ani nie publikuje firstboot.done (#251)" {
+  cat >"$STUBS/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >>"$CALLS"
+[[ $* != "start wlb-audit-rules.service" ]]
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  [[ $output == *"nie udało się uruchomić finalizacji audytu"* ]]
+  [ -s "$SANDBOX/var/lib/wlb/audit-config.ready" ]
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
+}
+
+@test "firstboot otwiera hub po gotowości kont i finalizacji audytu (#251)" {
+  cat >"$STUBS/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >>"$CALLS"
+if [[ $* == "restart nftables" ]] && grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$WLB_ROOT/etc/nftables.conf"; then
+  grep -Fxq 'systemctl start wlb-audit-rules.service' "$CALLS" || exit 1
+  grep -Fxq 'wlb-hub-user --verify u01' "$CALLS" || exit 1
+  echo 'hub-firewall-open' >>"$CALLS"
+fi
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  called -x 'hub-firewall-open'
+  [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
 }
 
 # --- TLS do SIEM (#6) ------------------------------------------------------------------------
