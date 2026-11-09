@@ -64,26 +64,28 @@ def _hub_default() -> str:
 # --- nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran) ----------
 _CANVAS_SAMPLE_JS = r"""
 () => {
-  // noVNC ≥1.0: canvas#noVNC_canvas (czasem w shadow DOM UI). Szukamy najpierw po id, potem dowolny
-  // canvas o niezerowych wymiarach na stronie/iframe.
-  const find = (root) => {
-    let c = root.getElementById ? root.getElementById('noVNC_canvas') : null;
-    if (c) return c;
-    const all = root.querySelectorAll ? root.querySelectorAll('canvas') : [];
-    for (const el of all) if (el.width > 1 && el.height > 1) return el;
-    return null;
+  // jrdp /desktop/ montuje noVNC w #screen; główny canvas to '#screen canvas' (noVNC dokłada osobny
+  // canvas kursora na body — stąd zawężenie). Kompatybilnie: standalone noVNC (#noVNC_canvas) i dowolny
+  // canvas, także w shadow DOM. OBECNOŚĆ wykrywamy NIEZALEŻNIE od rozmiaru: RFB ustawia wymiary dopiero
+  // po połączeniu VNC, więc 0×0 przez pierwsze sekundy to NIE "brak canvasu" (#206). Pola:
+  //   present = element canvas istnieje;  found = gotowy do próbkowania (niezerowy i czytelny).
+  const pick = (root) => {
+    if (!root || !root.querySelector) return null;
+    return root.querySelector('#screen canvas')
+        || (root.getElementById && root.getElementById('noVNC_canvas'))
+        || root.querySelector('canvas');
   };
-  let c = find(document);
+  let c = pick(document);
   if (!c) {
-    // przeszukaj shadow roots
     for (const host of document.querySelectorAll('*')) {
-      if (host.shadowRoot) { c = find(host.shadowRoot); if (c) break; }
+      if (host.shadowRoot) { c = pick(host.shadowRoot); if (c) break; }
     }
   }
-  if (!c) return {found: false};
-  const ctx = c.getContext('2d');
-  if (!ctx) return {found: true, readable: false, w: c.width, h: c.height};
+  if (!c) return {present: false, found: false};
   const w = c.width, h = c.height;
+  if (w < 2 || h < 2) return {present: true, found: false, sized: false, w, h};
+  const ctx = c.getContext('2d');
+  if (!ctx) return {present: true, found: false, readable: false, w, h};
   const data = ctx.getImageData(0, 0, Math.min(w, 200), Math.min(h, 200)).data;
   const seen = new Set();
   let sum = 0;
@@ -91,7 +93,7 @@ _CANVAS_SAMPLE_JS = r"""
     seen.add((data[i] << 16) | (data[i + 1] << 8) | data[i + 2]);
     sum += data[i] + data[i + 1] + data[i + 2];
   }
-  return {found: true, readable: true, w, h, colors: seen.size, luminance: sum};
+  return {present: true, found: true, readable: true, w, h, colors: seen.size, luminance: sum};
 }
 """
 
@@ -152,22 +154,29 @@ def main() -> None:
                 desktop.goto(f"{hub}/user/{user}/desktop/", wait_until="domcontentloaded", timeout=left() * 1000)
             desktop.on("console", lambda m: console_errors.append(m.text) if m.type == "error" else None)
 
-            # 3. Sesja server-proxy: canvas noVNC na stronie pulpitu (desktop), z shadow-DOM pierce.
-            deadline_canvas = time.monotonic() + min(left(), 60)
-            sample = {"found": False}
+            # 3. Sesja server-proxy: canvas noVNC na stronie pulpitu. jrdp montuje noVNC w #screen; RFB
+            #    ustawia wymiary DOPIERO po połączeniu VNC, więc przez pierwsze sekundy canvas bywa 0×0.
+            #    Czekamy dwufazowo: najpierw element (present), potem niezerowy i niepusty (found). (#206)
+            deadline_canvas = time.monotonic() + min(left(), 90)
+            sample = {"present": False, "found": False}
+            ever_present = False
             while time.monotonic() < deadline_canvas:
                 sample = desktop.evaluate(_CANVAS_SAMPLE_JS)
+                ever_present = ever_present or bool(sample.get("present"))
                 if sample.get("found") and sample.get("readable") and sample.get("colors", 0) > 2:
                     break
                 time.sleep(1.5)
             if not sample.get("found"):
-                _fail(
-                    art,
-                    2,
-                    "brak canvasu noVNC (kafelek/proxy nie wystawił pulpitu)",
-                    hub=hub,
-                    console_errors=console_errors[:20],
+                # Zrzut + struktura DOM pozwalają zdiagnozować BEZ dostępu do VM (#206): rozróżniamy
+                # "elementu canvas w ogóle nie ma" od "jest, ale 0×0" (VNC nie połączył / pulpit nie wstał).
+                desktop.screenshot(path=str(art / "canvas-missing.png"))
+                (art / "desktop.html").write_text(desktop.content(), encoding="utf-8")
+                reason = (
+                    "canvas #screen obecny, ale 0×0/nieczytelny — VNC nie połączył w czasie (pulpit nie wystartował?)"
+                    if ever_present
+                    else "brak elementu canvas #screen (kafelek/proxy nie wystawił pulpitu)"
                 )
+                _fail(art, 2, reason, hub=hub, sample=sample, console_errors=console_errors[:20])
             if sample.get("colors", 0) <= 2:
                 desktop.screenshot(path=str(art / "canvas-empty.png"))
                 _fail(
