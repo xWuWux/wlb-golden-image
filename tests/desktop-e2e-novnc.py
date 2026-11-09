@@ -203,9 +203,9 @@ def main() -> None:
                 time.sleep(1.5)
                 after = desktop.evaluate(_CANVAS_SAMPLE_JS)
             desktop.keyboard.press("Escape")  # zamknij ewentualne menu/zaznaczenie
-            interaction_reacted = after.get("luminance") != before.get("luminance") or after.get("colors") != before.get(
+            interaction_reacted = after.get("luminance") != before.get("luminance") or after.get(
                 "colors"
-            )
+            ) != before.get("colors")
             if not interaction_reacted:
                 # Nie przerywamy (#277): render udowodniony, a input przez Playwright nie dociera do noVNC.
                 desktop.screenshot(path=str(art / "no-interaction.png"))
