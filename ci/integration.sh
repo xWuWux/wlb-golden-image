@@ -188,6 +188,16 @@ acceptance() {
     "${SSH[@]}" 'sudo lynis audit system --quick --no-colors' >"$LOGS/lynis.log" 2>&1 || true
     "${SSH[@]}" 'sudo cat /var/log/lynis-report.dat' >"$ARTIFACTS/lynis-report.dat" 2>/dev/null || true
   fi
+  # Artefakty render-smoke pulpitu (#138): fragment 45-pulpit-render.sh uruchamia render-smoke z
+  # WLB_SMOKE_ARTIFACT_DIR=/tmp/wlb-render-smoke na VM (PNG + result.json). Ściągamy je z żywej VM do
+  # build/ci-logs, żeby po FAIL/SKIP było co obejrzeć w CI — dotąd ginęły w katalogu badacza (#138 §8).
+  # Bezwarunkowo (render-smoke jest nie-bramkujący, więc rc akceptacji go nie odzwierciedla); brak
+  # katalogu = render-smoke nie biegł (flavor bez pulpitu), pomijamy. Póki VM żyje (przed stop-local).
+  if "${SSH[@]}" 'sudo test -d /tmp/wlb-render-smoke' 2>/dev/null; then
+    mkdir -p "$LOGS/render-smoke-$logname"
+    "${SSH[@]}" 'sudo tar -C /tmp -cf - wlb-render-smoke 2>/dev/null' |
+      tar -C "$LOGS/render-smoke-$logname" --strip-components=1 -xf - 2>/dev/null || true
+  fi
   sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
   tests/stop-local.sh
