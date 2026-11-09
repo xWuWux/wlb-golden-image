@@ -18,7 +18,9 @@ IMAGE_CONF=${WLB_IMAGE_CONF:-$R/etc/wlb/image.conf}
 DIRS_CONF=$R/etc/wlb/directories.conf
 STATE_DIR=$R/var/lib/wlb
 DONE=$STATE_DIR/firstboot.done
-AUDIT_READY=$STATE_DIR/audit-config.ready
+AUDIT_READY=$STATE_DIR/audit-config.requested
+# Marker „żądania" konfiguracji audytu: firstboot zapisuje go PRZED uruchomieniem jednostki.
+# Nazwa „ready" byłaby myląca — gotowość reguł w jądrze potwierdza sama jednostka (#251).
 HUB_CONFIG_D=$R/opt/tljh/config/jupyterhub_config.d
 ADMIN_PASSWORD_FILE=$R/root/wlb-hub-admin-initial-password
 TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
@@ -416,6 +418,25 @@ EOF
   nft -c -f "$R/etc/nftables.conf" || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
   systemctl restart nftables
 }
+# Fail-closed (#251): jeśli firstboot zakończy się błędem PO otwarciu bramki huba, a PRZED
+# zapisaniem firstboot.done, bramka wraca do stanu zamkniętego. Flaga HUB_OPENED jest ustawiana
+# przed wywołaniem write_nftables 1, bo ta funkcja może paść w środku (plik z regułą huba już
+# zapisany, a `systemctl restart nftables` zwrócił błąd) — wtedy trap także musi zamknąć.
+# Szczęśliwa ścieżka: po firstboot.done trap nie robi nic.
+HUB_OPENED=0
+fail_closed_on_exit() {
+  local rc=$?
+  # `! -s`, nie `! -e`: nieudany `date >"$DONE"` zostawia PUSTY plik (przekierowanie tworzy go
+  # przed uruchomieniem polecenia), a puste DONE nie jest dowodem ukończenia.
+  if [[ $HUB_OPENED == 1 && ! -s $DONE ]]; then
+    log "firstboot przerwany po otwarciu bramki huba — zamykam dostęp (#251)"
+    rm -f "$DONE.tmp"
+    write_nftables 0 || log "BŁĄD: nie udało się zamknąć bramki huba po błędzie firstbootu"
+  fi
+  exit "$rc"
+}
+trap fail_closed_on_exit EXIT
+
 # Faza 1: zapora bez portu huba (hub zamknięty do potwierdzenia TLS + gotowości).
 write_nftables 0
 
@@ -757,6 +778,12 @@ fi
 date -Is >"$AUDIT_READY"
 systemctl start wlb-audit-rules.service || die "nie udało się uruchomić finalizacji audytu"
 # #251: konta i finalizacja audytu muszą poprzedzać publikację huba dla sieci.
+# Flaga PRZED wywołaniem: write_nftables 1 może paść już po zapisaniu otwartej reguły.
+HUB_OPENED=1
 write_nftables 1
-date -Is >"$DONE"
+# Atomowy marker ukończenia: `date >"$DONE"` tworzy plik PRZED uruchomieniem date, więc nieudany
+# zapis zostawiłby puste firstboot.done (a firstboot pomija wtedy kolejne uruchomienie).
+# `|| die`, nie `&&`: w liście `&&` bash z `set -e` NIE kończy skryptu na błędzie nie-last command.
+date -Is >"$DONE.tmp" || die "nie udało się zapisać znacznika ukończenia (firstboot.done)"
+mv "$DONE.tmp" "$DONE"
 log "Laboratorium ${LAB_NAME} skonfigurowane"

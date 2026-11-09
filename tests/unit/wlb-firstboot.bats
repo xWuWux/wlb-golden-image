@@ -610,7 +610,7 @@ EOF
   [ "$status" -ne 0 ]
   [[ $output == *"nie udało się założyć konta huba"* ]]
   [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
-  [ ! -e "$SANDBOX/var/lib/wlb/audit-config.ready" ]
+  [ ! -e "$SANDBOX/var/lib/wlb/audit-config.requested" ]
   refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
 }
 
@@ -623,7 +623,7 @@ EOF
   run "$FIRSTBOOT"
   [ "$status" -ne 0 ]
   [[ $output == *"nie udało się uruchomić finalizacji audytu"* ]]
-  [ -s "$SANDBOX/var/lib/wlb/audit-config.ready" ]
+  [ -s "$SANDBOX/var/lib/wlb/audit-config.requested" ]
   [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
   refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
 }
@@ -633,8 +633,11 @@ EOF
 #!/usr/bin/env bash
 echo "systemctl $*" >>"$CALLS"
 if [[ $* == "restart nftables" ]] && grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$WLB_ROOT/etc/nftables.conf"; then
-  grep -Fxq 'systemctl start wlb-audit-rules.service' "$CALLS" || exit 1
-  grep -Fxq 'wlb-hub-user --verify u01' "$CALLS" || exit 1
+  audit_line=$(grep -nE 'systemctl start wlb-audit-rules\.service' "$CALLS" | head -1 | cut -d: -f1)
+  verify_line=$(grep -nE 'wlb-hub-user.*--verify' "$CALLS" | head -1 | cut -d: -f1)
+  # Kolejność z $CALLS, nie dokładny literał wywołania: konto musi powstać PRZED finalizacją audytu.
+  [[ -n $audit_line && -n $verify_line ]] || exit 1
+  [[ $verify_line -lt $audit_line ]] || exit 1
   echo 'hub-firewall-open' >>"$CALLS"
 fi
 EOF
@@ -642,6 +645,40 @@ EOF
   [ "$status" -eq 0 ]
   called -x 'hub-firewall-open'
   [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "awaria restartu nftables przy otwieraniu huba zamyka bramkę (trap, #251)" {
+  cat >"$STUBS/systemctl" <<'EOF'
+#!/usr/bin/env bash
+echo "systemctl $*" >>"$CALLS"
+# restart zawodzi TYLKO przy próbie otwarcia (reguła huba obecna w pliku);
+# zamknięcie w trap EXIT (bez reguły) ma się udać.
+if [[ $* == "restart nftables" ]] && grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$WLB_ROOT/etc/nftables.conf"; then
+  exit 1
+fi
+EOF
+  chmod +x "$STUBS/systemctl"
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)" {
+  cat >"$STUBS/date" <<EOF
+#!/usr/bin/env bash
+n=\$(cat "$BATS_TEST_TMPDIR/date-calls" 2>/dev/null || echo 0)
+n=\$((n + 1))
+echo "\$n" >"$BATS_TEST_TMPDIR/date-calls"
+# 1. wywołanie: marker audytu; 2. (przed firstboot.done): wymuszamy błąd zapisu
+[[ \$n -eq 2 ]] && exit 1
+exec /bin/date "\$@"
+EOF
+  chmod +x "$STUBS/date"
+  run "$FIRSTBOOT"
+  [ "$status" -ne 0 ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
 }
 
 # --- TLS do SIEM (#6) ------------------------------------------------------------------------
