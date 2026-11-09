@@ -183,13 +183,25 @@ def main() -> None:
                     art, 2, "canvas pusty/jednolity (czarny ekran)", sample=sample, console_errors=console_errors[:20]
                 )
 
-            # 4. Interakcja zmienia obraz: ruch/klik + klawisz na stronie pulpitu, ponowne próbkowanie.
+            # 4. Interakcja zmienia obraz. Na świeżym pulpicie klik-w-tło + pisanie NIE zmienia canvasu:
+            #    brak sfokusowanego okna, a noVNC rysuje lokalny kursor (ruch myszy też nie rusza pikseli).
+            #    PRAWY KLIK na pulpicie otwiera menu xfdesktop (okno na framebufferze) → gwarantowana zmiana;
+            #    fallback: drag = prostokąt zaznaczenia. Escape sprząta menu/zaznaczenie. (#206)
             before = desktop.evaluate(_CANVAS_SAMPLE_JS)
             desktop.mouse.move(640, 400)
-            desktop.mouse.click(640, 400)
-            desktop.keyboard.type("echo wlb-e2e")
-            time.sleep(2)
+            desktop.mouse.click(640, 400, button="right")  # menu kontekstowe pulpitu
+            time.sleep(1.5)
             after = desktop.evaluate(_CANVAS_SAMPLE_JS)
+            if after.get("luminance") == before.get("luminance") and after.get("colors") == before.get("colors"):
+                # fallback: zaznaczenie przeciągnięciem na pulpicie (xfdesktop rysuje prostokąt)
+                desktop.keyboard.press("Escape")
+                desktop.mouse.move(380, 300)
+                desktop.mouse.down()
+                desktop.mouse.move(820, 560, steps=8)
+                desktop.mouse.up()
+                time.sleep(1.5)
+                after = desktop.evaluate(_CANVAS_SAMPLE_JS)
+            desktop.keyboard.press("Escape")  # zamknij ewentualne menu/zaznaczenie
             if after.get("luminance") == before.get("luminance") and after.get("colors") == before.get("colors"):
                 desktop.screenshot(path=str(art / "no-interaction.png"))
                 _fail(
