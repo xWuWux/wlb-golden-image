@@ -1,10 +1,10 @@
 # Architektura i cykl życia WLB
 
-Stan kodu obrazu: `09c8b298e0d385cf31ac4601d9b43e91c548f8ca` (9.11.2026). Zakres: repozytorium obrazu, jego CI i procedury opisane w repozytorium. Inwentarz zewnętrznych usług i repozytoriów wymaga potwierdzenia w [#224](https://github.com/xWuWux/wlb-golden-image/issues/224). Właściciel aktualizacji dokumentu do wyznaczenia. Przy zmianie ról, ścieżek storage lub bramek wydania przeglądamy odpowiedni diagram i wiersz macierzy odbioru.
+**Rewizja bazowa przeglądu** `09c8b298e0d385cf31ac4601d9b43e91c548f8ca` (2026-11-09). Po dołączeniu `main` do gałęzi dokumentacji sprawdzono różnicę do `ef1ee0f7bc8567819c7e4e3a7576d22bcd1e91b6`. Obejmuje helper porównania obrazów i jego zależności testowe. Kontrakty opisane poniżej nadal odnoszą się do rewizji bazowej.
 
-- **Kod CI/DEV** oznacza mechanizm obecny w bazowej rewizji. Wynik próby należy powiązać z jej przebiegiem.
-- **Procedura** oznacza udokumentowane kroki operatora z warunkami wejścia.
-- **Plan** oznacza proponowany kontrakt lub etap zależny od decyzji i odbioru. UAT i PROD są w tym dokumencie planem.
+Zakres obejmuje repozytorium obrazu, jego CI i procedury opisane w repozytorium. Inwentarz zewnętrznych usług i repozytoriów wymaga potwierdzenia w [#224](https://github.com/xWuWux/wlb-golden-image/issues/224). Właściciel aktualizacji dokumentu do wyznaczenia.
+
+Oznaczenie **Plan** wskazuje etap zależny od decyzji lub odbioru, w tym UAT i PROD. Przy działających mechanizmach i procedurach odsyłacze wskazują kod, test lub runbook. Wynik próby należy powiązać z konkretnym przebiegiem.
 
 [Komponenty i kontrakty](#komponenty-i-kontrakty) · [Przepływy](#przepływy) · [Sekwencje](#sekwencje) · [Macierz odbioru](#macierz-odbioru) · [Decyzje](#decyzje)
 
@@ -48,7 +48,7 @@ Przypisanie ma historię. Ponowne użycie `u01` tworzy kolejne przypisanie, a wc
 | `WLB_GIT_COMMIT` | Tekst, pełny SHA z `image_provenance`; commit budowanego checkoutu | Metadane obrazu i `ci/release.sh`; niezgodność z tagiem zatrzymuje pakowanie | [Wersjonowanie](wersjonowanie-wydan.md), [testy wydania](../tests/unit/release.bats) |
 | `verify(version, manifest, directory) -> None` | Wersja `str` bez `v`, dwa `Path`; katalog wariantów w repozytorium | CLI zwraca 0 lub 1. Wymaga zgodnych wersji, zestawu, deklaracji bazy i sum plików. Zaufany zapis wejścia warstwy jest osobnym dowodem | [Kod](../ci/verify_platform_images.py), [katalog](../release/image-catalog.json), [testy](../tests/unit/test_verify_platform_images.py) |
 | `WLB_EXPORT_QUEUE` | Ścieżka tekstowa w `/etc/wlb/image.conf`, generowana z konfiguracji obrazu | Mover przekazuje prywatny pakiet do kolejki. Operator weryfikuje montowanie, wolne miejsce i stan przerwanego transferu | [Runbook kolejki](runbooks/RB-eksport-kolejka.md), [test movera](../tests/unit/wlb-sluza-out-mover.bats) |
-| `create(source: Path, destination: Path, request_id: str) -> Manifest` | Prywatne źródło i nowa ścieżka docelowa. `request_id` to tekst UUID; `state` w v1 przyjmuje `pending_review` | Mover tworzy prywatną kopię. `SnapshotError` lub `OSError` oznacza porażkę CLI. `verify(bundle: Path) -> Manifest` weryfikuje integralność kopii | [Kod](../ansible/roles/storage/files/wlb-export-snapshot), [testy](../tests/unit/test_wlb_export_snapshot.py) |
+| `create(source: Path, destination: Path, original_name: str, request_id: str) -> Manifest` | Prywatne źródło i nowa ścieżka docelowa. `original_name` to niezaufana nazwa źródłowa zapisywana w manifeście. `request_id` to tekst UUID; `state` w v1 przyjmuje `pending_review` | Mover tworzy prywatną kopię. `SnapshotError` lub `OSError` oznacza porażkę CLI. `verify(bundle: Path) -> Manifest` weryfikuje integralność kopii | [Kod](../ansible/roles/storage/files/wlb-export-snapshot), [testy](../tests/unit/test_wlb_export_snapshot.py) |
 | `MAX_SESSION_HOURS` | Opcjonalna wartość konfiguracji Laboratorium; domyślna sesja 12 h, opisany limit do 48 h | Operator wyznacza okno aktualizacji i sprawdza aktywne zadania przed odcięciem dostępu | [RB-05](runbooks/RB-05-aktualizacja-i-rollback.md), [RB-sesja-48h](runbooks/RB-sesja-48h.md) |
 
 ## Przepływy
@@ -186,6 +186,8 @@ Wymiana dysku systemowego przerywa procesy działające w pamięci. Pliki zapisa
 
 ## Macierz odbioru
 
+Macierz grupuje próby według scenariusza. Wykaz powiązań zgłoszeń z testami utrzymuje [generowana mapa testów](mapa-testy-zgloszenia.md).
+
 | Scenariusz | Dowód obecny w repozytorium | Warunek i luka |
 |---|---|---|
 | Budowa, błędny digest i brak wariantu | [Testy walidatora](../tests/unit/test_verify_platform_images.py), [workflow wydania](../.github/workflows/release.yml) | Niezgodny zestaw odrzucony. Próbę podpisanej promocji na tych samych bajtach śledzi #224 |
@@ -202,3 +204,10 @@ Wymiana dysku systemowego przerywa procesy działające w pamięci. Pliki zapisa
 | IMG-008, warunkowy fail-stop kolejki w MVP | Przerwany wniosek może zatrzymać kolejne. Wymagane alarm i reakcja operatora | Kwarantanna per wniosek przed wieloma badaczami na VM, osobny wolumen przed produkcją |
 | IMG-006, do potwierdzenia przez IOD | Zamknięcie zależy od możliwości storage, polityki kopii i dowodu usunięcia | Wstrzymanie czynności nieodwracalnych do rozstrzygnięcia retencji i wyjątków archiwizacji |
 | Promocja zestawu według #224, plan | Jeden manifest wiąże decyzję z kompletem wersji, zwiększa koszt odbioru | Wydania poszczególnych komponentów można utrzymać z macierzą kompatybilności. Promocja całego zestawu wymaga osobnej decyzji |
+
+## Aktualizacja dokumentu
+
+- Przy zmianie `release/image-catalog.json` sprawdź widok wydania, przykład śledzenia digestu i wiersz odbioru wariantów.
+- Przy zmianie roli lub przydziału kont sprawdź model pojęciowy, słownik ról oraz sekwencje dostępu i eksportu.
+- Przy zmianie bramki wydania, storage lub rollbacku sprawdź odpowiednią ścieżkę awarii i dowód w macierzy odbioru.
+- Po przeglądzie kontraktów zapisz SHA sprawdzonej rewizji. Sprawdź linki oraz podgląd zmienionych diagramów.

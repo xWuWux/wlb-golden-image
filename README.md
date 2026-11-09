@@ -12,7 +12,6 @@ zmieniamy ręcznie.
 ## Dokumentacja
 
 - [Architektura i cykl życia WLB](docs/architektura-wlb.md) — komponenty, przepływy, sekwencje i macierz odbioru.
-
 - [CHANGELOG.md](CHANGELOG.md) — stan obecny projektu i historia istotnych zmian.
 - [docs/przewodnik-administratora.md](docs/przewodnik-administratora.md) — konta badaczy i administracja obrazem.
 - [docs/pierwsze-uruchomienie.md](docs/pierwsze-uruchomienie.md) — budowa i pierwszy test obrazu (WSL2/KVM).
