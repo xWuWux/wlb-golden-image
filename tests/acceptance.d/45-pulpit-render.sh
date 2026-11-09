@@ -17,7 +17,9 @@ if /opt/tljh/user/bin/python -c "import jupyter_remote_desktop_proxy" 2>/dev/nul
     W45_LOG=$(mktemp)
     # Skrypt tnie własny deadline; WLB_SMOKE_TIMEOUT < limit kroku CI. Uruchomienie JAKO badacz
     # (as R1) — XFCE pod rootem jest niewspierany; display dobierany automatycznie (WLB_SMOKE_DISPLAY=auto).
-    if as "$R1" env WLB_SMOKE_TIMEOUT=120 "$W45_SMOKE" >"$W45_LOG" 2>&1; then
+    # WLB_SMOKE_ARTIFACT_DIR na STAŁY katalog (zamiast domyślnego ~/.local/state/.../<timestamp>-<pid>),
+    # żeby host po akceptacji wiedział, skąd pobrać PNG/result.json render-smoke do CI (ci/integration.sh).
+    if as "$R1" env WLB_SMOKE_TIMEOUT=120 WLB_SMOKE_ARTIFACT_DIR=/tmp/wlb-render-smoke "$W45_SMOKE" >"$W45_LOG" 2>&1; then
       ok "Pulpit realnie się renderuje i reaguje na interakcję (render-smoke, #138)"
     elif [[ ${WLB_RENDER_SMOKE_GATING:-0} == 1 ]]; then
       ko "Render-smoke pulpitu nieudany (#138): $(tail -n1 "$W45_LOG")"
