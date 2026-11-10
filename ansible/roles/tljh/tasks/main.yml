@@ -227,14 +227,17 @@
   register: tljh_page_config
   failed_when: false
 
-# wygoda, nie kontrola: bez przycisków badacz nie trafia na błąd 403 przy zwykłym kliknięciu
-- name: JupyterLab — ukryte polecenia pobierania (blokadę daje Traefik)
+# wygoda, nie kontrola: bez przycisków badacz nie trafia na błąd 403 przy zwykłym kliknięciu.
+# notebook-extension:export = menu "File > Save and Export Notebook As…" (eksport przez nbconvert,
+# który Traefik i tak odrzuca 403) — wyszarzamy, żeby nie oferować martwej ścieżki egzportu (#284/#7).
+- name: JupyterLab — ukryte polecenia pobierania i eksportu (blokadę daje Traefik)
   ansible.builtin.copy:
     dest: /opt/tljh/user/etc/jupyter/labconfig/page_config.json
     mode: "0644"
     content: "{{ (tljh_page_config.content | default('e30=') | b64decode | from_json)
       | combine({'disabledExtensions': {'@jupyterlab/filebrowser-extension:download': true,
-                                       '@jupyterlab/docmanager-extension:download': true}}, recursive=true)
+                                       '@jupyterlab/docmanager-extension:download': true,
+                                       '@jupyterlab/notebook-extension:export': true}}, recursive=true)
       | to_nice_json }}\n"
 # --- Limity zasobów badaczy (#30) --------------------------------------------------------------
 # Wszystkie serwery notebooków w jednym slice. Jego limit pamięci (RAM VM minus rezerwa na usługi)
