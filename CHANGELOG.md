@@ -16,15 +16,19 @@ pierwszym Laboratorium na klastrze).
 
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
-  `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%) + allowlista mutantów równoważnych
-  liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika; globalny próg pokrycia
-  etapu 4 nie pilnuje pojedynczego pliku — to znana luka do domknięcia testami `main()`), a timeout mutanta jest błędem. Powłoka: własny harness `ci/mutation-bash.sh` z tabelą
-  `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu obrazu (np. reguła huba fazy 2
-  usunięta, brak znacznika `firstboot.done`, odwrócony warunek sweepu AppArmor) MUSI zostać zabita przez wskazany test
-  bats; przeżycie czerwieni pipeline. `--check` pilnuje, że fragment do mutacji występuje w pliku
-  dokładnie raz, więc tabela nie rozjedzie się po refaktorze. Lokalnie: `make mutation`.
+  `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
+  liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika; globalny próg
+  pokrycia etapu 4 nie pilnuje pojedynczego pliku — to znana luka do domknięcia testami `main()`),
+  a timeout mutanta jest błędem. Przeżyty mutant spoza allowlisty (`ci/mutations/python-allowlist.txt`
+  — tylko mutanty równoważne, z uzasadnieniem) czerwieni pipeline. Powłoka: własny harness
+  `ci/mutation-bash.sh` z tabelą `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu
+  obrazu (np. reguła huba fazy 2 usunięta, brak znacznika `firstboot.done`, odwrócony warunek
+  sweepu AppArmor) MUSI zostać zabita przez wskazany test bats; baseline przed mutacją wymaga
+  dokładnie jednego zielonego testu, więc zepsuty test nie udaje „killed”. `--check` pilnuje, że
+  fragment do mutacji występuje w pliku dokładnie raz. Lokalnie: `make mutation`.
   Runbook: [docs/ci-runbook.md](docs/ci-runbook.md#mutation).
 
+- **Architektura WLB (#226):** [diagramy cyklu życia, kontrakty i macierz odbioru](docs/architektura-wlb.md).
 - **AppArmor w warstwie pulpitu (#65, CIS 1.6.3):** rola `desktop` wymusza enforce **po**
   wszystkich swoich pakietach — skrypt `wlb-apparmor-enforce` (`/usr/local/sbin`) przełącza
   profile pozostawione w complain (XFCE/TigerVNC/noVNC oraz aplikacje GUI dokładane w tej
@@ -36,7 +40,6 @@ pierwszym Laboratorium na klastrze).
   profil bez pliku) oraz adaptacyjny `40-pulpit.sh` (realny przebieg skryptu + complain = 0).
   Na radiologii sweep jest no-opem: `base` enforce'uje wcześniej, a pakiety pulpitu nie
   wnoszą profili w complain — bez nowych pakietów.
-
 - **Kontrakt wizualny pulpitu (#204):** wartości wyglądu XFCE (motyw/ikony/kursor/fonty/DPI/
   panel/tapeta/locale/klawiatura/geometria) z jednego źródła w `ansible/group_vars/all.yml`;
   wdrożenie jako systemowe domyślne xfconf (`/etc/xdg/xfce4/...`, bo konta badacza powstają

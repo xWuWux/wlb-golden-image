@@ -11,6 +11,7 @@ zmieniamy ręcznie.
 
 ## Dokumentacja
 
+- [Architektura i cykl życia WLB](docs/architektura-wlb.md) — komponenty, przepływy, sekwencje i macierz odbioru.
 - [CHANGELOG.md](CHANGELOG.md) — stan obecny projektu i historia istotnych zmian.
 - [docs/przewodnik-administratora.md](docs/przewodnik-administratora.md) — konta badaczy i administracja obrazem.
 - [docs/pierwsze-uruchomienie.md](docs/pierwsze-uruchomienie.md) — budowa i pierwszy test obrazu (WSL2/KVM).
@@ -114,7 +115,7 @@ Logika jest w `ci/*.sh`, więc lokalnie uruchamia się ją tak samo (`make tools
 | 3. Security & compliance | `ci/security.sh` | SAST (semgrep, bandit), IaC (checkov), podatności zamrożonych zależności (osv-scanner), licencje (`ci/license-policy.yml`) | zawsze |
 | 3.5. Kontrakty obrazu | `ci/observability.sh` | zdarzenia z `observability/contract.yml` zgodne z kodem obrazu (źródła logów, pola, klucze audytu, prefiksy zapory, przekazywanie do SIEM) oraz zmienne wdrożeniowe `lab.env` zgodne z `wlb-firstboot` i przykładami cloud-init | zawsze |
 | 4. Testy jednostkowe | `ci/unit.sh` | bats + kcov (próg 85%), pytest + coverage z gałęziami (próg 90%) | zawsze |
-| 4b. Testy mutacyjne | `ci/mutation.sh` | mutmut na walidatorze wydania (próg 85% zabitych + allowlista mutantów równoważnych) + tabela mutacji skryptów obrazu (każda musi zostać zabita) | zawsze |
+| 4b. Testy mutacyjne | `ci/mutation.sh` | mutmut na walidatorze wydania (próg 85% (mianownik: killed + spoza allowlisty)) + tabela mutacji skryptów obrazu (każda musi zostać zabita) | zawsze |
 | 5. Integracja i migracja | `ci/integration.sh` | budowanie obrazu na KVM, kryteria akceptacji MVP w VM, zdarzenia z kontraktu w logu centralnym (testowy SIEM), migracja na istniejący dysk roboczy, dryf locków, podatności pakietów w obrazie (raport) | zmiany poza dokumentacją |
 | 6a. Benchmarki | `ci/perf.sh` | start VM, logowanie, spawn, pandas, ładowanie HADES, dysk — względem `ci/perf-budget.env` | etykieta PR `perf` lub ręcznie |
 | 6b. Wdrożenie tymczasowe | `ci/ephemeral-openstack.sh` | obraz, wolumen i VM w projekcie testowym OpenStack, kryteria akceptacji, sprzątanie | etykieta `deploy-test`, po konfiguracji |
