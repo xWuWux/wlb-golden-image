@@ -308,6 +308,9 @@ expect_ok "Odmowa pobrania w logu (Traefik access log)" \
   bash -c "journalctl -u traefik -b | grep -qE '\"RouterName\":\"(https-)?wlb-block-download@file\"'"
 expect_ok "Przyciski pobierania ukryte w JupyterLab" \
   grep -q '"@jupyterlab/filebrowser-extension:download": true' /opt/tljh/user/etc/jupyter/labconfig/page_config.json
+# "Save and Export Notebook As…" wyszarzone — nbconvert blokuje Traefik, menu nie oferuje martwej ścieżki (#284)
+expect_ok "Menu eksportu notebooka wyszarzone w JupyterLab (#284)" \
+  grep -q '"@jupyterlab/notebook-extension:export": true' /opt/tljh/user/etc/jupyter/labconfig/page_config.json
 
 echo "== 6. Brak wyjścia poza allowlistę =="
 expect_fail "Bezpośrednie połączenie do internetu" as $R1 curl -s --noproxy '*' --max-time 5 https://example.com
