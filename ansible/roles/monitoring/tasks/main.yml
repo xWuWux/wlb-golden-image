@@ -12,10 +12,13 @@
     mode: "0644"
     # --no-collector.systemd: pakiet Debiana włącza kolektor systemd, który wypisuje stan KAŻDEJ
     # jednostki — w tym jupyter-<login>.service badaczy (etap 5 wykrył to w pełnej odpowiedzi, #22).
+    # Flagi kolektorów w Environment, a w ExecStart tylko adres nasłuchu: wlb-monitoring podmienia
+    # wyłącznie adres, a kolektory pozostają jedną definicją z obrazu.
     content: |
       [Service]
+      Environment="WLB_NODE_EXPORTER_FLAGS=--collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd"
       ExecStart=
-      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd
+      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 $WLB_NODE_EXPORTER_FLAGS
   notify: Restart node exporter
 
 - name: Katalog metryk textfile

@@ -18,6 +18,8 @@ def test_node_exporter_is_configured_before_install_and_only_listens_locally():
     assert "--collector.textfile.directory=/var/lib/wlb-node-exporter" in dropin["ansible.builtin.copy"]["content"]
     # kolektor systemd wypisuje jednostki jupyter-<login>.service badaczy — wyłączony (#22)
     assert "--no-collector.systemd" in dropin["ansible.builtin.copy"]["content"]
+    # flagi kolektorów są osobnym słowem w ExecStart (systemd dzieli $VAR po białych znakach)
+    assert dropin["ansible.builtin.copy"]["content"].splitlines()[-1].endswith(" $WLB_NODE_EXPORTER_FLAGS")
 
 
 def test_textfile_directory_is_not_writable_by_researchers():

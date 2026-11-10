@@ -18,8 +18,9 @@ setup() {
   # Plik eksportera z obrazu (rola monitoring) — źródło flag, które przenosimy do override'u.
   cat >"$DROPIN_DIR/10-wlb.conf" <<'CONF'
 [Service]
+Environment="WLB_NODE_EXPORTER_FLAGS=--collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd"
 ExecStart=
-ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd
+ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 $WLB_NODE_EXPORTER_FLAGS
 CONF
   # Stan jądra: plik z regułami łańcucha monitoring_in (pusty = łańcuch istnieje, brak pliku = brak łańcucha).
   : >"$SANDBOX/nft-chain"
@@ -95,7 +96,10 @@ chain_rules() { cat "$SANDBOX/nft-chain"; }
   # plik utrwalający regułę (include z /etc/nftables.conf)
   include_file | grep -qx 'add rule inet wlb monitoring_in ip saddr 172.16.25.58/32 tcp dport 9100 accept'
   # override ExecStart: flagi kolektorów z obrazu, adres nasłuchu podmieniony, guard przed startem
-  monitoring_dropin | grep -qx 'ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=0.0.0.0:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd'
+  # shellcheck disable=SC2016 # $WLB_NODE_EXPORTER_FLAGS rozwija systemd, nie powłoka
+  monitoring_dropin | grep -qxF 'ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=0.0.0.0:9100 $WLB_NODE_EXPORTER_FLAGS'
+  # flagi kolektorów zostają jedną definicją w pliku obrazu (Environment), override ich nie kopiuje
+  refute grep -q 'Environment=' "$DROPIN_DIR/20-wlb-monitoring.conf"
   monitoring_dropin | grep -qx 'ExecStart='
   monitoring_dropin | grep -qx "ExecStartPre=+${MONITORING} guard"
   monitoring_dropin | grep -qx 'After=nftables.service'
