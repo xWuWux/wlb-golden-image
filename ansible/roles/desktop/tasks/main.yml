@@ -146,3 +146,21 @@
     line: "LANG={{ desktop_contract_locale }}"
     create: true
     mode: "0644"
+
+# --- AppArmor w warstwie pulpitu (#65, CIS 1.6.3) ------------------------------------
+# Rola base wymusza enforce PRZED warstwą flavora — XFCE, TigerVNC, noVNC (i aplikacje GUI dołożone
+# w tej roli, np. przyszły LibreOffice Writer z #269) potrafią wnieść nowe profile w complain. Bez
+# sweepu licznik `aa-status --complaining` w tests/acceptance.d/20-apparmor.sh nie zejdzie do 0 na
+# flavorze z pulpitem. To OSTATNI task roli: po wszystkich apt (także Adwaita z kontraktu wizualnego).
+# Logika w skrypcie, nie inline shell — dzięki temu ma testy jednostkowe (tests/unit/
+# wlb-apparmor-enforce.bats) i jest uruchamiana także przez akceptację (idempotentnie).
+- name: Skrypt wymuszania AppArmor enforce dla warstwy pulpitu (#65)
+  ansible.builtin.copy:
+    src: wlb-apparmor-enforce
+    dest: /usr/local/sbin/wlb-apparmor-enforce
+    mode: "0755"
+
+- name: Profile AppArmor w trybie enforce po pakietach pulpitu (#65, CIS 1.6.3)
+  ansible.builtin.command: /usr/local/sbin/wlb-apparmor-enforce
+  register: desktop_apparmor_enforce
+  changed_when: "'WLB_SWITCHED=1' in desktop_apparmor_enforce.stdout"
