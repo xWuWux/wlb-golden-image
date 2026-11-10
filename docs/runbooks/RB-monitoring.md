@@ -1,132 +1,163 @@
 # RB: metryki VM dla centralnego monitoringu (#22)
 
-**Odniesienia:** #22 (metryki VM), `observability/contract.yml` (sekcja `metrics`), rola `monitoring`
-(`prometheus-node-exporter` + `wlb-health`), `wlb-firstboot` (opcja `MONITORING_CIDR`),
-[RB-wlb-health](RB-wlb-health.md). **Zakres:** `wlb-golden-image`.
+**Odniesienia:** #22 (metryki VM), [IMG-010](../adr/IMG-010-monitoring.md) (model zbierania),
+`observability/contract.yml` (sekcja `metrics`), rola `monitoring` (`prometheus-node-exporter`,
+`wlb-health`, `wlb-monitoring`), `wlb-firstboot` (opcja `MONITORING_CIDR`),
+[RB-wlb-health](RB-wlb-health.md). **Zakres:** `wlb-golden-image`, wdrożenia testowe.
 
 Domyślnie obraz **nie wystawia metryk na sieć**: `prometheus-node-exporter` słucha wyłącznie na
-`127.0.0.1:9100`, a zapora przepuszcza na wejściu tylko SSH, hub i DHCP. `MONITORING_CIDR` zdejmuje
-to ograniczenie dla **jednego** źródła scrape'a — bez niego nic się nie zmienia.
+`127.0.0.1:9100`, a zapora przepuszcza na wejściu tylko SSH, hub i DHCP. Ekspozycję dla **jednego**
+adresu źródłowego włącza `MONITORING_CIDR` w `lab.env` (przy pierwszym starcie) albo
+`wlb-monitoring apply` (na działającej VM).
 
-Uzgodniony stos monitoringu (stan infrastruktury, nie bieżący test dostępności): Prometheus 3.15 +
-Grafana + Loki na VM `ipcmc-cortex-monitoring-01` (`172.16.25.58`), **pull co 30 s**, zapora po ich
-stronie dopuszcza pojedynczy adres, scrape jest po **HTTP bez TLS i bez auth** — kontrola wyłącznie
-siecią. Dlatego `MONITORING_CIDR` ma być **wąskie** (zwykle `/32`), a nie cały LAN.
+Stan zastany infrastruktury (odbiór z 2026-10-14, **nie** test łączności z tą VM): Prometheus 3.15 +
+Grafana + Loki na VM `ipcmc-cortex-monitoring-01` (`172.16.25.58`), pull co 30 s, scrape po **HTTP bez
+TLS i bez auth** — kontrola wyłącznie siecią.
+
+## Warunek wstępny: adres jednoznacznie identyfikuje monitoring
+
+Scrape nie jest uwierzytelniony, więc reguła `ip saddr <adres>/32` jest **całą** kontrolą dostępu.
+Przed włączeniem ustal z zespołem infrastruktury:
+
+1. **Jaki adres źródłowy widzi VM** (przy NAT/SNAT to nie musi być adres Prometheusa — patrz B).
+2. **Czy ten adres należy wyłącznie do monitoringu.** Jeśli to wspólny adres NAT, z którego korzystają
+   też inni klienci (np. cała sieć administracyjna), `/32` nie identyfikuje Prometheusa — **nie włączaj
+   ekspozycji**; potrzebny jest osobny adres, tunel/VPN albo TLS z uwierzytelnieniem.
+
+Obraz akceptuje wyłącznie **jeden kanoniczny adres IPv4 z prefiksem `/32`** (bez zer wiodących, bez list
+i sieci). Wartości typu `0.0.0.0/1`, `192.0.2.58/24` czy `010.000.000.001/32` są odrzucane przed
+jakąkolwiek zmianą zapory.
 
 ## Co obraz udostępnia na `:9100`
 
-- metryki systemowe `node_*` (CPU, RAM, dyski, sieć, wersja jądra),
+- metryki systemowe `node_*` — w tym **metadane systemu**: wersja jądra i nazwa hosta
+  (`node_uname_info`), interfejsy sieciowe, punkty montowania i typy systemów plików, urządzenia blokowe,
+  statystyki CPU/pamięci/dysków/sieci,
 - własne metryki WLB `wlb_*` z timera `wlb-health` (kolejka eksportu, spool SIEM, wolne miejsce,
-  `auditd`, `chrony`) — szczegóły i ograniczenia: [RB-wlb-health](RB-wlb-health.md).
+  `auditd`, `chrony`) — [RB-wlb-health](RB-wlb-health.md).
 
-Metryki **nie zawierają** danych badaczy ani nazw plików; kontrakt i selektory są w
-`observability/contract.yml`, a odpowiedź eksportera jest sprawdzana w etapie 5 CI
-(`ci/metrics_check.py`). Wystawienie portu nie wymaga osobnej konfiguracji scrape po stronie
-monitoringu: metryki WLB są na tym samym `:9100` co systemowe.
+Kontrola w CI (etap 5, `ci/metrics_check.py` na pełnej odpowiedzi eksportera z VM testowej, po testach
+z kontami badaczy) odrzuca odpowiedź zawierającą: konta `jupyter-*` i `uNN`, ścieżki **wewnątrz**
+udziałów (`/workspace/…`, `/sluza-out/…` itd.) i sesje logind w zakresie UID badaczy. To kontrola
+regresji, **nie** dowód braku innych metadanych: zakres wyżej (nazwa hosta, jądro, montowania) jest
+widoczny dla każdego, kto mieści się w regule zapory. Przed dopuszczeniem odczytu w produkcji przejrzyj
+pełną odpowiedź z reprezentatywnej VM: `curl --noproxy '*' -fsS http://127.0.0.1:9100/metrics`.
 
-## A. Włączenie — `MONITORING_CIDR` w `lab.env`
+Metryki WLB są na tym samym `:9100` co systemowe — po stronie monitoringu nie trzeba osobnego
+`monitoring_extra_scrape_configs`.
 
-W `/etc/wlb/lab.env` (cloud-init `write_files`) ustaw **obserwowany** adres źródłowy scrape'a:
+## Jak to działa (dlaczego nie `wlb-firstboot --force`)
 
-```sh
-MONITORING_CIDR=172.16.25.58/32
-```
+`wlb-firstboot --force` przy każdym przebiegu ładuje zaporę **bez** portu huba (faza 1) i otwiera go
+dopiero po potwierdzeniu TLS i gotowości huba — błąd w trakcie zostawiłby badaczy bez dostępu. Dlatego
+**zmiana monitoringu na działającej VM idzie wyłącznie przez `wlb-monitoring`**, które dotyka tylko
+reguły portu 9100 i eksportera:
 
-Zasady:
+- reguła `ip saddr <adres> tcp dport 9100 accept` w osobnym łańcuchu `monitoring_in` (skok z `input`,
+  polityka `drop` bez zmian), dokładana atomowo przez `nft -f` — **bez** restartu zapory,
+- utrwalenie w `/etc/nftables.d/50-wlb-monitoring.nft`, włączanym przez `include` z `/etc/nftables.conf`
+  (reguła przeżywa restart zapory i VM),
+- drop-in `20-wlb-monitoring.conf` nadpisujący adres nasłuchu na `0.0.0.0:9100`; pozostałe flagi
+  kolektorów są przepisywane z pliku obrazu,
+- eksporter z ekspozycją ma `After=`/`Wants=`/`PartOf=nftables.service` oraz `ExecStartPre` (guard):
+  nie wystartuje poza pętlą bez aktywnej zapory i aktywnej reguły w jądrze, a stop/restart zapory
+  najpierw zatrzymuje eksporter,
+- `apply` po restarcie eksportera weryfikuje regułę w jądrze i faktyczne gniazdo; przy błędzie sam
+  cofa ekspozycję (stan bezpieczny: tylko pętla). Hub, proxy i śluza nie są dotykane.
 
-- puste = brak ekspozycji (zachowanie domyślne obrazu),
-- pojedyncza kanoniczna sieć IPv4 `A.B.C.D/prefiks`, prefiks 1–32; listy, spacje, IPv6 i `/0` są
-  odrzucane **przed** zmianą zapory (fail-secure),
-- wartość jest walidowana tak jak `ADMIN_SSH_CIDR`/`HUB_ALLOWED_CIDR`,
-- zmiana wymaga ponownego uruchomienia: `sudo wlb-firstboot --force` (nowa VM — wystarczy cloud-init).
+Przy pierwszym starcie `wlb-firstboot` woła `wlb-monitoring apply` **na samym końcu** — po otwarciu
+portu huba i założeniu kont. Błąd metryk jest wtedy niekrytyczny (wpis `BŁĄD` w logu, metryki tylko
+lokalnie), żeby nie pominąć reguł audytu.
 
-Po ustawieniu `wlb-firstboot`:
-
-1. dopisuje regułę zapory `ip saddr ${MONITORING_CIDR} tcp dport 9100 accept` (polityka wejścia
-   pozostaje `drop`),
-2. tworzy drop-in `20-wlb-monitoring.conf` nadpisujący `ExecStart` eksportera na
-   `--web.listen-address=0.0.0.0:9100` (flagi `textfile` zostają z obrazu),
-3. przeładowuje jednostki i restartuje eksporter.
-
-Bindowanie następuje **po** załadowaniu zapory — odwrotna kolejność wystawiłaby metryki na sieć,
-zanim reguły zdążą zadziałać.
-
-## B. Weryfikacja adresu źródłowego (NAT!) — zrób to przed pierwszym scrape'em
-
-Adres widziany przez VM nie musi być adresem serwera Prometheus: jeśli Laboratorium jest w innej
-sieci albo za NAT-em, źródło może być podmienione. Sprawdź to empirycznie, zamiast zakładać:
-
-1. Wdróż VM z `MONITORING_CIDR` ustawionym na adres **przypuszczany** (albo bez niego).
-2. Z serwera monitoringu spróbuj odpytać VM: `curl -sS http://<adres-vm>:9100/metrics | head`.
-3. Na VM podejrzyj odrzucone pakiety (reguła `wlb-in-deny` loguje źródło):
+## A. Nowa VM — `MONITORING_CIDR` w `lab.env`
 
 ```sh
-sudo journalctl -k --since "10 min ago" | grep 'wlb-in-deny'
+MONITORING_CIDR=172.16.25.58/32   # obserwowany adres źródłowy scrape'a (patrz B)
 ```
 
-W polu `SRC=` jest **rzeczywisty** adres, z którego przyszedł scrape. Ustaw `MONITORING_CIDR`
-dokładnie na niego (`/32`) i uruchom `sudo wlb-firstboot --force`.
+## B. Ustalenie obserwowanego adresu źródłowego (NAT)
 
-Jeśli scrape w ogóle nie dociera (brak wpisu `wlb-in-deny`, brak połączenia) — to problem routingu,
-nie zapory: zgłoś do administratorów platformy i **nie** poszerzaj CIDR „na próbę”. Przy sieci
-niezaufanej CIDR bez szyfrowania nie jest wystarczającą kontrolą; alternatywą jest tunel/VPN albo
-push (np. remote-write) zamiast pull.
+Adres widziany przez VM może różnić się od adresu Prometheusa. Ustal go po obu stronach:
 
-## C. Weryfikacja po wdrożeniu (na VM)
+1. Na VM, przy wyłączonej ekspozycji, dodaj **tymczasową** regułę logowania prób połączeń z portem
+   9100 (obraz nie zawiera `tcpdump`; reguła niczego nie przepuszcza, tylko loguje):
+
+   ```sh
+   sudo nft insert rule inet wlb input tcp dport 9100 ct state new log prefix '"wlb-mon-probe "' level info
+   # poczekaj na próbę scrape'a (30 s)
+   sudo journalctl -k --since '5 min ago' | grep wlb-mon-probe     # pole SRC= to obserwowany adres
+   sudo systemctl restart nftables                                # usuwa regułę tymczasową (wczytuje /etc/nftables.conf)
+   ```
+
+   Pomocniczo zapora loguje też wszystkie odrzucenia (`wlb-in-deny`), ale ten log jest **ograniczony
+   do 5 wpisów/s** — brak wpisu niczego nie przesądza.
+2. Po stronie Prometheusa sprawdź stan celu (`up`, ostatni błąd scrape'a).
+3. Jeśli na VM **nie widać żadnych pakietów**, przyczyna jest nierozstrzygnięta: filtr przed VM
+   (security group, zapora sieciowa, routing), inny adres docelowy w konfiguracji Prometheusa albo
+   brak łączności. Ustal ją z infrastrukturą; **nie** poszerzaj zakresu „na próbę".
+
+## C. Działająca VM — włączenie i zmiana adresu (bez przerywania badań)
 
 ```sh
-# reguła zapory i brak 0.0.0.0/0
-sudo nft list ruleset | grep -E 'dport 9100|0\.0\.0\.0/0'
-# nasłuch i lokalna odpowiedź eksportera
-ss -H -ltn 'sport = :9100'
-curl --noproxy '*' -fsS http://127.0.0.1:9100/metrics | grep -c '^wlb_'
-# override z firstboot
-cat /etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf
+sudo wlb-monitoring apply 172.16.25.58/32
+sudo wlb-monitoring status
 ```
 
-Z serwera monitoringu:
+Dla trwałości przy wymianie obrazu wpisz tę samą wartość do `MONITORING_CIDR` w `lab.env`
+(cloud-init). `wlb-firstboot --force` **nie** jest potrzebne i nie powinno być używane do tej zmiany.
+
+## D. Weryfikacja
+
+Na VM:
 
 ```sh
-curl -sS http://<adres-vm>:9100/metrics | grep -E '^(node_cpu_seconds_total|wlb_health_timestamp_seconds)'
+sudo wlb-monitoring status                                   # plik reguły, override, reguła w jądrze, nasłuch
+sudo nft list ruleset | grep 'dport 9100'                    # dokładnie jedna reguła, w monitoring_in
+ps -o args= -C prometheus-node-exporter                      # efektywna komenda: 0.0.0.0:9100 + flagi z obrazu
 ```
 
-## D. Co przekazać zespołowi infrastruktury (onboarding)
+Z serwera monitoringu (dozwolony adres) i z dowolnego innego hosta (oczekiwany brak połączenia):
 
-1. Nazwa VM i adres IP z sieci, z której monitoring ma prowadzić scrape.
-2. Port `9100`, ścieżka `/metrics`, interwał 30 s (jak dla pozostałych hostów).
-3. Prośba o etykietę `lab` (wartość = `LAB_NAME`). Dziś generator `targets.json.j2` nadaje tylko
-   `host` i `env`; przy kilku Laboratoriach na jednym Prometheusie `env` nie rozdzieli Labów, więc
-   bez tej etykiety dashboardy i alerty trzeba budować na nazwie hosta.
-4. Informacja, że metryki WLB (`wlb_*`) są na tym samym endpointcie — **nie** trzeba osobnego
-   `monitoring_extra_scrape_configs`.
+```sh
+curl -sS --max-time 5 http://<adres-vm>:9100/metrics | grep -E '^(node_cpu_seconds_total|wlb_health_timestamp_seconds)'
+```
+
+**Widoczność w monitoringu uznaj za potwierdzoną dopiero po udanym scrape'ie po stronie Prometheusa**
+z etykietą pozwalającą rozpoznać Laboratorium (patrz E). Sam lokalny `curl` tego nie dowodzi.
+
+Etap 5 CI (`tests/acceptance.d/67-monitoring-siec.sh`) sprawdza na VM testowej z prawdziwą zaporą:
+pobranie z dozwolonego źródła i odrzucenie innego (dwa źródła przez veth), zachowanie dostępu do huba,
+restart zapory, zatrzymanie zapory (eksporter staje i nie startuje), wyłączenie i ponowienie przerwanego
+wyłączenia. **Restart całej VM** nie jest tam testowany — po pierwszym wdrożeniu testowym sprawdź ręcznie:
+`sudo reboot`, potem D.
+
+## E. Onboarding po stronie infrastruktury
+
+1. Nazwa VM i adres, pod którym monitoring ma prowadzić scrape; port `9100`, ścieżka `/metrics`, 30 s.
+2. Prośba o etykietę `lab` (wartość = `LAB_NAME`): generator celów nadaje dziś tylko `host` i `env`,
+   więc przy wielu Laboratoriach `env` ich nie rozdzieli.
+3. Potwierdzenie warunku wstępnego (adres źródłowy należy wyłącznie do monitoringu).
 
 ## Rollback
 
 ```sh
-sudo sed -i '/^MONITORING_CIDR=/d' /etc/wlb/lab.env
-sudo wlb-firstboot --force      # usuwa drop-in 20-wlb-monitoring.conf i regułę 9100
+sudo wlb-monitoring disable
+sudo sed -i '/^MONITORING_CIDR=/d' /etc/wlb/lab.env   # żeby kolejne wdrożenie nie włączyło ponownie
 ```
 
-Natychmiastowe cofnięcie bez `firstboot` (np. gdy trzeba zamknąć port teraz):
+`disable` najpierw usuwa regułę (port 9100 od razu odrzucany przez politykę `drop`), potem plik reguły
+i override, restartuje eksporter i **kończy się sukcesem dopiero po potwierdzeniu** nasłuchu wyłącznie
+na `127.0.0.1:9100`. Ponowienie naprawia stan także wtedy, gdy poprzedni przebieg przerwano po usunięciu
+pliku (proces nadal słuchał na `0.0.0.0`).
 
-```sh
-sudo rm -f /etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf
-sudo systemctl daemon-reload && sudo systemctl restart prometheus-node-exporter.service
-sudo nft list ruleset | grep 9100   # reguła zostaje do najbliższego przebiegu firstboot
-```
+## Ograniczenia
 
-## Uwagi i ograniczenia
-
-- **Brak alertingu po stronie monitoringu.** Stack ma dashboardy i orientacyjne progi (CPU/RAM/dysk
-  80/95%), ale nie ma Alertmanagera ani ustalonego odbiorcy powiadomień. Metryki będą więc
-  **widoczne**, ale nikt nie dostanie alertu o zapełnionym dysku czy przepełnionej kolejce SIEM —
-  to osobna praca (SLO/progi, #32, #22).
-- **HTTP bez TLS i bez auth.** Każdy, kto znajdzie się w `MONITORING_CIDR`, czyta metryki bez
-  uwierzytelnienia. Eksporter ujawnia wersję jądra, interfejsy i punkty montowania — nie dane
-  badaczy. Utrzymuj CIDR wąski; TLS/basic auth (`--web.config.file`) wymagałby zmiany po stronie
-  scrape'ującego.
-- **`/hub/metrics` JupyterHuba nie jest wystawiony.** Aktywni badacze, liczba serwerów i czas spawnu
-  pozostają niemierzalne poza logami w SIEM — osobne zadanie.
-- **Zmiana na działającej VM nie przeżyje wymiany obrazu.** Docelowo ustaw `MONITORING_CIDR`
-  w `lab.env` (cloud-init), żeby przetrwała aktualizację.
-- **Retencja** metryk po stronie monitoringu: 90 dni / limit 150 GB (może skrócić historię).
+- **Brak alertingu po stronie monitoringu.** Stack nie ma Alertmanagera ani ustalonego odbiorcy
+  powiadomień; metryki będą widoczne, ale nikt nie dostanie alertu o zapełnionym dysku czy przepełnionej
+  kolejce SIEM (#32).
+- **HTTP bez TLS i bez auth** — patrz warunek wstępny.
+- **Ręczne `nft flush ruleset`** (poza systemd) usuwa regułę, ale nie zatrzymuje eksportera; nasłuch
+  zostaje bez filtra do następnego restartu zapory albo eksportera. Do zmian zapory używaj
+  `systemctl restart nftables` (eksporter jest zatrzymywany razem z nią).
+- **`/hub/metrics` JupyterHuba nie jest wystawiony** (aktywni badacze, czas spawnu) — osobne zadanie.
+- **Retencja** po stronie monitoringu: 90 dni / limit 150 GB.

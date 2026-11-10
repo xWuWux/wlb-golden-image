@@ -1,88 +1,101 @@
 # IMG-010: Monitoring metryk VM — model zbierania i ekspozycja eksportera
 
 * **Status:** Proponowana (do zatwierdzenia przez Właściciela Platformy; wdrożenie wyłącznie testowe)
-* **Data:** 2026-11-05
+* **Data:** 2026-11-05 (rewizja 2026-11-10 po przeglądzie #234)
 * **Autorzy / decyduje:** Właściciel Platformy (obraz) + administratorzy infrastruktury GUMed
-* **Powiązania:** OPZ: CH.8 (integracja z Zabbix/Wazuh), CH.14 (metryki zdrowia komponentów), F-OBS-009 · Regulamin: §21 (monitorowanie), §9.5 (sesje), §20 (dane medyczne) · IP_CMC: ADR 1.6 Observability · Zgłoszenia/PR: #22, #32, #27, #17, #14 · Pliki: `ansible/roles/monitoring/`, `observability/contract.yml`, `ci/metrics_check.py`, `ansible/roles/lab_config/files/wlb-firstboot`, `docs/runbooks/RB-monitoring.md`
+* **Powiązania:** OPZ: CH.8 (integracja z Zabbix/Wazuh), CH.14 (metryki zdrowia komponentów), F-OBS-009 · Regulamin: §21 (monitorowanie), §20 (dane medyczne) · IP_CMC: ADR 1.6 Observability · Zgłoszenia/PR: #22, #234, #32, #27, #17, #14 · Pliki: `ansible/roles/monitoring/`, `observability/contract.yml`, `ci/metrics_check.py`, `ansible/roles/lab_config/files/wlb-firstboot`, `docs/runbooks/RB-monitoring.md`
 
 ## Kontekst i problem
 
-Obraz przez długi czas nie wystawiał żadnych metryk, bo wybór systemu monitoringu jest decyzją
-platformową, a nie obrazową. Dziś w obrazie jest już **format Prometheus**: `prometheus-node-exporter`
-(metryki systemowe) plus timer `wlb-health` (metryki stanu mechanizmów WLB w textfile collectorze),
-z kontraktem w `observability/contract.yml` i bramką CI na odpowiedzi eksportera. Eksporter słucha
-jednak **wyłącznie na `127.0.0.1:9100`** — metryki nie wychodzą z VM, więc kryterium „widoczne
-w systemie monitoringu" z #22 nie jest spełnione.
+Wybór systemu monitoringu jest decyzją platformową, nie obrazową. Obraz ma już jednak **format
+Prometheus**: `prometheus-node-exporter` (metryki systemowe) i timer `wlb-health` (metryki stanu
+mechanizmów WLB w textfile collectorze), z kontraktem w `observability/contract.yml` i bramką CI na
+odpowiedzi eksportera. Eksporter słucha wyłącznie na `127.0.0.1:9100`, więc kryterium #22 „metryki
+widoczne w systemie monitoringu" nie jest spełnione.
 
-Stan infrastruktury (odbiór z 2026-10-14, nie bieżący test dostępności): działa centralny stack
-**Prometheus 3.15 + Grafana + Loki** na VM `ipcmc-cortex-monitoring-01` (`172.16.25.58`), model
-**pull co 30 s**, zapora po stronie monitoringu dopuszcza **pojedynczy adres**, scrape jest po
-**HTTP bez TLS i bez auth**. Brak Alertmanagera i powiadomień. Obecności Zabbixa w GUMed nie
-potwierdzono (wzmianka w IC20-298); OPZ CH.8 wskazuje go jako system istniejący.
+Do rozstrzygnięcia: czy i jak obrazy Laboratoriów mają oddawać metryki do istniejącego stacku oraz czy
+przyjęty format stanowi odstępstwo od specyfikacji.
 
-Problem do rozstrzygnięcia: **czy i jak obrazy Laboratoriów mają oddawać metryki do tego stacku**,
-oraz czy przyjęty format jest zgodny ze specyfikacją, czy stanowi odstępstwo.
+## Stan zastany (fakty wejściowe, nie wynik tej decyzji)
+
+Na podstawie repozytorium infrastruktury i odbioru z **2026-10-14** — **nie** jest to test dostępności
+ani łączności z VM Laboratorium:
+
+* działa centralny stack **Prometheus 3.15 + Grafana + Loki** na VM `ipcmc-cortex-monitoring-01`
+  (`172.16.25.58`); etap podstawowy, bez deklaracji gotowości produkcyjnej/SLA,
+* model **pull co 30 s**, scrape `node_exporter` po **HTTP bez TLS i bez auth**; na hostach
+  infrastruktury zapora dopuszcza pojedynczy adres kolektora,
+* brak Alertmanagera, powiadomień i ustalonego odbiorcy alertów; progi na dashboardach są orientacyjne,
+* generator celów nadaje etykiety `host` i `env`, **bez `lab`**,
+* routing między siecią Laboratoriów a `172.16.25.58` — **nieznany**; adres źródłowy po NAT —
+  **niezweryfikowany**,
+* Zabbix w GUMed — wzmianka w IC20-298, stan niepotwierdzony; OPZ CH.8 wskazuje go jako system istniejący.
 
 ## Rozważane opcje
 
-1. **A — agent Zabbix 2 (push).** Zgodne z CH.8, nie otwiera portu na VM, jedno narzędzie, jeśli
-   GUMed ma Zabbix. Koszt: nowa usługa w obrazie, PKI/PSK, drugi system do utrzymania, jeśli
-   standardem okaże się Prometheus; metryki WLB wymagają własnych `UserParameter`.
-2. **B — Prometheus pull (istniejący stack).** Wykorzystuje to, co już działa; metryki systemowe
-   i `wlb_*` na jednym `:9100`; brak nowych usług w obrazie. Koszt: nowy otwarty port (ograniczony
-   do `/32`), scrape po HTTP bez uwierzytelnienia, zależność od routingu między sieciami.
-3. **C — push/remote-write do Prometheusa.** Brak portu na wejściu, ale wymaga dodatkowego
-   komponentu (agent/collector) i zaufania do niego; więcej ruchu i konfiguracji niż pull.
-4. **D — metryki jako zdarzenia w SIEM.** Istniejący kanał, ale nie działa dokładnie wtedy, gdy
-   potrzebny (awaria SIEM = brak metryk), i nie daje historii/wykresów.
+1. **A — agent Zabbix 2 (push).** Zgodne z CH.8, bez portu na wejściu VM. Koszt: nowa usługa
+   w obrazie, PKI/PSK, drugi system, jeśli standardem jest Prometheus; metryki WLB jako `UserParameter`.
+2. **B — Prometheus pull (istniejący stack).** Wykorzystuje to, co działa; metryki systemowe i `wlb_*`
+   na jednym `:9100`. Koszt: otwarty port i scrape bez uwierzytelnienia — cała kontrola to adres źródłowy.
+3. **C — push/remote-write.** Bez portu na wejściu, ale dodatkowy komponent i jego zaufanie.
+4. **D — metryki jako zdarzenia w SIEM.** Istniejący kanał, ale zawodzi dokładnie przy awarii SIEM
+   i nie daje historii.
 
-## Decyzja
+## Decyzja (proponowana)
 
-**Wariant B dla wdrożeń testowych**, z następującymi warunkami:
+**Wariant B wyłącznie dla wdrożeń testowych**, z warunkami:
 
-1. Obraz wystawia metryki **tylko po jawnym ustawieniu `MONITORING_CIDR`** w `lab.env` (puste =
-   zachowanie dotychczasowe: `127.0.0.1:9100`). Wartość to **pojedyncza sieć** (zwykle `/32`
-   serwera monitoringu), walidowana przed zmianą zapory; `/0`, listy i IPv6 są odrzucane.
-2. Port `9100` dopuszcza wyłącznie reguła `ip saddr ${MONITORING_CIDR} tcp dport 9100 accept`
-   w łańcuchu `input` o polityce `drop`; bindowanie eksportera następuje **po** załadowaniu zapory.
-3. Kontrakt metryk pozostaje w `observability/contract.yml` (format Prometheus), a zgodność odpowiedzi
-   eksportera jest sprawdzana w etapie 5 CI — metryki są weryfikowane tym samym mechanizmem co logi.
-4. Metryki nie zawierają danych badaczy ani nazw plików (kontrakt `wlb_*`).
-5. **Zastrzeżenie:** decyzja obowiązuje dla środowiska testowego. Przed produkcją wymagane jest
-   potwierdzenie standardu GUMed (Zabbix vs Prometheus) i rozstrzygnięcie punktów otwartych niżej.
-   Jeśli standardem jest Zabbix — wracamy do wariantu A i ten ADR zostaje zastąpiony.
+1. Domyślnie brak ekspozycji (`127.0.0.1:9100`). Ekspozycję włącza jawnie `MONITORING_CIDR` w `lab.env`
+   albo `wlb-monitoring apply` — dla **jednego kanonicznego adresu IPv4 `/32`**; sieci, listy, zera
+   wiodące i `0.0.0.0` są odrzucane przed zmianą zapory.
+2. **Warunek wstępny:** adres `/32` musi należeć wyłącznie do monitoringu. Wspólny adres NAT innych
+   klientów oznacza, że `/32` nie identyfikuje Prometheusa — wtedy ekspozycji nie włączamy.
+3. Zmiana na działającej VM nie przechodzi przez `wlb-firstboot --force` (który zamyka port huba
+   na czas przebiegu): `wlb-monitoring` dotyka tylko reguły portu 9100 (osobny łańcuch, `nft -f`, bez
+   restartu zapory) i eksportera. Przy pierwszym starcie firstboot stosuje ekspozycję na końcu, po
+   otwarciu huba, a jej błąd jest niekrytyczny.
+4. Nasłuch poza pętlą zależy od zapory: `After=`/`PartOf=nftables.service` i `ExecStartPre` (guard)
+   sprawdzający aktywną regułę w jądrze; `apply`/`disable` kończą się sukcesem dopiero po weryfikacji
+   reguły i faktycznego gniazda, a błąd cofa do stanu bezpiecznego.
+5. Kontrakt metryk pozostaje w `observability/contract.yml`; etap 5 CI sprawdza pełną odpowiedź
+   eksportera pod kątem identyfikatorów badaczy oraz — prawdziwą próbą sieciową — dostęp z dozwolonego
+   i odrzucenie innego źródła.
+6. Przed produkcją: potwierdzenie standardu GUMed (Zabbix vs Prometheus). Jeśli Zabbix — wariant A,
+   a ten ADR zostaje zastąpiony.
 
 ## Odstępstwo od specyfikacji
 
 * **Czy stanowi odstępstwo:** Tak (warunkowo, do potwierdzenia standardu platformy)
 * **Uzasadnienie / cytat:** OPZ CH.8: „platforma chmurowa powinna umożliwiać integrację z zewnętrznym
-  systemem zabbix oraz wazuh". Obraz używa formatu **Prometheus** (`node_exporter` + textfile),
-  a nie agenta Zabbix. Powód: format ten jest już w obrazie i w działającym stacku monitoringu
-  platformy, a wdrożenie agenta Zabbix wymaga nowej usługi i PKI. Stan Zabbixa w GUMed jest
-  niepotwierdzony — po potwierdzeniu odstępstwo wymaga świadomej akceptacji albo migracji do
-  wariantu A. Wpis do rejestru odstępstw: #22.
+  systemem zabbix oraz wazuh". Obraz używa formatu **Prometheus**, a nie agenta Zabbix, bo ten format
+  jest już w obrazie i w stacku platformy. Po potwierdzeniu stanu Zabbixa odstępstwo wymaga świadomej
+  akceptacji albo migracji do wariantu A. Wpis do rejestru odstępstw: #22.
 
 ## Konsekwencje
 
-* **Pozytywne:** metryki VM i stanu mechanizmów WLB (kolejka eksportu, spool SIEM, wolne miejsce,
-  `auditd`, `chrony`) są widoczne w istniejącym stacku bez nowych usług w obrazie; jedno źródło
-  (`:9100`) dla metryk systemowych i WLB; domyślnie obraz zachowuje się jak dotąd (brak ekspozycji).
-* **Negatywne / dług techniczny:** scrape po HTTP bez TLS i auth — kontrola wyłącznie siecią,
-  więc `MONITORING_CIDR` musi być wąski; eksporter ujawnia wersję jądra, interfejsy i punkty
-  montowania; wymagana empiryczna weryfikacja adresu źródłowego (NAT); brak alertingu po stronie
-  monitoringu (dashboardy i progi orientacyjne bez odbiorcy); `env`/`host` to jedyne etykiety
-  w generatorze celów — brak `lab` utrudnia rozdzielenie Laboratoriów.
-* **Świadomie pominięte:** agent Zabbix (do potwierdzenia standardu), `/hub/metrics` JupyterHuba
-  (aktywni badacze, czas spawnu — osobne zadanie), push/remote-write, TLS i basic auth na eksporterze,
-  definicja SLI/SLO i progów alertów (zależne od ustalenia odbiorcy alertów).
+* **Pozytywne (oczekiwane po onboardingu):** metryki systemowe i stanu WLB dostępne w istniejącym
+  stacku bez nowych usług w obrazie; domyślnie obraz zachowuje się jak dotąd.
+* **Negatywne / dług techniczny:** scrape bez TLS i auth; endpoint ujawnia metadane systemu (nazwa
+  hosta, jądro, interfejsy, punkty montowania) każdemu, kto mieści się w regule — kontrola CI wyklucza
+  tylko identyfikatory badaczy; ręczne `nft flush ruleset` poza systemd zostawia nasłuch bez filtra do
+  restartu eksportera; brak alertingu; brak etykiety `lab`.
+* **Świadomie pominięte:** agent Zabbix, `/hub/metrics` JupyterHuba, push/remote-write, TLS i basic
+  auth na eksporterze, SLI/SLO i progi alertów.
+
+## Wynik odbioru (do uzupełnienia — dziś niepotwierdzony)
+
+Widoczność metryk w monitoringu uznajemy za potwierdzoną **dopiero** po: udanym scrape'ie po stronie
+Prometheusa z VM testowej, z etykietą pozwalającą rozpoznać Laboratorium; potwierdzeniu, że inny adres
+nie łączy się z `:9100`; powtórzeniu po restarcie VM i po `wlb-monitoring disable`; przeglądzie pełnej
+odpowiedzi `/metrics` z reprezentatywnej VM. Do tego czasu ten ADR opisuje mechanizm, nie osiągnięty
+efekt. Procedura: `docs/runbooks/RB-monitoring.md`.
 
 ## Punkty otwarte (warunki zamknięcia #22)
 
-1. Potwierdzenie przez administratorów GUMed standardu monitoringu (Zabbix vs Prometheus) — decyzja
-   platformowa, nie obrazowa.
-2. Weryfikacja routingu między siecią Laboratoriów a `172.16.25.58` i ustalenie obserwowanego adresu
-   źródłowego (procedura w `docs/runbooks/RB-monitoring.md`).
-3. Ustalenie właściciela alertów i progów (dysk, spool SIEM, wiek próbki `wlb-health`) — powiązane
-   z #32 i #27.
+1. Standard monitoringu GUMed (Zabbix vs Prometheus) — decyzja platformowa.
+2. Routing do `172.16.25.58`, obserwowany adres źródłowy i potwierdzenie, że należy wyłącznie do
+   monitoringu.
+3. Właściciel alertów i progi (dysk, spool SIEM, wiek próbki `wlb-health`) — #32, #27.
 4. Etykieta `lab` w generatorze celów po stronie infrastruktury.
 5. `/hub/metrics` z tokenem `read:metrics` — osobne zgłoszenie.
+6. Wynik odbioru (sekcja wyżej).

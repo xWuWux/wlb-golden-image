@@ -163,6 +163,7 @@ GOOD = [
     f"<85>1 2026-09-25T12:00:00Z lab-test01 wlb-sluza-out - - {ROOT}  rejected user=jupyter-tester1 "
     "entry=link-test reason=unsupported_type",
     f"<13>1 2026-09-25T12:00:00Z lab-test01 wlb-firstboot 12 - {ROOT}  Laboratorium lab-test01 skonfigurowane",
+    f"<13>1 2026-09-25T12:00:00Z lab-test01 wlb-monitoring 31 - {ROOT}  metryki VM: ekspozycja wyłączona (#22)",
     f"<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - {ROOT}  [I 2026 JupyterHub base:931] User logged in: tester1",
     f"<30>1 2026-09-25T12:00:00Z lab-test01 python3 99 - {ROOT}  "
     "[W 2026 JupyterHub base:998] Failed login for 'tester2'",

@@ -203,9 +203,10 @@ node_exportera; semantykę, diagnostykę i ograniczenia opisuje [runbook](docs/r
 - **śladów rozproszonych w VM,** bo nie ma tam usług wywołujących się nawzajem (zdarzenia koreluje się
   po `user`, `uid` i `session`),
 - **domyślnej ekspozycji metryk na sieć**. `prometheus-node-exporter` słucha `127.0.0.1:9100`;
-  scrape z sieci monitoringu włącza się jawnie przez `MONITORING_CIDR` (jedno źródło, zwykle `/32`)
-  — reguła zapory dopuszcza port 9100 tylko z tego zakresu. Procedura, weryfikacja adresu źródłowego
-  i rollback: [RB-monitoring](docs/runbooks/RB-monitoring.md); model zbierania i odstępstwo od OPZ CH.8:
+  scrape z sieci monitoringu włącza się jawnie dla jednego adresu `/32` — `MONITORING_CIDR` w `lab.env`
+  albo `wlb-monitoring apply` na działającej VM (bez `wlb-firstboot --force`, bez przerywania huba).
+  Procedura, warunek wstępny dla adresu po NAT, weryfikacja i rollback:
+  [RB-monitoring](docs/runbooks/RB-monitoring.md); model zbierania i odstępstwo od OPZ CH.8:
   [IMG-010](docs/adr/IMG-010-monitoring.md).
 
 ## Wdrożenie obrazu

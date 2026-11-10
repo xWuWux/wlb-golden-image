@@ -53,10 +53,14 @@ pierwszym Laboratorium na klastrze).
   miejsca, auditd i chrony oraz kontrola kontraktu na odpowiedzi node_exportera.
   Brak zdalnego scrape i alertowania; [runbook](docs/runbooks/RB-wlb-health.md).
 
-- **Ekspozycja metryk dla monitoringu (#22):** opcjonalny `MONITORING_CIDR` w `lab.env` wystawia
-  `node_exporter` na `0.0.0.0:9100`, a zapora dopuszcza port 9100 tylko z jednego źródła scrape'a
-  (domyślnie nadal `127.0.0.1`). Model zbierania i odstępstwo od OPZ CH.8: [IMG-010](docs/adr/IMG-010-monitoring.md);
-  procedura, weryfikacja NAT i rollback: [RB-monitoring](docs/runbooks/RB-monitoring.md).
+- **Ekspozycja metryk dla monitoringu (#22):** opcjonalny `MONITORING_CIDR` (jeden kanoniczny adres
+  `/32`) w `lab.env` i narzędzie `wlb-monitoring apply|disable|status` do zmiany na działającej VM —
+  bez `wlb-firstboot --force` i bez zamykania huba. Reguła portu 9100 w osobnym łańcuchu
+  `monitoring_in` (atomowe `nft -f`, utrwalenie przez `include`), eksporter poza pętlą zależny od zapory
+  (`PartOf` + guard w `ExecStartPre`), weryfikacja gniazda i automatyczne cofnięcie przy błędzie.
+  Etap 5: próba sieciowa z dozwolonego i innego źródła oraz kontrola identyfikatorów badaczy w pełnej
+  odpowiedzi eksportera; `metrics_check.py` zgłasza też nieznane metryki `wlb_*`. Model i odstępstwo
+  od OPZ CH.8: [IMG-010](docs/adr/IMG-010-monitoring.md); procedura: [RB-monitoring](docs/runbooks/RB-monitoring.md).
   Nadal brak alertingu po stronie monitoringu i `/hub/metrics`.
 
 - **SIEM / Wazuh (#17):** dekodery RFC 5424, reguły zdarzeń i audytu oraz testy

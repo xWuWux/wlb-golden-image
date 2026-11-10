@@ -24,6 +24,22 @@
     group: root
     mode: "0755"
 
+- name: Katalog reguł zapory dla ekspozycji metryk (#22)
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Narzędzie włączania/wyłączania ekspozycji metryk (#22)
+  ansible.builtin.copy:
+    src: wlb-monitoring
+    dest: /usr/local/sbin/wlb-monitoring
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Instalacja node_exporter bez automatycznego startu
   ansible.builtin.apt:
     name: prometheus-node-exporter
