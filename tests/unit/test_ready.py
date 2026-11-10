@@ -26,8 +26,7 @@ class RequiredCheckTests(unittest.TestCase):
         for name, image, job, result, expected in cases:
             with self.subTest(name=name):
                 needs = {
-                    key: {"result": "success"}
-                    for key in ("lint", "build-check", "security", "observability", "unit")
+                    key: {"result": "success"} for key in ("lint", "build-check", "security", "observability", "unit")
                 }
                 needs["lint"]["outputs"] = {"image": str(image).lower()}
                 needs.update({key: {"result": "skipped"} for key in ("integration", "perf", "ephemeral")})
