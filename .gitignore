@@ -5,6 +5,9 @@ packer_cache/
 *.qcow2
 *.img
 *.iso
+# mutmut (stage 4b): katalog mutantów i cache wyników są artefaktami, nie kodem
+mutants/
+.mutmut-cache
 
 # Klucze i sekrety
 *.pem

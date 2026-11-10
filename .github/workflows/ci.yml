@@ -176,6 +176,31 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  mutation:
+    name: "4b. Testy mutacyjne"
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container: ubuntu:26.04
+    env:
+      CI: "true"
+    steps:
+      - name: Zależności testów
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+            ca-certificates curl git jq psmisc python3 python3-venv
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ci/install-tools.sh unit
+      - run: ci/guard.sh --name "4b. Testy mutacyjne" --timeout 20m --memory auto -- ci/mutation.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation
+          path: build/mutation/
+          if-no-files-found: ignore
+          retention-days: 14
+
   integration:
     name: "5. Integracja i migracja"
     needs: [lint, unit]
@@ -319,7 +344,7 @@ jobs:
 
   ready:
     name: "Gotowe do code review"
-    needs: [lint, build-check, security, observability, unit, integration, perf, ephemeral]
+    needs: [lint, build-check, security, observability, unit, mutation, integration, perf, ephemeral]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

@@ -1,0 +1,11 @@
+# Tabela mutacji powłoki dla stage 4b (ci/mutation-bash.sh). Kolumny rozdzielone TAB:
+#   plik <TAB> fragment_przed <TAB> fragment_po <TAB> plik_testu <TAB> filtr_testu <TAB> opis
+# Zasady: fragment_przed musi występować w pliku DOKŁADNIE raz; mutacja ma być minimalna i
+# semantycznie istotna (nie kosmetyczna); filtr_testu wskazuje test bats, który MUSI ją zabić.
+# Filtr "-" = cały plik testów. Dodając mutację, sprawdź lokalnie:
+#   ci/mutation-bash.sh --check && ci/mutation-bash.sh
+ansible/roles/lab_config/files/wlb-firstboot	write_nftables 1	write_nftables 0	tests/unit/wlb-firstboot.bats	HUB_TLS=0	hub nigdy nie otwierany na HUB_ALLOWED_CIDR — reguła fazy 2 znika (#18)
+ansible/roles/lab_config/files/wlb-firstboot	date -Is >"$DONE"	date -Is >"$DONE.tmp"	tests/unit/wlb-firstboot.bats	pełna konfiguracja	znacznik firstboot.done nie zapisany — firstboot nie jest idempotentny
+ansible/roles/desktop/files/wlb-apparmor-enforce	((before == 0))	((before != 0))	tests/unit/wlb-apparmor-enforce.bats	brak profili	odwrócony warunek wczesnego wyjścia sweepu AppArmor (#65)
+ansible/roles/desktop/files/wlb-apparmor-enforce	if [[ $after != 0 ]]	if [[ $after == 0 ]]	tests/unit/wlb-apparmor-enforce.bats	aa-enforce nie zdejmuje	brak fail-secure po nieudanym aa-enforce (#65)
+ansible/roles/desktop/files/wlb-apparmor-enforce	switched=1	switched=0	tests/unit/wlb-apparmor-enforce.bats	dwa profile	brak sygnału zmiany dla changed_when w Ansible (#65)

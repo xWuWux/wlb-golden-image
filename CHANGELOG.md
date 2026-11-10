@@ -14,6 +14,17 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
+  naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
+  `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 70%)
+  liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika — pokrycie pilnuje
+  etap 4), a timeout mutanta jest błędem. Powłoka: własny harness `ci/mutation-bash.sh` z tabelą
+  `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu obrazu (np. brak `die` po
+  nieudanym starcie audytu, odwrócony warunek sweepu AppArmor) MUSI zostać zabita przez wskazany test
+  bats; przeżycie czerwieni pipeline. `--check` pilnuje, że fragment do mutacji występuje w pliku
+  dokładnie raz, więc tabela nie rozjedzie się po refaktorze. Lokalnie: `make mutation`.
+  Runbook: [docs/ci-runbook.md](docs/ci-runbook.md#mutation).
+
 - **AppArmor w warstwie pulpitu (#65, CIS 1.6.3):** rola `desktop` wymusza enforce **po**
   wszystkich swoich pakietach — skrypt `wlb-apparmor-enforce` (`/usr/local/sbin`) przełącza
   profile pozostawione w complain (XFCE/TigerVNC/noVNC oraz aplikacje GUI dokładane w tej

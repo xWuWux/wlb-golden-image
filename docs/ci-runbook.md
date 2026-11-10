@@ -39,6 +39,7 @@ gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-rep
    | 3 | `make security` | nowe CVE w zamrożonych wersjach, licencja spoza polityki |
    | 3.5 | `make observability` | zmieniony format logu bez aktualizacji `observability/contract.yml`, nowa zmienna `lab.env` bez wpisu w `cloud-init/lab.env.example` i w przykładzie user-data |
    | 4 | `make unit` | test jednostkowy, spadek pokrycia poniżej progu |
+   | 4b | `make mutation` | mutant przeżył (test nie sprawdza tego, co deklaruje) albo wynik mutacji Pythona poniżej progu |
    | 5 | `make integration` (KVM) | budowanie obrazu, kryterium akceptacji, migracja, dryf locków, SIEM |
 
 3. Dla etapu 5 pobierz artefakt `integration-logs`. W `build/ci-logs/` są:
@@ -52,6 +53,21 @@ gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-rep
    `envs/python/environment.lock.yml` w tym dziale, w którym pokazał ją `conda env export` z obrazu
    (`make freeze` robi to automatycznie).
 4. Popraw kod. Jeśli znalazłeś nowy rodzaj błędu, dopisz go do listy w `przewodnik-vm.sh bledy`.
+
+## mutation
+
+**Mutant przeżył (stage 4b).** Testy przeszły mimo celowo zmienionego kodu — to luka w testach,
+nie w kodzie obrazu. Stage 4b jest **bramkujący**: wynik Pythona poniżej `PYTHON_MUTATION_MIN`
+(domyślnie 70%) albo jakakolwiek przeżyta mutacja powłoki czerwieni pipeline.
+
+1. Odtwórz lokalnie: `make mutation` (albo `ci/mutation-bash.sh` dla samej powłoki,
+   `mutmut run` + `mutmut results --all true` dla Pythona). Artefakt: `build/mutation/`.
+2. Python: `python-summary.md` wypisuje zabite/przeżyte/„no tests”. Mutant „no tests” nie wchodzi do
+   progu — pokryciem zajmuje się stage 4. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
+   progu); jeśli mutant jest równoważny (nie da się go zabić), uzasadnij to w PR.
+3. Powłoka: tabela `ci/mutations/bash-mutations.tsv`. Każdy wiersz to celowa zmiana skryptu obrazu
+   i test bats, który MUSI ją zabić. Nowy wiersz dodawaj razem z testem; `ci/mutation-bash.sh --check`
+   pilnuje, że fragment do mutacji nadal występuje w pliku dokładnie raz (tabela nie może się rozjechać).
 
 ## oom
 
