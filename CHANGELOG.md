@@ -59,7 +59,8 @@ pierwszym Laboratorium na klastrze).
   `monitoring_in` (atomowe `nft -f`, utrwalenie przez `include`), eksporter poza pętlą zależny od zapory
   (`PartOf` + guard w `ExecStartPre`), weryfikacja gniazda i automatyczne cofnięcie przy błędzie.
   Etap 5: próba sieciowa z dozwolonego i innego źródła oraz kontrola identyfikatorów badaczy w pełnej
-  odpowiedzi eksportera; `metrics_check.py` zgłasza też nieznane metryki `wlb_*`. Model i odstępstwo
+  odpowiedzi eksportera; `metrics_check.py` zgłasza też nieznane metryki `wlb_*`. Wyłączony kolektor
+  `systemd` eksportera (wypisywał jednostki `jupyter-<login>.service` badaczy). Model i odstępstwo
   od OPZ CH.8: [IMG-010](docs/adr/IMG-010-monitoring.md); procedura: [RB-monitoring](docs/runbooks/RB-monitoring.md).
   Nadal brak alertingu po stronie monitoringu i `/hub/metrics`.
 

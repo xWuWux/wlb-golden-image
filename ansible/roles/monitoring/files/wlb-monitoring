@@ -107,6 +107,14 @@ EOF
   chmod 0644 "$MONITORING_DROPIN"
 }
 
+# Restart eksportera z wyzerowaniem licznika startów: apply z automatycznym cofnięciem i kolejne
+# disable to kilka restartów w kilka sekund — bez reset-failed systemd odrzuca start
+# (start-limit-hit) i narzędzie zostawiałoby eksporter zatrzymany.
+restart_exporter() {
+  "$SYSTEMCTL" reset-failed "$SERVICE" >/dev/null 2>&1 || true
+  "$SYSTEMCTL" restart "$SERVICE"
+}
+
 listeners() { # adresy nasłuchu na porcie 9100, jeden na wiersz
   "$SS" -H -ltn "sport = :${PORT}" 2>/dev/null | awk '{print $4}'
 }
@@ -152,7 +160,7 @@ EOF
   mv -f "$tmp" "$NFT_INCLUDE"
   write_dropin
   "$SYSTEMCTL" daemon-reload
-  if ! "$SYSTEMCTL" restart "$SERVICE"; then
+  if ! restart_exporter; then
     disable >/dev/null 2>&1 || true
     die "eksporter nie wystartował z nasłuchem na 0.0.0.0:${PORT} — cofnięto ekspozycję (#22)"
   fi
@@ -172,7 +180,7 @@ disable() {
   "$SYSTEMCTL" daemon-reload
   # Restart także wtedy, gdy pliku już nie było: poprzedni przebieg mógł zostać przerwany po rm,
   # a proces nadal słucha na 0.0.0.0 — inaczej ponowienie nie naprawiłoby stanu.
-  "$SYSTEMCTL" restart "$SERVICE" || true
+  restart_exporter || true
   verify_loopback_only
   log "metryki VM: ekspozycja wyłączona — nasłuch tylko na 127.0.0.1:${PORT} (#22)"
 }

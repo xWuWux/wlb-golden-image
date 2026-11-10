@@ -10,10 +10,12 @@
   ansible.builtin.copy:
     dest: /etc/systemd/system/prometheus-node-exporter.service.d/10-wlb.conf
     mode: "0644"
+    # --no-collector.systemd: pakiet Debiana włącza kolektor systemd, który wypisuje stan KAŻDEJ
+    # jednostki — w tym jupyter-<login>.service badaczy (etap 5 wykrył to w pełnej odpowiedzi, #22).
     content: |
       [Service]
       ExecStart=
-      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter
+      ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd
   notify: Restart node exporter
 
 - name: Katalog metryk textfile

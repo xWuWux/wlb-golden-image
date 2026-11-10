@@ -19,7 +19,7 @@ setup() {
   cat >"$DROPIN_DIR/10-wlb.conf" <<'CONF'
 [Service]
 ExecStart=
-ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter
+ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd
 CONF
   # Stan jądra: plik z regułami łańcucha monitoring_in (pusty = łańcuch istnieje, brak pliku = brak łańcucha).
   : >"$SANDBOX/nft-chain"
@@ -62,7 +62,7 @@ EOF
 echo "systemctl \$*" >>"\$CALLS"
 svc=\${!#}
 case "\$1" in
-  daemon-reload) exit 0 ;;
+  daemon-reload | reset-failed) exit 0 ;;
   is-active) grep -qx "\$svc" "$SANDBOX/inactive" && exit 3; exit 0 ;;
   restart) [[ -f "$SANDBOX/restart.fail" ]] && exit 1; exit 0 ;;
 esac
@@ -95,7 +95,7 @@ chain_rules() { cat "$SANDBOX/nft-chain"; }
   # plik utrwalający regułę (include z /etc/nftables.conf)
   include_file | grep -qx 'add rule inet wlb monitoring_in ip saddr 172.16.25.58/32 tcp dport 9100 accept'
   # override ExecStart: flagi kolektorów z obrazu, adres nasłuchu podmieniony, guard przed startem
-  monitoring_dropin | grep -qx 'ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=0.0.0.0:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter'
+  monitoring_dropin | grep -qx 'ExecStart=/usr/bin/prometheus-node-exporter --web.listen-address=0.0.0.0:9100 --collector.textfile.directory=/var/lib/wlb-node-exporter --no-collector.systemd'
   monitoring_dropin | grep -qx 'ExecStart='
   monitoring_dropin | grep -qx "ExecStartPre=+${MONITORING} guard"
   monitoring_dropin | grep -qx 'After=nftables.service'
@@ -104,6 +104,9 @@ chain_rules() { cat "$SANDBOX/nft-chain"; }
   refute grep -q '127.0.0.1:9100' "$DROPIN_DIR/20-wlb-monitoring.conf"
   calls | grep -qx 'systemctl daemon-reload'
   calls | grep -qx 'systemctl restart prometheus-node-exporter.service'
+  # licznik startów zerowany przed restartem (apply + cofnięcie + disable nie trafiają w start-limit)
+  [ "$(grep -n 'reset-failed prometheus-node-exporter.service' "$CALLS" | head -1 | cut -d: -f1)" -lt \
+    "$(grep -n 'restart prometheus-node-exporter.service' "$CALLS" | head -1 | cut -d: -f1)" ]
   [[ $output == *"nasłuch na 0.0.0.0:9100, dostęp tylko z 172.16.25.58/32"* ]]
 }
 

@@ -36,6 +36,10 @@ jakąkolwiek zmianą zapory.
 - własne metryki WLB `wlb_*` z timera `wlb-health` (kolejka eksportu, spool SIEM, wolne miejsce,
   `auditd`, `chrony`) — [RB-wlb-health](RB-wlb-health.md).
 
+Kolektor `systemd` jest w obrazie **wyłączony** (`--no-collector.systemd`): pakiet Debiana go włącza,
+a wypisuje on stan każdej jednostki, w tym `jupyter-<login>.service` badaczy — wykryła to kontrola
+poniżej na pierwszym przebiegu etapu 5.
+
 Kontrola w CI (etap 5, `ci/metrics_check.py` na pełnej odpowiedzi eksportera z VM testowej, po testach
 z kontami badaczy) odrzuca odpowiedź zawierającą: konta `jupyter-*` i `uNN`, ścieżki **wewnątrz**
 udziałów (`/workspace/…`, `/sluza-out/…` itd.) i sesje logind w zakresie UID badaczy. To kontrola

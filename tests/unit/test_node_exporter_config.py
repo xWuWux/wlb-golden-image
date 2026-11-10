@@ -16,6 +16,8 @@ def test_node_exporter_is_configured_before_install_and_only_listens_locally():
     assert "ExecStart=\n" in dropin["ansible.builtin.copy"]["content"]
     assert "--web.listen-address=127.0.0.1:9100" in dropin["ansible.builtin.copy"]["content"]
     assert "--collector.textfile.directory=/var/lib/wlb-node-exporter" in dropin["ansible.builtin.copy"]["content"]
+    # kolektor systemd wypisuje jednostki jupyter-<login>.service badaczy — wyłączony (#22)
+    assert "--no-collector.systemd" in dropin["ansible.builtin.copy"]["content"]
 
 
 def test_textfile_directory_is_not_writable_by_researchers():
