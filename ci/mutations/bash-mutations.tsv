@@ -5,8 +5,10 @@
 # Filtr "-" = cały plik testów (tylko pliki z jednym testem; baseline wymaga dokładnie 1 testu).
 # Dodając mutację, sprawdź lokalnie:
 #   ci/mutation-bash.sh --check && ci/mutation-bash.sh
-ansible/roles/lab_config/files/wlb-firstboot	write_nftables 1	write_nftables 0	tests/unit/wlb-firstboot.bats	HUB_TLS=0	hub nigdy nie otwierany na HUB_ALLOWED_CIDR — reguła fazy 2 znika (#18)
-ansible/roles/lab_config/files/wlb-firstboot	date -Is >"$DONE"	date -Is >"$DONE.tmp"	tests/unit/wlb-firstboot.bats	pełna konfiguracja	znacznik firstboot.done nie zapisany — firstboot nie jest idempotentny
+ansible/roles/lab_config/files/wlb-firstboot	[[ ${1:-0} == 1 ]]	[[ ${1:-0} != 1 ]]	tests/unit/wlb-firstboot.bats	HUB_TLS=0	reguła huba fazy 2 nigdy nie dołączana — hub zamknięty mimo gotowości (#18)
+ansible/roles/lab_config/files/wlb-firstboot	HUB_OPENED=1	HUB_OPENED=0	tests/unit/wlb-firstboot.bats	awaria restartu nftables	flaga otwarcia bramki nigdy nie ustawiona — trap nie zamknie huba (#251)
+ansible/roles/lab_config/files/wlb-firstboot	date -Is >"$DONE.tmp" || die "nie udało się zapisać znacznika ukończenia (firstboot.done)"	date -Is >"$DONE.tmp" || true	tests/unit/wlb-firstboot.bats	awaria po otwarciu	brak fail-closed po nieudanym zapisie firstboot.done (#251)
+ansible/roles/lab_config/files/wlb-firstboot	mv "$DONE.tmp" "$DONE"	mv "$DONE.tmp" "$DONE.x"	tests/unit/wlb-firstboot.bats	pełna konfiguracja	znacznik ukończenia nie trafia do firstboot.done — firstboot nieidempotentny
 ansible/roles/desktop/files/wlb-apparmor-enforce	((before == 0))	((before != 0))	tests/unit/wlb-apparmor-enforce.bats	brak profili	odwrócony warunek wczesnego wyjścia sweepu AppArmor (#65)
 ansible/roles/desktop/files/wlb-apparmor-enforce	if [[ $after != 0 ]]	if [[ $after == 0 ]]	tests/unit/wlb-apparmor-enforce.bats	aa-enforce nie zdejmuje	brak fail-secure po nieudanym aa-enforce (#65)
 ansible/roles/desktop/files/wlb-apparmor-enforce	switched=1	switched=0	tests/unit/wlb-apparmor-enforce.bats	dwa profile	brak sygnału zmiany dla changed_when w Ansible (#65)

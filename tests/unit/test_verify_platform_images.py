@@ -102,9 +102,12 @@ def test_candidate_extra_field_is_rejected(tmp_path: Path):
         verify("1.2.0", _candidate(tmp_path, payload), tmp_path)
 
 
-def test_schema_must_be_one(tmp_path: Path):
+def test_schema_must_be_int_one(tmp_path: Path):
+    # schema=2 łapie warunek wartości; schema=True przechodzi == 1, więc potrzebny guard typu.
     with pytest.raises(ValueError, match=r"^invalid schema or target version$"):
         verify("1.2.0", _candidate(tmp_path, {"schema": 2, "version": "1.2.0", "images": {}}), tmp_path)
+    with pytest.raises(ValueError, match=r"^invalid schema or target version$"):
+        verify("1.2.0", _candidate(tmp_path, {"schema": True, "version": "1.2.0", "images": {}}), tmp_path)
 
 
 def test_top_level_version_must_match(tmp_path: Path):
@@ -153,3 +156,18 @@ def test_record_with_wrong_fields_is_rejected(tmp_path: Path):
     payload = {"schema": 1, "version": "1.2.0", "images": images}
     with pytest.raises(ValueError, match=r"^wlb-general: invalid image record$"):
         verify("1.2.0", _candidate(tmp_path, payload), tmp_path)
+
+
+def test_one_byte_images_are_accepted(tmp_path: Path):
+    # Przypadek pozytywny: niepusty plik jest OK, a digest musi się zgadzać. Zabija mutację
+    # st_size == 0 -> == 1 (przy 1 bajcie nie może być odrzucenia).
+    catalog = json.loads(CATALOG.read_text())
+    payload_images = {}
+    for name, parent in catalog.items():
+        (tmp_path / f"{name}.qcow2").write_bytes(b"x")
+        payload_images[name] = {
+            "sha256": hashlib.sha256(b"x").hexdigest(),
+            "version": "1.2.0",
+            "base_sha256": hashlib.sha256(b"x").hexdigest() if parent else None,
+        }
+    verify("1.2.0", _candidate(tmp_path, {"schema": 1, "version": "1.2.0", "images": payload_images}), tmp_path)

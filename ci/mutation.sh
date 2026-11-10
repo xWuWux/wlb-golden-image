@@ -2,9 +2,10 @@
 # Stage 4b: testy mutacyjne (BLOKUJĄCE).
 #
 # Python: mutmut 3.x mutuje ci/verify_platform_images.py i uruchamia jego testy jednostkowe.
-# Wynik liczymy tylko z mutantów pokrytych testami — „no tests” nie wchodzi do mianownika, bo
-# luki w pokryciu pilnuje osobny próg w stage 4. Timeout mutanta jest błędem: mutant „ucieka”
-# przez zawieszenie testów, a nie przez ich jakość.
+# Mianownik progu to killed + unlisted (mutanty pokryte testami, bez allowlisty): „no tests” nie
+# wchodzi, bo globalny próg pokrycia stage 4 nie pilnuje pojedynczego pliku (znana luka — do
+# domknięcia testami main()), a mutanty z allowlisty są równoważne z definicji. Timeout mutanta
+# jest błędem: mutant „ucieka” przez zawieszenie testów, a nie przez ich jakość.
 #
 # Powłoka: harness tabelaryczny (ci/mutations/bash-mutations.tsv). Każda celowa mutacja skryptu
 # obrazu MUSI zostać zabita przez wskazany test bats; przeżycie = luka w testach = czerwony stage.
@@ -53,16 +54,21 @@ no_tests = len(statuses.get("no tests", []))
 timeouts = len(statuses.get("timeout", []))
 
 allowed: set[str] = set()
+allowlist_errors: list[str] = []
 if allowlist_path.is_file():
-    for raw in allowlist_path.read_text().splitlines():
-        raw = raw.split("#", 1)[0].strip()
-        if raw:
-            allowed.add(raw)
+    for number, raw in enumerate(allowlist_path.read_text().splitlines(), 1):
+        name, _, reason = raw.partition("#")
+        name = name.strip()
+        if not name:
+            continue
+        if not reason.strip():
+            allowlist_errors.append(f"{allowlist_path}:{number}: brak uzasadnienia po #")
+        allowed.add(name)
 allowed_hit = [name for name in survived if name in allowed]
 unlisted = [name for name in survived if name not in allowed]
 stale = sorted(allowed - set(survived))
 
-scored = killed + len(survived)
+scored = killed + len(unlisted)
 score = (100.0 * killed / scored) if scored else 0.0
 
 lines = [
@@ -90,6 +96,8 @@ text = "\n".join(lines)
 print(text)
 (out / "python-summary.md").write_text(text)
 
+if allowlist_errors:
+    sys.exit("Allowlista bez uzasadnienia:\n" + "\n".join(allowlist_errors))
 if scored == 0:
     sys.exit("Brak mutantów w zakresie — sprawdź sekcję [mutmut] w setup.cfg")
 if unknown:

@@ -67,8 +67,11 @@ nie w kodzie obrazu. Stage 4b jest **bramkujący**: wynik Pythona poniżej `PYTH
    ok. 40/145 mutantów jest w `main()`, poza progiem. To znana luka: domknięcie to testy `main()`
    (argv/capsys) albo per-plikowy floor pokrycia dla mutowanego pliku. Przeżyty mutant spoza
    allowlisty = twardy błąd; allowlista (`ci/mutations/python-allowlist.txt`) przyjmuje tylko
-   mutanty równoważne i wymaga uzasadnienia; wpis, który przestanie przeżywać, jest raportowany
-   jako nieaktualny. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
+   mutanty równoważne i **wymaga uzasadnienia po `#`** (brak uzasadnienia = błąd), a wpis, który
+   przestanie przeżywać, jest raportowany jako nieaktualny. Do progu wchodzi `killed + unlisted`:
+   mutanty z allowlisty są równoważne, więc nie zaniżają wyniku (104/104 = 100%).
+   Komunikaty walidatora są częścią kontraktu CLI (`main()` je wypisuje), dlatego `match=` z anchorami
+   celowo zabija mutanty zmieniające tekst — to nie jest „testowanie pod mutanty”, tylko kontrakt. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
    progu); jeśli mutant jest równoważny (nie da się go zabić), uzasadnij to w PR.
 3. Powłoka: tabela `ci/mutations/bash-mutations.tsv`. Każdy wiersz ma **baseline**: przed mutacją harness
    uruchamia wybrany test na niezmienionej kopii i wymaga dokładnie 1 zielonego testu — zepsuty test
