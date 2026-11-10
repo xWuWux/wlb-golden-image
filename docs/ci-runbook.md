@@ -58,14 +58,17 @@ gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-rep
 
 **Mutant przeżył (stage 4b).** Testy przeszły mimo celowo zmienionego kodu — to luka w testach,
 nie w kodzie obrazu. Stage 4b jest **bramkujący**: wynik Pythona poniżej `PYTHON_MUTATION_MIN`
-(domyślnie 70%) albo jakakolwiek przeżyta mutacja powłoki czerwieni pipeline.
+(domyślnie 85%) albo jakakolwiek przeżyta mutacja powłoki czerwieni pipeline.
 
 1. Odtwórz lokalnie: `make mutation` (albo `ci/mutation-bash.sh` dla samej powłoki,
    `mutmut run` + `mutmut results --all true` dla Pythona). Artefakt: `build/mutation/`.
 2. Python: `python-summary.md` wypisuje zabite/przeżyte/„no tests”. Mutant „no tests” nie wchodzi do
    progu, ale **globalny** próg pokrycia etapu 4 nie pilnuje pojedynczego pliku — w walidatorze wydania
    ok. 40/145 mutantów jest w `main()`, poza progiem. To znana luka: domknięcie to testy `main()`
-   (argv/capsys) albo per-plikowy floor pokrycia dla mutowanego pliku. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
+   (argv/capsys) albo per-plikowy floor pokrycia dla mutowanego pliku. Przeżyty mutant spoza
+   allowlisty = twardy błąd; allowlista (`ci/mutations/python-allowlist.txt`) przyjmuje tylko
+   mutanty równoważne i wymaga uzasadnienia; wpis, który przestanie przeżywać, jest raportowany
+   jako nieaktualny. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
    progu); jeśli mutant jest równoważny (nie da się go zabić), uzasadnij to w PR.
 3. Powłoka: tabela `ci/mutations/bash-mutations.tsv`. Każdy wiersz ma **baseline**: przed mutacją harness
    uruchamia wybrany test na niezmienionej kopii i wymaga dokładnie 1 zielonego testu — zepsuty test

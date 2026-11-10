@@ -1,0 +1,6 @@
+# Allowlista przeżytych mutantów Pythona dla stage 4b (ci/mutation.sh).
+# Format: nazwa_mutanta  # uzasadnienie
+# Dodawaj TYLKO mutanty równoważne — takie, których nie da się zabić sensownym testem. Każdy wpis
+# wymaga uzasadnienia tutaj i w opisie PR. Wpis, który przestanie przeżywać (mutant zostanie zabity),
+# jest raportowany jako nieaktualny, żeby allowlista nie puchła.
+ci.verify_platform_images.x_verify__mutmut_88  # hashlib.file_digest normalizuje nazwę algorytmu ("SHA256" == "sha256") — mutant równoważny

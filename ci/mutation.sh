@@ -9,12 +9,13 @@
 # Powłoka: harness tabelaryczny (ci/mutations/bash-mutations.tsv). Każda celowa mutacja skryptu
 # obrazu MUSI zostać zabita przez wskazany test bats; przeżycie = luka w testach = czerwony stage.
 #
-# Progi można podnosić — nie obniżać bez uzasadnienia w PR.
+# Bramka: brak przeżytych mutantów spoza allowlisty (`ci/mutations/python-allowlist.txt` — tylko
+# mutanty równoważne, z uzasadnieniem) ORAZ wynik >= PYTHON_MUTATION_MIN. Progi podnosić, nie obniżać.
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
 require mutmut bats python3
 
-PYTHON_MUTATION_MIN=${PYTHON_MUTATION_MIN:-70}
+PYTHON_MUTATION_MIN=${PYTHON_MUTATION_MIN:-85}
 MUTMUT_MAX_CHILDREN=${MUTMUT_MAX_CHILDREN:-4}
 MUT=build/mutation
 rm -rf "$MUT" mutants .mutmut-cache
@@ -22,18 +23,21 @@ mkdir -p "$MUT"
 
 python_mutations() {
   local log=$MUT/mutmut.log
+  local allowlist=ci/mutations/python-allowlist.txt
   if ! mutmut run --max-children "$MUTMUT_MAX_CHILDREN" >"$log" 2>&1; then
     echo "mutmut run nie powiódł się (ostatnie 40 linii):"
     tail -n 40 "$log"
     return 1
   fi
   mutmut results --all true >"$MUT/python-results.txt" || return 1
-  python3 - "$MUT" "$PYTHON_MUTATION_MIN" <<'PY'
+  python3 - "$MUT" "$PYTHON_MUTATION_MIN" "$allowlist" <<'PY'
 import sys
 from pathlib import Path
 
 out = Path(sys.argv[1])
 minimum = float(sys.argv[2])
+allowlist_path = Path(sys.argv[3])
+
 statuses: dict[str, list[str]] = {}
 for line in (out / "python-results.txt").read_text().splitlines():
     if ": " not in line:
@@ -47,20 +51,40 @@ killed = len(statuses.get("killed", []))
 survived = statuses.get("survived", [])
 no_tests = len(statuses.get("no tests", []))
 timeouts = len(statuses.get("timeout", []))
+
+allowed: set[str] = set()
+if allowlist_path.is_file():
+    for raw in allowlist_path.read_text().splitlines():
+        raw = raw.split("#", 1)[0].strip()
+        if raw:
+            allowed.add(raw)
+allowed_hit = [name for name in survived if name in allowed]
+unlisted = [name for name in survived if name not in allowed]
+stale = sorted(allowed - set(survived))
+
 scored = killed + len(survived)
 score = (100.0 * killed / scored) if scored else 0.0
 
 lines = [
     "### Mutacje Pythona (mutmut, `ci/verify_platform_images.py`)",
     "",
-    "| Zabite | Przeżyły | Bez testów | Timeout | Wynik | Próg |",
-    "|---|---|---|---|---|---|",
-    f"| {killed} | {len(survived)} | {no_tests} | {timeouts} | **{score:.1f}%** | {minimum:g}% |",
+    "| Zabite | Przeżyły | z allowlisty | spoza allowlisty | Bez testów | Timeout | Wynik | Próg |",
+    "|---|---|---|---|---|---|---|---|",
+    f"| {killed} | {len(survived)} | {len(allowed_hit)} | {len(unlisted)} | {no_tests} | {timeouts} | "
+    f"**{score:.1f}%** | {minimum:g}% |",
     "",
 ]
-if survived:
-    lines += ["Przeżyłe mutanty (do pokrycia testem albo świadomej allowlisty):", ""]
-    lines += [f"- `{name}`" for name in survived]
+if unlisted:
+    lines += ["Przeżyłe mutanty **spoza allowlisty** (dopisz test albo uzasadnij w allowliście):", ""]
+    lines += [f"- `{name}`" for name in unlisted]
+    lines.append("")
+if allowed_hit:
+    lines += ["Przeżyłe mutanty z allowlisty (równoważne):", ""]
+    lines += [f"- `{name}`" for name in allowed_hit]
+    lines.append("")
+if stale:
+    lines += ["Allowlista nieaktualna — te mutanty już nie przeżywają (usuń wpisy):", ""]
+    lines += [f"- `{name}`" for name in stale]
     lines.append("")
 text = "\n".join(lines)
 print(text)
@@ -73,7 +97,10 @@ if unknown:
     sys.exit(f"Nieznane statusy mutmut ({detail}) — nie mogą po cichu wypadać z progu")
 if timeouts:
     sys.exit(f"{timeouts} mutantów przekroczyło timeout — testy się zawieszają")
-sys.exit(0 if score >= minimum else f"Wynik mutacji {score:.1f}% < {minimum:g}%")
+if unlisted:
+    sys.exit(f"{len(unlisted)} przeżyłych mutantów spoza allowlisty — dopisz test albo uzasadnij wpis")
+if score < minimum:
+    sys.exit(f"Wynik mutacji {score:.1f}% < {minimum:g}%")
 PY
 }
 

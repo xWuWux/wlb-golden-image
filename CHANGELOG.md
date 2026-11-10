@@ -16,9 +16,9 @@ pierwszym Laboratorium na klastrze).
 
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
-  `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 70%)
-  liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika — pokrycie pilnuje
-  etap 4), a timeout mutanta jest błędem. Powłoka: własny harness `ci/mutation-bash.sh` z tabelą
+  `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%) + allowlista mutantów równoważnych
+  liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika; globalny próg pokrycia
+  etapu 4 nie pilnuje pojedynczego pliku — to znana luka do domknięcia testami `main()`), a timeout mutanta jest błędem. Powłoka: własny harness `ci/mutation-bash.sh` z tabelą
   `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu obrazu (np. reguła huba fazy 2
   usunięta, brak znacznika `firstboot.done`, odwrócony warunek sweepu AppArmor) MUSI zostać zabita przez wskazany test
   bats; przeżycie czerwieni pipeline. `--check` pilnuje, że fragment do mutacji występuje w pliku

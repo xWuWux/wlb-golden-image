@@ -6,6 +6,12 @@ load helpers
 
 READY="$REPO_ROOT/ci/ready.sh"
 
+setup() {
+  # ready.sh dopisuje podsumowanie do GITHUB_STEP_SUMMARY; w testach nie chcemy zaśmiecać
+  # podsumowania joba unit — kierujemy je do pliku tymczasowego.
+  export GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+}
+
 needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
   printf '{"lint":{"result":"%s","outputs":{"image":"false"}},"build-check":{"result":"success"},"security":{"result":"success"},"observability":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"%s"},"integration":{"result":"%s"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}' \
     "$1" "$2" "${3:-skipped}"

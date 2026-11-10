@@ -7,7 +7,8 @@
 #
 # Tabela: ci/mutations/bash-mutations.tsv — kolumny rozdzielone TAB:
 #   plik <TAB> fragment_przed <TAB> fragment_po <TAB> plik_testu <TAB> filtr_testu <TAB> opis
-# Filtr (bats -f) ogranicza przebieg do potrzebnych testów; pusty = cały plik testów.
+# Filtr (bats -f) wskazuje DOKŁADNIE jeden test; "-" = cały plik (tylko dla plików z 1 testem,
+# bo baseline wymaga dokładnie jednego wybranego testu).
 #
 # --check: tylko walidacja tabeli (każdy fragment_przed występuje dokładnie raz, pliki istnieją).
 #           Używane przez tests/unit/mutation-bash.bats — nie mutuje niczego.
@@ -71,7 +72,8 @@ PY
 errors=0
 for row in "${ROWS[@]}"; do
   IFS=$'\t' read -r file old new test filter desc <<<"$row"
-  # "-" = cały plik testów (pole nie może być puste: read z IFS=TAB zwija kolejne separatory)
+  # "-" = cały plik testów (tylko pliki z jednym testem); pole nie może być puste, bo read z IFS=TAB
+  # zwija kolejne separatory.
   if [[ $filter == - ]]; then filter=""; fi
   for field in file old new test desc; do
     [[ -n ${!field} ]] || {
@@ -124,16 +126,27 @@ for row in "${ROWS[@]}"; do
   if [[ $filter == - ]]; then filter=""; fi
   bats_args=("$WORK/$test")
   [[ -z $filter ]] || bats_args=(-f "$filter" "$WORK/$test")
-  # Baseline PRZED mutacją: test musi być zielony i wybierać DOKŁADNIE 1 test. Bez tego błąd
-  # składni testu albo filtr łapiący kilka testów dawałby fałszywe „killed”.
-  if ! bats "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
+  # Baseline PRZED mutacją. Kolejność sprawdzeń jest istotna: najpierw liczba wybranych testów,
+  # potem wynik — bats 1.13 bez dopasowania zwraca 0, a 1.14 zwraca 1, a komunikat ma być ten sam.
+  if bats "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
+    baseline_rc=0
+  else
+    baseline_rc=$?
+  fi
+  ran=$(sed -n 's/^1\.\.\([0-9]*\).*/\1/p' "$WORK/baseline.log" | head -1)
+  if [[ -z $ran || $ran == 0 ]]; then
+    echo "BŁĄD: filtr '$filter' nie wybrał żadnego testu ($desc)" >&2
+    errors=1
+    report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | **zły filtr** |"
+    continue
+  fi
+  if ((baseline_rc != 0)); then
     echo "BŁĄD: baseline czerwony przed mutacją ($desc):" >&2
     tail -n 5 "$WORK/baseline.log" >&2
     errors=1
     report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | **błąd baseline** |"
     continue
   fi
-  ran=$(sed -n 's/^1\.\.\([0-9]*\).*/\1/p' "$WORK/baseline.log" | head -1)
   if [[ $ran != 1 ]]; then
     echo "BŁĄD: filtr '$filter' wybrał $ran testów (wymagane dokładnie 1) ($desc)" >&2
     errors=1

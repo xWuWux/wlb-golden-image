@@ -2,7 +2,8 @@
 #   plik <TAB> fragment_przed <TAB> fragment_po <TAB> plik_testu <TAB> filtr_testu <TAB> opis
 # Zasady: fragment_przed musi występować w pliku DOKŁADNIE raz; mutacja ma być minimalna i
 # semantycznie istotna (nie kosmetyczna); filtr_testu wskazuje test bats, który MUSI ją zabić.
-# Filtr "-" = cały plik testów. Dodając mutację, sprawdź lokalnie:
+# Filtr "-" = cały plik testów (tylko pliki z jednym testem; baseline wymaga dokładnie 1 testu).
+# Dodając mutację, sprawdź lokalnie:
 #   ci/mutation-bash.sh --check && ci/mutation-bash.sh
 ansible/roles/lab_config/files/wlb-firstboot	write_nftables 1	write_nftables 0	tests/unit/wlb-firstboot.bats	HUB_TLS=0	hub nigdy nie otwierany na HUB_ALLOWED_CIDR — reguła fazy 2 znika (#18)
 ansible/roles/lab_config/files/wlb-firstboot	date -Is >"$DONE"	date -Is >"$DONE.tmp"	tests/unit/wlb-firstboot.bats	pełna konfiguracja	znacznik firstboot.done nie zapisany — firstboot nie jest idempotentny

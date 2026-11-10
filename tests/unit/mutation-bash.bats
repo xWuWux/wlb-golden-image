@@ -60,7 +60,7 @@ EOF
   printf 'ansible/roles/x/files/skrypt\techo one\techo two\ttests/unit/x.bats\tnieistniejacy\tpusty filtr\n' >"$MUTATION_TABLE"
   run "$HARNESS"
   [ "$status" -eq 1 ]
-  [[ $output == *"wymagane dokładnie 1"* ]]
+  [[ $output == *"nie wybrał żadnego testu"* ]]
 }
 
 @test "harness: prawdziwa tabela repo przechodzi --check" {
@@ -107,4 +107,24 @@ EOF
   [ "$status" -eq 0 ]
   [ -s "$report" ]
   grep -q 'Zabite: \*\*1\*\*' "$report"
+}
+
+@test "harness: filtr łapiący dwa testy jest błędem (wymagany dokładnie 1)" {
+  cat >"$FIX/tests/unit/dwa.bats" <<'BATS'
+#!/usr/bin/env bats
+@test "pierwszy" {
+  run bash "$BATS_TEST_DIRNAME/../../ansible/roles/x/files/skrypt"
+  [ "${lines[0]}" = one ]
+}
+
+@test "drugi" {
+  run bash "$BATS_TEST_DIRNAME/../../ansible/roles/x/files/skrypt"
+  [ "${lines[1]}" = unused ]
+}
+BATS
+  printf 'ansible/roles/x/files/skrypt\techo one\techo two\ttests/unit/dwa.bats\t-\tzabita\n' >"$MUTATION_TABLE"
+  run "$HARNESS"
+  [ "$status" -eq 1 ]
+  [[ $output == *"wybrał 2 testów"* ]]
+  [[ $output == *"zły filtr"* ]]
 }
