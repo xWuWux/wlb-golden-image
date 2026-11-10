@@ -9,6 +9,16 @@ if /opt/tljh/user/bin/python -c "import jupyter_remote_desktop_proxy" 2>/dev/nul
   expect_ok "Serwer VNC na obrazie (TigerVNC)" \
     bash -c "command -v Xtigervnc || command -v tigervncserver || command -v vncserver"
   expect_ok "websockify na obrazie" bash -c "command -v websockify"
+  # AppArmor warstwy pulpitu (#65): rola desktop wymusza enforce PO swoich pakietach — sprawdzamy nie
+  # tylko obecność skryptu, ale realny stan po jego przebiegu (idempotentnym, bez fałszywego zielonego).
+  expect_ok "Skrypt AppArmor enforce warstwy pulpitu na obrazie (#65)" \
+    test -x /usr/local/sbin/wlb-apparmor-enforce
+  # shellcheck disable=SC2016  # $() i <<< celowo rozwijane w wewnętrznym bash -c, nie tu
+  expect_ok "Warstwa pulpitu kończy się licznikiem AppArmor complain = 0 (#65, CIS 1.6.3)" bash -c '
+    out=$(/usr/local/sbin/wlb-apparmor-enforce) || exit 1
+    grep -q "^WLB_SWITCHED=[01]$" <<<"$out" || exit 1
+    [[ $(aa-status --complaining) == 0 ]]
+  '
   expect_ok "Konfiguracja TigerVNC ma poprawną składnię Perla (#106)" \
     perl -c /etc/tigervnc/vncserver-config-mandatory
   # Znak dolara jest częścią sprawdzanej konfiguracji Perla.
