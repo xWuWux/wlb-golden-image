@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Wymusza tryb enforce na profilach AppArmor, które po instalacji pakietów pulpitu zostały w complain
+# (#65, CIS 1.6.3). Rola base przełącza profile PRZED warstwą flavora — XFCE, TigerVNC, noVNC i
+# aplikacje GUI potrafią dołożyć nowe profile w complain, a akceptacja tests/acceptance.d/20-apparmor.sh
+# wymaga licznika `aa-status --complaining` równego 0.
+#
+# Wejście:  WLB_APPARMOR_D — katalog profili (domyślnie /etc/apparmor.d); nadpisywany w testach bats.
+# Wyjście:  linia `WLB_SWITCHED=0|1` (dla changed_when w Ansible) + diagnostyka na stdout.
+# Kod:      0 = po przebiegu 0 profili w complain; 1 = błąd/fail-secure (nie udało się zejść do 0).
+#
+# Dlaczego skrypt, a nie inline shell w tasku: akceptacja uruchamia go na obrazie (idempotentnie), a
+# testy jednostkowe (tests/unit/wlb-apparmor-enforce.bats) mogą atrapować aa-status/aa-enforce.
+set -o pipefail
+
+APPARMOR_D=${WLB_APPARMOR_D:-/etc/apparmor.d}
+
+before=$(aa-status --complaining)
+if [[ ! $before =~ ^[0-9]+$ ]]; then
+  echo "BŁĄD (#65): aa-status --complaining zwróciło '${before}'" >&2
+  exit 1
+fi
+if ((before == 0)); then
+  echo "aa-status --complaining=0 — brak profili do przełączenia"
+  echo "WLB_SWITCHED=0"
+  exit 0
+fi
+# Nazwy profili bierzemy z JSON-a, nie z tekstowego `aa-status` — dokładny klucz jest odporny na
+# formatowanie i na inny profil z "complain" w tej samej linii (ten sam powód co w wlb-apparmor-mode).
+mapfile -t names < <(aa-status --json | python3 -c 'import json,sys; [print(n) for n,m in json.load(sys.stdin)["profiles"].items() if m=="complain"]')
+if [[ -z ${names[*]:-} ]]; then
+  echo "BŁĄD (#65): $before profili w complain, ale aa-status --json nie zwróciło nazw" >&2
+  exit 1
+fi
+echo "Profile w trybie complain (before=$before): ${names[*]}"
+switched=0
+mapfile -t files < <(grep -rl 'flags=(complain' "$APPARMOR_D" 2>/dev/null || true)
+for f in "${files[@]}"; do
+  # apparmor_parser -N wypisuje nazwy profili zdefiniowanych w pliku; przełączamy plik tylko wtedy,
+  # gdy faktycznie zawiera profil zgłoszony jako complaining (jeden plik może definiować kilka).
+  defined=$(apparmor_parser -N "$f" 2>/dev/null || true)
+  for n in "${names[@]}"; do
+    if grep -qxF -- "$n" <<<"$defined"; then
+      aa-enforce "$f"
+      switched=1
+      break
+    fi
+  done
+done
+after=$(aa-status --complaining)
+echo "aa-status --complaining: before=$before after=$after"
+if [[ $after != 0 ]]; then
+  echo "BŁĄD (#65): po aa-enforce nadal $after profili w trybie complain" >&2
+  exit 1
+fi
+echo "WLB_SWITCHED=$switched"
