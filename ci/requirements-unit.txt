@@ -1633,7 +1633,9 @@ tornado==6.6 \
     --hash=sha256:f661c21117b875d612371f3eb243d0c69f56d9bdd6aee38b7c24453419dfe554 \
     --hash=sha256:f89802bc0bcd15f988d9325b4e6d2171bb04ea68d188732556335e10d3fd00bd \
     --hash=sha256:fc7c8a3263501fbe97518cd699101bc3c5f499a7dd4f75fc6cbb3bd9ee1db1f1
-    # via jupyterhub
+    # via
+    #   -r ci/requirements-unit.in
+    #   jupyterhub
 traitlets==5.16.1 \
     --hash=sha256:ed900c2b631aa3a112811139fa97b8d2c3bad5e989656bba4b7e52c7852c18c1 \
     --hash=sha256:f775618166caa0396c8e337099240f2bd3e5e917d203b2e6fbe21a58d3cb1f6b

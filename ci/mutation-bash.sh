@@ -122,9 +122,25 @@ report=$(
 for row in "${ROWS[@]}"; do
   IFS=$'\t' read -r file old new test filter desc <<<"$row"
   if [[ $filter == - ]]; then filter=""; fi
-  apply_mutation "$WORK/$file" "$old" "$new"
   bats_args=("$WORK/$test")
   [[ -z $filter ]] || bats_args=(-f "$filter" "$WORK/$test")
+  # Baseline PRZED mutacją: test musi być zielony i wybierać DOKŁADNIE 1 test. Bez tego błąd
+  # składni testu albo filtr łapiący kilka testów dawałby fałszywe „killed”.
+  if ! bats "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
+    echo "BŁĄD: baseline czerwony przed mutacją ($desc):" >&2
+    tail -n 5 "$WORK/baseline.log" >&2
+    errors=1
+    report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | **błąd baseline** |"
+    continue
+  fi
+  ran=$(sed -n 's/^1\.\.\([0-9]*\).*/\1/p' "$WORK/baseline.log" | head -1)
+  if [[ $ran != 1 ]]; then
+    echo "BŁĄD: filtr '$filter' wybrał $ran testów (wymagane dokładnie 1) ($desc)" >&2
+    errors=1
+    report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | **zły filtr** |"
+    continue
+  fi
+  apply_mutation "$WORK/$file" "$old" "$new"
   if bats "${bats_args[@]}" >"$WORK/bats.log" 2>&1; then
     result="**survived**"
     survived=$((survived + 1))
@@ -133,12 +149,6 @@ for row in "${ROWS[@]}"; do
   else
     result="killed"
     killed=$((killed + 1))
-  fi
-  # Filtr, który nie wybrał żadnego testu, dawałby fałszywe „killed” — sprawdzamy liczbę testów.
-  ran=$(sed -n 's/^1\.\.\([0-9]*\).*/\1/p' "$WORK/bats.log" | head -1)
-  if [[ -z $ran || $ran == 0 ]]; then
-    echo "BŁĄD: filtr '$filter' nie wybrał żadnego testu ($desc)" >&2
-    errors=1
   fi
   report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | $result |"
   cp "$REPO_ROOT/$file" "$WORK/$file" # przywrócenie przed kolejną mutacją

@@ -19,8 +19,8 @@ pierwszym Laboratorium na klastrze).
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 70%)
   liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika — pokrycie pilnuje
   etap 4), a timeout mutanta jest błędem. Powłoka: własny harness `ci/mutation-bash.sh` z tabelą
-  `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu obrazu (np. brak `die` po
-  nieudanym starcie audytu, odwrócony warunek sweepu AppArmor) MUSI zostać zabita przez wskazany test
+  `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu obrazu (np. reguła huba fazy 2
+  usunięta, brak znacznika `firstboot.done`, odwrócony warunek sweepu AppArmor) MUSI zostać zabita przez wskazany test
   bats; przeżycie czerwieni pipeline. `--check` pilnuje, że fragment do mutacji występuje w pliku
   dokładnie raz, więc tabela nie rozjedzie się po refaktorze. Lokalnie: `make mutation`.
   Runbook: [docs/ci-runbook.md](docs/ci-runbook.md#mutation).

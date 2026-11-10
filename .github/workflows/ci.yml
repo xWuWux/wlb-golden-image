@@ -5,6 +5,7 @@
 #   3.5 Kontrakty obrazu                  ci/observability.sh  (zdarzenia VM i zmienne wdrożenia
 #                                          zgodne z kodem)
 #   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
+#   4b. Testy mutacyjne (bramkujące)       ci/mutation.sh — mutmut + tabela mutacji powłoki
 #   5. Integracja i migracja (KVM)         ci/integration.sh    — NIE na każdym PR (koszt, #86):
 #                                          PR sieci/utwardzenia, push main, etykieta lub ręcznie;
 #                                          także: czy zdarzenia z kontraktu docierają do SIEM

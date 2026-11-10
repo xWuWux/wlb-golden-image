@@ -41,6 +41,8 @@ for line in (out / "python-results.txt").read_text().splitlines():
     name, status = line.rsplit(": ", 1)
     statuses.setdefault(status, []).append(name.strip())
 
+known = {"killed", "survived", "no tests", "timeout"}
+unknown = {status: len(names) for status, names in statuses.items() if status not in known}
 killed = len(statuses.get("killed", []))
 survived = statuses.get("survived", [])
 no_tests = len(statuses.get("no tests", []))
@@ -58,9 +60,7 @@ lines = [
 ]
 if survived:
     lines += ["Przeżyłe mutanty (do pokrycia testem albo świadomej allowlisty):", ""]
-    lines += [f"- `{name}`" for name in survived[:20]]
-    if len(survived) > 20:
-        lines.append(f"- … i {len(survived) - 20} więcej")
+    lines += [f"- `{name}`" for name in survived]
     lines.append("")
 text = "\n".join(lines)
 print(text)
@@ -68,6 +68,9 @@ print(text)
 
 if scored == 0:
     sys.exit("Brak mutantów w zakresie — sprawdź sekcję [mutmut] w setup.cfg")
+if unknown:
+    detail = ", ".join(f"{status}={count}" for status, count in sorted(unknown.items()))
+    sys.exit(f"Nieznane statusy mutmut ({detail}) — nie mogą po cichu wypadać z progu")
 if timeouts:
     sys.exit(f"{timeouts} mutantów przekroczyło timeout — testy się zawieszają")
 sys.exit(0 if score >= minimum else f"Wynik mutacji {score:.1f}% < {minimum:g}%")

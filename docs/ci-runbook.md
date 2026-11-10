@@ -63,9 +63,13 @@ nie w kodzie obrazu. Stage 4b jest **bramkujący**: wynik Pythona poniżej `PYTH
 1. Odtwórz lokalnie: `make mutation` (albo `ci/mutation-bash.sh` dla samej powłoki,
    `mutmut run` + `mutmut results --all true` dla Pythona). Artefakt: `build/mutation/`.
 2. Python: `python-summary.md` wypisuje zabite/przeżyte/„no tests”. Mutant „no tests” nie wchodzi do
-   progu — pokryciem zajmuje się stage 4. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
+   progu, ale **globalny** próg pokrycia etapu 4 nie pilnuje pojedynczego pliku — w walidatorze wydania
+   ok. 40/145 mutantów jest w `main()`, poza progiem. To znana luka: domknięcie to testy `main()`
+   (argv/capsys) albo per-plikowy floor pokrycia dla mutowanego pliku. Przeżyty mutant = dopisz asercję w teście (nie obniżaj
    progu); jeśli mutant jest równoważny (nie da się go zabić), uzasadnij to w PR.
-3. Powłoka: tabela `ci/mutations/bash-mutations.tsv`. Każdy wiersz to celowa zmiana skryptu obrazu
+3. Powłoka: tabela `ci/mutations/bash-mutations.tsv`. Każdy wiersz ma **baseline**: przed mutacją harness
+   uruchamia wybrany test na niezmienionej kopii i wymaga dokładnie 1 zielonego testu — zepsuty test
+   nie może udawać „zabitej” mutacji. Allowlisty dla powłoki nie ma: survivor = twardy błąd. Każdy wiersz to celowa zmiana skryptu obrazu
    i test bats, który MUSI ją zabić. Nowy wiersz dodawaj razem z testem; `ci/mutation-bash.sh --check`
    pilnuje, że fragment do mutacji nadal występuje w pliku dokładnie raz (tabela nie może się rozjechać).
 

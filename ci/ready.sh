@@ -14,6 +14,7 @@ stages = [
     ("security", "3. Security & compliance", True),
     ("observability", "3.5. Kontrakty obrazu", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
+    ("mutation", "4b. Testy mutacyjne", True),
     ("integration", "5. Integracja i migracja", image),
     ("perf", "6a. Benchmarki (opcjonalne)", False),
     ("ephemeral", "6b. Wdrożenie tymczasowe (opcjonalne)", False),

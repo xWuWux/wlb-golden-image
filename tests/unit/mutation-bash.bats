@@ -60,11 +60,51 @@ EOF
   printf 'ansible/roles/x/files/skrypt\techo one\techo two\ttests/unit/x.bats\tnieistniejacy\tpusty filtr\n' >"$MUTATION_TABLE"
   run "$HARNESS"
   [ "$status" -eq 1 ]
-  [[ $output == *"nie wybrał żadnego testu"* ]]
+  [[ $output == *"wymagane dokładnie 1"* ]]
 }
 
 @test "harness: prawdziwa tabela repo przechodzi --check" {
   unset MUTATION_REPO_ROOT MUTATION_TABLE
   run "$HARNESS" --check
   [ "$status" -eq 0 ]
+}
+
+@test "harness: pusta tabela to błąd" {
+  : >"$MUTATION_TABLE"
+  run "$HARNESS" --check
+  [ "$status" -eq 1 ]
+  [[ $output == *"tabela mutacji jest pusta"* ]]
+}
+
+@test "harness: --check odrzuca brak pliku testu" {
+  printf 'ansible/roles/x/files/skrypt\techo one\techo two\ttests/unit/nie-ma.bats\t-\tbrak testu\n' >"$MUTATION_TABLE"
+  run "$HARNESS" --check
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak testu"* ]]
+}
+
+@test "harness: --check odrzuca fragment występujący więcej niż raz" {
+  printf '#!/usr/bin/env bash\necho one\necho one\n' >"$FIX/ansible/roles/x/files/skrypt2"
+  printf 'ansible/roles/x/files/skrypt2\techo one\techo two\ttests/unit/x.bats\t-\tniejednoznaczna\n' >"$MUTATION_TABLE"
+  run "$HARNESS" --check
+  [ "$status" -eq 1 ]
+  [[ $output == *"występuje 2 razy"* ]]
+}
+
+@test "harness: zepsuty baseline (błąd składni testu) nie udaje zabitej mutacji" {
+  printf '#!/usr/bin/env bats\n@test "niedomknięty" {\n' >"$FIX/tests/unit/zepsuty.bats"
+  printf 'ansible/roles/x/files/skrypt\techo one\techo two\ttests/unit/zepsuty.bats\t-\tzepsuty baseline\n' >"$MUTATION_TABLE"
+  run "$HARNESS"
+  [ "$status" -eq 1 ]
+  [[ $output == *"baseline czerwony"* ]]
+  [[ $output == *"błąd baseline"* ]]
+}
+
+@test "harness: --output zapisuje raport do pliku" {
+  printf 'ansible/roles/x/files/skrypt\techo one\techo two\ttests/unit/x.bats\t-\tzabita\n' >"$MUTATION_TABLE"
+  report="$BATS_TEST_TMPDIR/raport.md"
+  run "$HARNESS" --output "$report"
+  [ "$status" -eq 0 ]
+  [ -s "$report" ]
+  grep -q 'Zabite: \*\*1\*\*' "$report"
 }
