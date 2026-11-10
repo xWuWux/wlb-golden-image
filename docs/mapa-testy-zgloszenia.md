@@ -229,6 +229,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-10). Odświ
 - `tests/acceptance-remote.sh` — `Badacz widzi katalog /sluza-potwierdzenia (#208)`, `Katalog potwierdzen ma tryb 0750 root:jupyterhub-users (#208)`, `Po przyjeciu pojawia się potwierdzenie (*potwierdzenie.*) (#208)`, `Potwierdzenie czytelne dla badacza i ze zgodnymi etykietami/rozmiarem kontraktu (#208)`, `Potwierdzenie nie zawiera treści pliku — tylko metadane (§14.7, #208)`, `Potwierdzenie własnością badacza, tryb 0640 (#208)`, `Powód odrzucenia dowiązania czytelny dla badacza (#162)`, `Wpis odrzucony (dowiązanie) NIE ma potwierdzenia — tylko powód (#208)`
 - `tests/unit/wlb-sluza-out-mover.bats` — `#208: blad zapisu potwierdzenia nie przerywa przyjecia`, `#208: nazwa wpisu z niedozwolonymi znakami jest zakodowana w potwierdzeniu`, `#208: odrzucenie tworzy tylko powód — bez potwierdzenia`, `#208: potwierdzenie nie duplikuje sie i nie zostawia plikow tymczasowych`, `#208: przyjęty katalog dostaje potwierdzenie z liczbą plików, rozmiarem i sha256-inventory`, `#208: przyjęty pojedynczy plik — potwierdzenie z jednym plikiem i jego rozmiarem`, *#208: pozytywne potwierdzenie przyjęcia do kolejki (receipt)*
 
+### #251 — [P0] Firstboot udostępnia hub przed finalizacją kont i audytu, także po awarii  ·  _otwarte_
+- `tests/unit/wlb-firstboot.bats` — `awaria finalizacji audytu nie otwiera portu huba ani nie publikuje firstboot.done (#251)`, `awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)`, `awaria restartu nftables przy otwieraniu huba zamyka bramkę (trap, #251)`, `firstboot otwiera hub po gotowości kont i finalizacji audytu (#251)`
+
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
 - `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
 
