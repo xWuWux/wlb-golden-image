@@ -15,7 +15,17 @@ pierwszym Laboratorium na klastrze).
 ## Niewydane
 
 - **Architektura WLB (#226):** [diagramy cyklu życia, kontrakty i macierz odbioru](docs/architektura-wlb.md).
-
+- **AppArmor w warstwie pulpitu (#65, CIS 1.6.3):** rola `desktop` wymusza enforce **po**
+  wszystkich swoich pakietach — skrypt `wlb-apparmor-enforce` (`/usr/local/sbin`) przełącza
+  profile pozostawione w complain (XFCE/TigerVNC/noVNC oraz aplikacje GUI dokładane w tej
+  warstwie, np. planowany LibreOffice Writer z #269). Wcześniej sweep był tylko w
+  `memory_apps`/`histo_apps`, więc flavor, który dostał profil w complain od pakietu warstwy
+  pulpitu, nie schodził do licznika 0 wymaganego przez `20-apparmor.sh` (dotyczyło to m.in.
+  radiologii, gdzie `libreoffice-common` wnosi profil `soffice` w complain). Testy: bats
+  (7 przypadków — idempotencja, śmieci z `aa-status`, JSON bez nazw, `aa-enforce` bez efektu,
+  profil bez pliku) oraz adaptacyjny `40-pulpit.sh` (realny przebieg skryptu + complain = 0).
+  Na radiologii sweep jest no-opem: `base` enforce'uje wcześniej, a pakiety pulpitu nie
+  wnoszą profili w complain — bez nowych pakietów.
 - **Kontrakt wizualny pulpitu (#204):** wartości wyglądu XFCE (motyw/ikony/kursor/fonty/DPI/
   panel/tapeta/locale/klawiatura/geometria) z jednego źródła w `ansible/group_vars/all.yml`;
   wdrożenie jako systemowe domyślne xfconf (`/etc/xdg/xfce4/...`, bo konta badacza powstają
