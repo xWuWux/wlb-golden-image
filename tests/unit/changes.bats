@@ -92,6 +92,30 @@ repo_with_base() {
   has_line "image=false"
 }
 
+@test "tekst-w-obrazie: PR/push zmieniający tylko pomoc.md Launchera pomija etap 5 (#84)" {
+  repo_with_base ansible/roles/tljh/files/launcher/pomoc.md
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=false" # treść walidowana w etapie 4 (test_launcher_help.py), nie na KVM
+  run env EVENT=push bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=false"
+}
+
+@test "tekst-w-obrazie: pomoc.md razem z kodem nadal wyzwala etap 5 (#84)" {
+  repo_with_base ansible/roles/tljh/files/launcher/pomoc.md ansible/roles/tljh/tasks/main.yml
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=true" # zmiana roli tljh obok tekstu — build wymagany
+}
+
+@test "tekst-w-obrazie: konfiguracja Launchera (yaml) NIE jest zwolniona — wyzwala etap 5 (#84)" {
+  repo_with_base ansible/roles/tljh/files/launcher/jp_app_launcher.yaml
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=true" # kafelki/konfiguracja zmieniają zachowanie — tylko *.md jest tekstem
+}
+
 @test "push z pustą/zerową bazą: buduj dla bezpieczeństwa" {
   repo_with_base README.md
   run env EVENT=push BASE=0000000000000000000000000000000000000000 bash "$CHANGES"
@@ -183,6 +207,33 @@ repo_with_base() {
   run env EVENT=pull_request LABELS='["dokumentacja"]' bash "$CHANGES"
   [ "$status" -eq 0 ]
   has_line "memory=false"
+}
+
+@test "histologia: zmiana plików flavora wyzwala build+test histologii (#108)" {
+  for file in ansible/roles/histo_apps/tasks/main.yml ansible/histologia.yml \
+    packer/wlb-histologia.pkr.hcl tests/acceptance.d/47-histologia.sh \
+    ansible/roles/rstudio/tasks/main.yml; do
+    repo_with_base "$file"
+    run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+    [ "$status" -eq 0 ]
+    has_line "histologia=true"
+    has_line "image=true" # histologia layered na bazie — baza musi się zbudować
+  done
+}
+
+@test "histologia: etykieta build-histologia wyzwala flavor na żądanie (#108)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='["build-histologia"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "histologia=true"
+  has_line "image=true"
+}
+
+@test "histologia: zmiana spoza flavora nie wyzwala histologii (#108)" {
+  repo_with_base envs/r/renv.lock
+  run env EVENT=pull_request LABELS='["dokumentacja"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "histologia=false"
 }
 
 @test "PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)" {

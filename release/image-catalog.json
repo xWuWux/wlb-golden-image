@@ -1,5 +1,6 @@
 {
   "wlb-general": null,
   "wlb-memory": "wlb-general",
-  "wlb-radiologia": "wlb-general"
+  "wlb-radiologia": "wlb-general",
+  "wlb-histologia": "wlb-general"
 }

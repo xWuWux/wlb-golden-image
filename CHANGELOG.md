@@ -14,6 +14,18 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **AppArmor w warstwie pulpitu (#65, CIS 1.6.3):** rola `desktop` wymusza enforce **po**
+  wszystkich swoich pakietach — skrypt `wlb-apparmor-enforce` (`/usr/local/sbin`) przełącza
+  profile pozostawione w complain (XFCE/TigerVNC/noVNC oraz aplikacje GUI dokładane w tej
+  warstwie, np. planowany LibreOffice Writer z #269). Wcześniej sweep był tylko w
+  `memory_apps`/`histo_apps`, więc flavor, który dostał profil w complain od pakietu warstwy
+  pulpitu, nie schodził do licznika 0 wymaganego przez `20-apparmor.sh` (dotyczyło to m.in.
+  radiologii, gdzie `libreoffice-common` wnosi profil `soffice` w complain). Testy: bats
+  (7 przypadków — idempotencja, śmieci z `aa-status`, JSON bez nazw, `aa-enforce` bez efektu,
+  profil bez pliku) oraz adaptacyjny `40-pulpit.sh` (realny przebieg skryptu + complain = 0).
+  Na radiologii sweep jest no-opem: `base` enforce'uje wcześniej, a pakiety pulpitu nie
+  wnoszą profili w complain — bez nowych pakietów.
+
 - **Kontrakt wizualny pulpitu (#204):** wartości wyglądu XFCE (motyw/ikony/kursor/fonty/DPI/
   panel/tapeta/locale/klawiatura/geometria) z jednego źródła w `ansible/group_vars/all.yml`;
   wdrożenie jako systemowe domyślne xfconf (`/etc/xdg/xfce4/...`, bo konta badacza powstają
@@ -67,6 +79,7 @@ sam obraz jest wymienny (aktualizacja = podmiana obrazu, workspace zostaje).
 | `wlb-general` | baza: hub, kernele, hardening, śluza, obserwowalność | **gotowy** — baza zielona (akceptacja 144/0) |
 | `wlb-memory` | + pulpit w przeglądarce (XFCE/noVNC) + GUI pod analizę pamięciową | PoC pulpitu (#106) gotowy; aplikacje GUI w toku (#105) |
 | `wlb-radiologia` | + pulpit + stos neuroobrazowania (FSL, FSLeyes, 3DSlicer) | **gotowy technicznie**; zostaje certyfikujący build + kafelki pulpitu (#135) |
+| `wlb-histologia` | + pulpit + RStudio + Calc + jamovi (Flatpak) | **gotowy, CI-zielony** (etap 5: Calc/RStudio/jamovi + smoke sandboxa userns #108) |
 
 **Bezpieczeństwo i zgodność (wdrożone):** hub bez sudo w sesji badacza
 (SystemdSpawner, `NoNewPrivileges`), TLS huba wymuszony (#18/IMG-005), wymuszony
@@ -100,6 +113,13 @@ Zmiany scalone do `main`, jeszcze bez tagu wydania.
   komplet bibliotek Qt xcb dla 3DSlicer + smoke faktycznego uruchomienia GUI (#4), bramka CI opt-in (#167).
   Narzędzia z pierwszego wdrożenia: **MRtrix3** (`dwidenoise`/mp-pca, pipeline dMRI) i **evince**
   (czytnik PDF na pulpicie) w roli `neuro_apps` (#200).
+- **Flavor `wlb-histologia`**: drugi flavor z pulpitem — **LibreOffice Calc** (#107), **RStudio**
+  (R-IDE w przeglądarce przez `jupyter-rsession-proxy`) i **jamovi** przez **Flatpak** na pulpicie (#108).
+  jamovi instaluje się z Flathub w warstwie build (ma sieć) i działa lokalnie w runtime (egress zamknięty);
+  sandbox jamovi dostaje dostęp do `/workspace`, kafelek XFCE ma absolutny `Exec` (#199). Etap 5 buduje i
+  testuje flavor opt-in (`build-histologia` / zmiana plików / nocny build; `WLB_BUILD_HISTOLOGIA`) —
+  akceptacja potwierdza Calc (CSV→ODS), RStudio oraz jamovi, w tym **gatingowy smoke startu sandboxa bwrap
+  przez nieuprzywilejowane userns** na utwardzonym noble (#63/#65). Build: [RB-build-wlb-histologia.md](docs/runbooks/RB-build-wlb-histologia.md).
 - **Rola `desktop` i PoC pulpitu w przeglądarce** (`wlb-memory`): remote-desktop-proxy, XFCE, TigerVNC/noVNC,
   kafelek „Pulpit", render-smoke (#106/#113, #138/#139).
 - Kompresja obrazów równoległym zstd zamiast jednowątkowego zlib (#71/#165).

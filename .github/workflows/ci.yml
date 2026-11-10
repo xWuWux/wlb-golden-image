@@ -61,6 +61,7 @@ jobs:
       image: ${{ steps.changes.outputs.image }}
       radiologia: ${{ steps.changes.outputs.radiologia }}
       memory: ${{ steps.changes.outputs.memory }}
+      histologia: ${{ steps.changes.outputs.histologia }}
       perf: ${{ steps.changes.outputs.perf }}
       ephemeral: ${{ steps.changes.outputs.ephemeral }}
     steps:
@@ -202,7 +203,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: ci/install-tools.sh lint security
+      # Playwright + Chromium (E2E #206) są w warstwie testowej; cache skraca etap 5 o ~1–2 min.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/venv-e2e
+            ~/.cache/ms-playwright
+          key: tools-e2e-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-e2e.txt') }}
+      - run: ci/install-tools.sh lint security e2e
       - run: ci/guard.sh --name "5. Integracja i migracja" --timeout 150m --memory auto -- ci/integration.sh
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
@@ -212,6 +220,9 @@ jobs:
           # Flavor wlb-memory analogicznie opt-in (etykieta build-memory / zmiana plików flavora / nocny
           # build) — pulpit + LibreOffice Calc testowane na realnym obrazie (#105).
           WLB_BUILD_MEMORY: ${{ needs.lint.outputs.memory == 'true' && '1' || '0' }}
+          # Flavor wlb-histologia analogicznie opt-in (etykieta build-histologia / zmiana plików flavora /
+          # nocny build) — pulpit + Calc + RStudio + jamovi-Flatpak na realnym obrazie (#108).
+          WLB_BUILD_HISTOLOGIA: ${{ needs.lint.outputs.histologia == 'true' && '1' || '0' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

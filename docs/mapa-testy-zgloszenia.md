@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-10). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -102,6 +102,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 
 ### #54 — Kafelek „Pomoc i zgłoszenia” (helpdesk) w Launcherze JupyterLab  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Kafelek pomocy w konfiguracji Launchera (#54)`, `Strona pomocy z kontaktem helpdesku (#54)`, `jupyter-app-launcher zainstalowany (#54)`, *5b. Identyfikacja IP_CMC i pomoc (#53, #54)*
+- `tests/unit/test_launcher_help.py` — `test_launcher_ma_kafelek_pomocy`, `test_pomoc_ma_kontakt_helpdesku`
 
 ### #62 — SSH: Limity logowania i komunikat powitalny (CIS 5.2)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Baner nie ujawnia wersji systemu (#62)`, `Baner prawny o monitoringu (#62)`, `Banner /etc/issue.net (#62)`, `LogLevel VERBOSE (#62)`, `LoginGraceTime 60 (#62)`, `MaxAuthTries 4 (#62)`, `MaxSessions 4 (#62)`, `MaxStartups 10:30:60 (#62)`, `PermitUserEnvironment no (#62)`, *10. Utwardzenie SSH (CIS 5.2, #62)*
@@ -110,11 +111,14 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 ### #63 — sysctl: brakujące parametry sieciowe i wyłączenie zrzutów pamięci (CIS 1.x/3.x)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `CONNECT poza allowlistą: $target (403, #16, #63)`
 - `tests/acceptance.d/30-sysctl-coredump.sh` — `$key=$expected (#63)`, `Twardy limit core=0 w limits.d (#63)`, `systemd-coredump ProcessSizeMax=0 (#63)`, `systemd-coredump Storage=none (#63)`, *Utwardzenie jądra: sysctl i zrzuty pamięci (#63)*
+- `tests/acceptance.d/47-histologia.sh` — `jamovi: dostęp sandboxa do /workspace (override, #108)`, `jamovi: sandbox bwrap startuje (nieuprzywilejowane userns, #63/#108)`
 - `tests/unit/changes.bats` — `PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)`, `PR: brak albo błędna baza nie omija integracji (#63)`
 - `tests/unit/test_network_gates.py` — `test_connect_requires_explicit_proxy_denial`
 
 ### #65 — AppArmor: apparmor-utils, apparmor=1 w GRUB i profile w trybie complain (CIS 1.6)  ·  _scalone_
 - `tests/acceptance.d/20-apparmor.sh` — `Licznik profili w complain = 0`, `apparmor-utils zainstalowany (aa-enforce, aa-status)`, `security=apparmor w parametrach jądra (GRUB)`, *AppArmor (CIS 1.6, #65)*
+- `tests/acceptance.d/40-pulpit.sh` — `Skrypt AppArmor enforce warstwy pulpitu na obrazie (#65)`, `Warstwa pulpitu kończy się licznikiem AppArmor complain = 0 (#65, CIS 1.6.3)`, `websockify na obrazie`
+- `tests/acceptance.d/47-histologia.sh` — `jamovi: dostęp sandboxa do /workspace (override, #108)`
 - `tests/unit/wlb-apparmor-mode.bats` — `rsyslogd unconfined + inny profil enforce w tej samej linii -> unconfined (#65 regresja)`
 
 ### #66 — Reguły audytu: konta, czas, moduły, sesje, AppArmor (podstawa §21/OPZ B.21)  ·  _scalone_
@@ -125,7 +129,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 - `tests/unit/wlb-firstboot.bats` — `limit sesji: --force po usunięciu MAX_SESSION_HOURS cofa wydłużenie do domyślnego (#78)`, `limit sesji: MAX_SESSION_HOURS niepoprawne (zakres, zera wiodące, nieliczba) -> blad firstboot (#78)`, `limit sesji: MAX_SESSION_HOURS=48 -> cull.max_age + TTL ciasteczka/tokenu spojnie (#78)`, `limit sesji: domyslnie (bez MAX_SESSION_HOURS) brak override i ZADNEGO set cull.max_age (#78)`
 
 ### #84 — CI: zmiany dokumentacji w obrazie nie powinny wyzwalać etapu 5 (allowlista changes.sh)  ·  _otwarte_
-- `tests/unit/changes.bats` — `push tylko z CHANGELOG.md: etap 5 pominięty (#84)`
+- `tests/unit/changes.bats` — `push tylko z CHANGELOG.md: etap 5 pominięty (#84)`, `tekst-w-obrazie: PR/push zmieniający tylko pomoc.md Launchera pomija etap 5 (#84)`, `tekst-w-obrazie: konfiguracja Launchera (yaml) NIE jest zwolniona — wyzwala etap 5 (#84)`, `tekst-w-obrazie: pomoc.md razem z kodem nadal wyzwala etap 5 (#84)`
 
 ### #86 — CI: etap 5/6a rzadziej lub lokalnie — bramkowanie weryfikacji ciężkiej (do czasu self-hosted #25)  ·  _scalone_
 - `tests/unit/changes.bats` — `PR bez etykiet: etap 5/6 pominięty (#86)`, `PR z etykietą run-integration: etap 5 na żądanie (#86)`, `PR ze zmianą poza siecią, bez etykiety: bez etapu 5 (#86)`
@@ -144,13 +148,25 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 - `tests/unit/wlb-firstboot.bats` — `HUB_ADMIN_USER nie może używać przestrzeni kont badaczy, nawet poza aktualną pulą (#102)`, `RESEARCHER_ACCOUNTS: błędny zapis i przepełnienie są odrzucane przed provisioningiem (#102)`, `pełna konfiguracja Laboratorium`, `plik hasła bez konta — konto nie jest odtwarzane, ostrzeżenie (#102)`, `plik oczekujący bez konta (przerwanie przed zapisem w bazie) — konto z hasłem z pliku (#102)`, `plik oczekujący, konto z dysku roboczego ma inne hasło — hasło bez zmian (#102)`, `pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)`, `przerwanie po zapisie konta, przed plikiem hasła — ponowienie odzyskuje hasło (#102)`, *Przerwanie provisioningu kont (#102)*
 
 ### #105 — Flavor „pod pamięć”: pulpit w przeglądarce + aplikacje GUI (arkusz, zamiennik Prism) i kafelek Leaf  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
-- `tests/acceptance.d/45-memory.sh` — `Calc konwertuje CSV->ODS (silnik arkusza, #105)`, *Aplikacje GUI flavora wlb-memory (LibreOffice Calc, #105)*
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia/wlb-histologia (#105, #135, #108)`, `Regresja: obraz bazowy nie ma pulpitu (wlb-memory/wlb-radiologia/wlb-histologia, #105)`, `Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)`, `Regresja: serwer VNC nieobecny w obrazie bazowym (#105)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
+- `tests/acceptance.d/45-memory.sh` — `Calc konwertuje CSV->ODS (silnik arkusza, #105)`, *Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, LabPlot #109, RStudio #108)*
 - `tests/unit/changes.bats` — `memory: etykieta build-memory wyzwala flavor na żądanie (#105)`, `memory: zmiana plików flavora wyzwala build+test memory (#105)`, `memory: zmiana spoza flavora nie wyzwala memory (#105)`
 
-### #106 — Pulpit w przeglądarce: rola desktop + flavor wlb-memory (remote-desktop-proxy, kafelek „Pulpit”)  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Konfiguracja TigerVNC ma poprawną składnię Perla (#106)`, `Schowek VNC: polityka wrappera wyłącza odbiór (#106)`, `Schowek VNC: polityka wrappera wyłącza wysyłanie (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+### #106 — Pulpit w przeglądarce: rola desktop + flavor wlb-memory (remote-desktop-proxy, kafelek „Pulpit”)  ·  _scalone_
+- `tests/acceptance.d/40-pulpit.sh` — `Konfiguracja TigerVNC ma poprawną składnię Perla (#106)`, `Schowek VNC: polityka wrappera wyłącza odbiór (#106)`, `Schowek VNC: polityka wrappera wyłącza wysyłanie (#106)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
 - `tests/migration.sh` — *Migracja: $(basename "$FROM") -> $(basename "$TO")*
+
+### #107 — Arkusz (open-source Excel): LibreOffice Calc na pulpicie wlb-memory  ·  _scalone_
+- `tests/acceptance.d/47-histologia.sh` — `Calc konwertuje CSV->ODS (silnik arkusza, #107)`, *LibreOffice Calc (arkusz) — jak na wlb-memory (#107)*, *Stos histologii: Calc + RStudio + jamovi (#107/#108)*
+
+### #108 — Zamiennik Prism (1/2): statystyka z GUI — jamovi lub JASP  ·  _scalone_
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia/wlb-histologia (#105, #135, #108)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
+- `tests/acceptance.d/45-memory.sh` — `Calc konwertuje CSV->ODS (silnik arkusza, #105)`, `RStudio Server zainstalowany (rserver, #108)`, `Samodzielna usługa rstudio-server WYŁĄCZONA — dostęp tylko przez hub (#108)`, `jupyter-rsession-proxy w środowisku TLJH — launcher RStudio w JupyterLab (#108)`, *Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, LabPlot #109, RStudio #108)*
+- `tests/acceptance.d/47-histologia.sh` — `RStudio Server zainstalowany (rserver, #108)`, `Samodzielna usługa rstudio-server WYŁĄCZONA — dostęp tylko przez hub (#108)`, `jamovi: dostęp sandboxa do /workspace (override, #108)`, `jamovi: sandbox bwrap startuje (nieuprzywilejowane userns, #63/#108)`, `jupyter-rsession-proxy w środowisku TLJH — launcher RStudio w JupyterLab (#108)`, *RStudio Server (statystyka z GUI w przeglądarce) — jak na wlb-memory (#108)*, *Stos histologii: Calc + RStudio + jamovi (#107/#108)*, *jamovi (Flatpak, #108)*, *jamovi (Flatpak, aplikacja pulpitowa) — #108*
+- `tests/unit/changes.bats` — `histologia: etykieta build-histologia wyzwala flavor na żądanie (#108)`, `histologia: zmiana plików flavora wyzwala build+test histologii (#108)`, `histologia: zmiana spoza flavora nie wyzwala histologii (#108)`
+
+### #109 — Zamiennik Prism (2/2): wykresy naukowe + curve-fitting — LabPlot lub SciDAVis  ·  _scalone_
+- `tests/acceptance.d/45-memory.sh` — `Integracja GTK3 LibreOffice (render pod XFCE)`, *Aplikacje GUI flavora wlb-memory (LibreOffice Calc #105, LabPlot #109, RStudio #108)*
 
 ### #111 — Kernel Julia (luka vs strona JupyterHub IP_CMC)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Kernel Julia (IJulia) zarejestrowany (#111)`, *2. Notebook Python, R i Julia*
@@ -163,13 +179,18 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 - `tests/unit/test_image_identity.py` — `test_main_niezgodnosc_wychodzi_2_kodem`
 - `tests/unit/wlb-sbom-gate.bats` — `SBOM bez dpkg-status pada, nie ostrzega (#129)`, `nieznane wydanie obrazu blokuje SBOM niezaleznie od hosta (#129)`, `obca dystrybucja z tym samym VERSION_ID odrzucona (#129)`, `pelna zgodna para tozsamosci przechodzi do skanu (#129)`
 
-### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _otwarte_
-- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia (#105, #135)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135) i lekkość bazy (#105)*
+### #135 — Flavor wlb-radiologia: pulpit + FSL/FSLeyes/3DSlicer (warstwowy build na #106)  ·  _scalone_
+- `tests/acceptance.d/40-pulpit.sh` — `Metadane: flavor z pulpitem wlb-memory/wlb-radiologia/wlb-histologia (#105, #135, #108)`, *Pulpit / flavory z pulpitem (wlb-memory #106, wlb-radiologia #135, wlb-histologia #108) i lekkość bazy (#105)*
 - `tests/acceptance.d/70-radiologia.sh` — `Regresja: brak serwera X (Xtigervnc) na flavorze radiologia (#4)`, *Kafelki pulpitu stosu neuro (#135)*, *Stos neuroobrazowania (FSL, FSLeyes, 3DSlicer, #135)*
 - `tests/unit/changes.bats` — `radiologia: etykieta build-radiologia wyzwala flavor na żądanie (#135)`, `radiologia: zmiana plików flavora wyzwala build+test radiologii (#135)`, `radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)`
+- `tests/unit/image-size-report.bats` — `brak pomiaru jest błędem również bez progu (#135)`, `prawdziwy mały qcow2 daje raport i blokuje zerowy limit (#135)`, `próg jest dziesiętny, dokładny i nie interpretuje wyrażeń Bash (#135)`, `raport: bez progu nie zawodzi nawet dla dużego pliku (#135)`, `raport: brak obrazu lub argumentu to błąd (#135)`, `raport: przekroczenie progu WLB_IMAGE_SIZE_MAX_GIB kończy się błędem (#135)`, `raport: rozmiar poniżej progu przechodzi (#135)`, `raport: wypisuje rozmiar wirtualny i faktyczny w GiB (#135)`
 
 ### #138 — Testy wizualne pulpitu (render-smoke → regresja perceptualna), etapami  ·  _otwarte_
-- `tests/acceptance.d/45-memory.sh` — `Integracja GTK3 LibreOffice (render pod XFCE)`
+- `tests/acceptance.d/45-memory.sh` — `Kafelek LabPlot w menu XFCE`
+- `tests/acceptance.d/45-pulpit-render.sh` — `Render-smoke pulpitu nieudany — NIE bramkuje do walidacji KVM (#138 §8): $(tail -n1 `, `Render-smoke: brak wykonywalnego $W45_SMOKE na obrazie (#138)`, *Render-smoke pulpitu (#138, etap 1b — NIE-bramkujący, SKIP przy błędzie)*
+
+### #140 — Test behawioralny copy-lockdown pulpitu (schowek + transfer plików noVNC)  ·  _otwarte_
+- `tests/acceptance.d/44-copy-lockdown.sh` — `Copy-lockdown #140 VM→host: wynik niejednoznaczny (xclip/RFB harness)`, `Copy-lockdown #140 host→VM: wynik niejednoznaczny (xclip/RFB harness)`, `Copy-lockdown #140: brak komendy startowej jrdp — nie można sprawdzić flag wrappera`, `Copy-lockdown #140: brak konta jupyter-$R1 (test adaptacyjny)`, `Copy-lockdown #140: brak xclip/vncserver/Xtigervnc/xauth — behawioralny test pominięty (TODO: dodać xclip do roli desktop)`, `Copy-lockdown #140: kontrola pozytywna nie przeszła (inject=$W44_POS_INJECT send=$W44_POS_SEND) — wyniki negatywne byłyby niejednoznaczne`, `Copy-lockdown #140: nie można utworzyć katalogu tymczasowego`, `Copy-lockdown #140: sesja VNC przez proxy nie wystartowała (display='${W44_N:-?}'): $(tail -n1 `, **, *Copy-lockdown pulpitu przez ścieżkę proxy (#140 — NIE-bramkujący)*
 
 ### #149 — feat(storage): izolacja i limity cgroups dla demona śluzy wyjściowej (sluza-out)  ·  _otwarte_
 - `tests/unit/changes.bats` — `śluza: PR i merge_group wymagają integracji bez etykiety (#149)`
@@ -187,12 +208,26 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-05). Odświ
 ### #193 — CD na żywą VM Laboratorium: polityka L/D i bezpieczna aktywacja wersjonowanych narzędzi  ·  _otwarte_
 - `tests/acceptance.d/55-python-prefiks.sh` — *Wersjonowany prefiks środowiska Pythona (#193, M0)*
 
-### #199 — wlb-radiologia: wrappery neuro poza PATH sesji XFCE; fsl.sh powiela wpis w PATH  ·  _otwarte_
+### #199 — wlb-radiologia: wrappery neuro poza PATH sesji XFCE; fsl.sh powiela wpis w PATH  ·  _scalone_
 - `tests/acceptance.d/45-memory.sh` — `LibreOffice obecny (binarka)`
+- `tests/acceptance.d/47-histologia.sh` — `Kafelek jamovi wskazuje flatpak run absolutnie (Exec, #199)`, `jamovi zainstalowany w Flatpak (systemowo)`
 - `tests/acceptance.d/70-radiologia.sh` — `Kafelek 3DSlicer wskazuje Slicer (Exec)`, `Kafelek FSL wskazuje wrapper absolutnie (Exec, #199)`, `Kafelek FSLeyes wskazuje wrapper absolutnie (Exec, #199)`, `fsl.sh w pełni idempotentny: 2. źródłowanie nie zmienia PATH (#199)`, `Środowisko FSL (profile.d/fsl.sh)`
 
 ### #200 — wlb-radiologia: soft z pierwszego wdrożenia — MRtrix3 (dwidenoise/mp-pca) + czytnik PDF  ·  _scalone_
 - `tests/acceptance.d/70-radiologia.sh` — `3DSlicer na PATH (Slicer)`, `Czytnik PDF evince na PATH (#200)`, `Kafelek czytnika PDF w menu (#200)`, `MRtrix3 dwidenoise na PATH (#200)`, `MRtrix3 dwidenoise uruchamia się (-version, #200)`, *Dodatkowe narzędzia (MRtrix3, czytnik PDF, #200)*
+
+### #204 — Pulpit: kontrakt wizualny XFCE — motyw, ikony, fonty, DPI, panel, tapeta, locale  ·  _scalone_
+- `tests/acceptance.d/42-pulpit-wartosci.sh` — `Geometria sesji X = $W204_GEO wg kontraktu (xdpyinfo, #204)`, `Kafelek $W204_REQ.desktop obecny na wlb-radiologia (#204)`, `Klawiatura X: ${W204_K%%:*} = ${W204_K#*:} wg kontraktu (setxkbmap, #204)`, `Kontrakt ma znacznik wersji contract|version (#204)`, `Kontrakt xfconf: profil ze /etc/skel = wartości kontraktu (#204)`, `Kontrakt xfconf: scope systemowy = wartości efektywne świeżego konta (#204)`, `Locale $W204_LOCALE działa (locale charmap = UTF-8) (#204)`, `Locale domyślna (LANG) zgodna z kontraktem: $W204_LOCALE (#204)`, `Nadpisane /Xft/DPI=120 NIE przechodzi kontraktu (test negatywny, #204)`, `Nadpisanie badacza (DPI=120) jest respektowane przez xfconf (#204)`, `Nierozwiązywalna nazwa ikony jest odrzucana (test negatywny, #204)`, `Odczyt brakującej właściwości kończy się błędem (#204)`, `Regresja: Xtigervnc nieobecny na flavorze z pulpitem (#204)`, `Serwer X wystartował na $W204_DISP (#204)`, `Zmieniona wartość motywu NIE przechodzi kontraktu (test negatywny, #204)`, `fc-match Monospace = $W204_MONO wg kontraktu (#204)`, `fc-match Sans = $W204_SANS wg kontraktu (#204)`, *Pulpit: kontrakt wizualny XFCE (#204)*, `Żywa sesja XFCE: Xcursor=$W204_CURSOR, Xft.dpi=$W204_DPIVAL (xrdb), ikony=$W204_ICONS, tapeta SOLID pod monitorVNC-0, panel przy dolnej krawędzi (#204)`
+
+### #206 — E2E renderu pulpitu: Hub → server-proxy → noVNC (kafelek, canvas, wejście, reconnect)  ·  _otwarte_
+- `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
+
+### #208 — Śluza wyjściowa: pozytywne potwierdzenie przyjęcia do kolejki (receipt dla badacza)  ·  _scalone_
+- `tests/acceptance-remote.sh` — `Badacz widzi katalog /sluza-potwierdzenia (#208)`, `Katalog potwierdzen ma tryb 0750 root:jupyterhub-users (#208)`, `Po przyjeciu pojawia się potwierdzenie (*potwierdzenie.*) (#208)`, `Potwierdzenie czytelne dla badacza i ze zgodnymi etykietami/rozmiarem kontraktu (#208)`, `Potwierdzenie nie zawiera treści pliku — tylko metadane (§14.7, #208)`, `Potwierdzenie własnością badacza, tryb 0640 (#208)`, `Powód odrzucenia dowiązania czytelny dla badacza (#162)`, `Wpis odrzucony (dowiązanie) NIE ma potwierdzenia — tylko powód (#208)`
+- `tests/unit/wlb-sluza-out-mover.bats` — `#208: blad zapisu potwierdzenia nie przerywa przyjecia`, `#208: nazwa wpisu z niedozwolonymi znakami jest zakodowana w potwierdzeniu`, `#208: odrzucenie tworzy tylko powód — bez potwierdzenia`, `#208: potwierdzenie nie duplikuje sie i nie zostawia plikow tymczasowych`, `#208: przyjęty katalog dostaje potwierdzenie z liczbą plików, rozmiarem i sha256-inventory`, `#208: przyjęty pojedynczy plik — potwierdzenie z jednym plikiem i jego rozmiarem`, *#208: pozytywne potwierdzenie przyjęcia do kolejki (receipt)*
+
+### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
+- `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
 
 ## Uwagi
 

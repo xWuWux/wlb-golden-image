@@ -1,9 +1,11 @@
 # ŹRÓDŁO pinów top-level (edytuj tutaj). Po zmianie uruchom ci/lock-requirements.sh i zacommituj
 # wygenerowany lock z hashami ci/requirements-unit.txt (instalowany w CI z --require-hashes, IMG-008 5b).
 # Stage 4: testy jednostkowe i pokrycie.
-pytest==9.1.1
+pytest==9.2.0
 coverage==7.17.0
 PyYAML==6.0.3
+# testy perceptualne (#138): SSIM na zrzutach PNG
+Pillow==13.0.0
 # wlb-hub-user testowany na tej samej głównej wersji JupyterHub co w TLJH 2.0 (jupyterhub<6)
 jupyterhub==5.5.4
 jupyterhub-nativeauthenticator==1.3.0

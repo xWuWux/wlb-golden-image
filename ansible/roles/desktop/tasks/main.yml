@@ -48,6 +48,24 @@
     dest: /etc/tigervnc/vncserver-config-mandatory
     mode: "0644"
 
+# Render-smoke pulpitu (#138, etap 1b): wgrywamy skrypt + helper do obrazu, żeby adaptacyjny
+# fragment akceptacji (tests/acceptance.d/45-pulpit-render.sh) mógł uruchomić go JAKO badacz na VM.
+# Źródło w repo (tests/) pozostaje kanoniczne — tu tylko kopia na obraz, bez duplikacji treści.
+- name: Katalog testów runtime na obrazie (#138)
+  ansible.builtin.file:
+    path: /opt/wlb/tests
+    state: directory
+    mode: "0755"
+
+- name: Render-smoke pulpitu + helper analizy na obrazie (#138, etap 1b)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../tests/{{ item }}"
+    dest: "/opt/wlb/tests/{{ item }}"
+    mode: "0755"
+  loop:
+    - desktop-render-smoke.sh
+    - desktop_render_smoke.py
+
 # --- Kontrakt wizualny pulpitu (#204) -----------------------------------------------
 # Wartości tylko z desktop_xfconf/desktop_contract_* w ansible/group_vars/all.yml.
 # Ścieżka ikon: stockowe domyślne Ubuntu (Greybird/elementary-xfce-dark) wskazują pakiety
@@ -128,3 +146,21 @@
     line: "LANG={{ desktop_contract_locale }}"
     create: true
     mode: "0644"
+
+# --- AppArmor w warstwie pulpitu (#65, CIS 1.6.3) ------------------------------------
+# Rola base wymusza enforce PRZED warstwą flavora — XFCE, TigerVNC, noVNC (i aplikacje GUI dołożone
+# w tej roli, np. przyszły LibreOffice Writer z #269) potrafią wnieść nowe profile w complain. Bez
+# sweepu licznik `aa-status --complaining` w tests/acceptance.d/20-apparmor.sh nie zejdzie do 0 na
+# flavorze z pulpitem. To OSTATNI task roli: po wszystkich apt (także Adwaita z kontraktu wizualnego).
+# Logika w skrypcie, nie inline shell — dzięki temu ma testy jednostkowe (tests/unit/
+# wlb-apparmor-enforce.bats) i jest uruchamiana także przez akceptację (idempotentnie).
+- name: Skrypt wymuszania AppArmor enforce dla warstwy pulpitu (#65)
+  ansible.builtin.copy:
+    src: wlb-apparmor-enforce
+    dest: /usr/local/sbin/wlb-apparmor-enforce
+    mode: "0755"
+
+- name: Profile AppArmor w trybie enforce po pakietach pulpitu (#65, CIS 1.6.3)
+  ansible.builtin.command: /usr/local/sbin/wlb-apparmor-enforce
+  register: desktop_apparmor_enforce
+  changed_when: "'WLB_SWITCHED=1' in desktop_apparmor_enforce.stdout"

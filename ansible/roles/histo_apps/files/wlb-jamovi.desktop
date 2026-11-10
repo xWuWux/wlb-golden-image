@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=jamovi
+GenericName=Analiza statystyczna
+Comment=jamovi — statystyka z GUI (Flatpak)
+# Exec absolutny (#199): sesja XFCE nie gwarantuje PATH ani XDG_DATA_DIRS eksportów Flatpaka.
+# /usr/bin/flatpak pochodzi z pakietu apt (katalog zawsze w PATH sesji).
+Exec=/usr/bin/flatpak run org.jamovi.jamovi
+Icon=org.jamovi.jamovi
+Terminal=false
+Categories=Science;Education;Math;
+Keywords=statystyka;statistics;jamovi;analiza;

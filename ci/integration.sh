@@ -10,6 +10,8 @@
 #   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
 #   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
+#   8. E2E renderu pulpitu w przeglądarce: Playwright/Chromium na runnerze → Hub VM (#206) — raport,
+#      nie bramka (WLB_E2E_GATING=1 promuje wynik E2E do bramki)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
 #   REUSE_IMAGE=1            nie buduj ponownie, jeśli obraz tej wersji już jest w output/
@@ -26,6 +28,9 @@ IMAGE=$REPO_ROOT/output/$FULL/$FULL.qcow2
 ARTIFACTS=build/artifacts/$FULL
 LOGS=build/ci-logs
 mkdir -p "$LOGS"
+# Porty hostfwd z tests/run-local.sh — E2E na runnerze łączy się z Hubem VM przez localhost (#206).
+export HUB_PORT=${HUB_PORT:-8080}
+export HUB_TLS_PORT=${HUB_TLS_PORT:-8443}
 [[ -w /dev/kvm ]] || {
   echo "Brak dostępu do /dev/kvm — stage 5 wymaga KVM"
   exit 1
@@ -143,6 +148,36 @@ acceptance() {
       echo "Test akceptacyjny nie doszedł do końca (brak linii 'Wynik:')"
       rc=1
     }
+    # #206: E2E renderu pulpitu z runnera. Playwright/Chromium są w warstwie testowej
+    # (.tools/venv-e2e), nie w obrazie. Nie-bramkujący: rc zmienia tylko WLB_E2E_GATING=1.
+    if [[ -f tests/desktop-e2e-novnc.py && -x $TOOLS_DIR/venv-e2e/bin/python ]]; then
+      local e2e_rc=0 e2e_hub e2e_pass
+      if "${SSH[@]}" "grep -qE '^[[:space:]]*HUB_TLS=0[[:space:]]*$' /etc/wlb/lab.env" 2>/dev/null; then
+        e2e_hub="http://localhost:${HUB_PORT}"
+      else
+        e2e_hub="https://localhost:${HUB_TLS_PORT}"
+      fi
+      e2e_pass=$("${SSH[@]}" 'sudo cat /root/wlb-hub-u01-initial-password' 2>/dev/null || true)
+      if [[ -n $e2e_pass ]]; then
+        mkdir -p "$LOGS/e2e-$logname"
+        WLB_E2E_HUB=$e2e_hub WLB_E2E_USER=u01 WLB_E2E_PASS="$e2e_pass" \
+          WLB_E2E_ARTIFACT_DIR="$LOGS/e2e-$logname" \
+          "$TOOLS_DIR/venv-e2e/bin/python" tests/desktop-e2e-novnc.py \
+          >"$LOGS/e2e-$logname.log" 2>&1 || e2e_rc=$?
+        if [[ $e2e_rc -eq 0 ]]; then
+          echo "E2E pulpitu: PASS" | tee -a "$LOGS/$logname.log"
+        elif [[ ${WLB_E2E_GATING:-0} == 1 ]]; then
+          echo "E2E pulpitu: FAIL (rc=$e2e_rc; WLB_E2E_GATING=1)" | tee -a "$LOGS/$logname.log"
+          rc=1
+        else
+          echo "E2E pulpitu: SKIP (rc=$e2e_rc; nie bramkuje)" | tee -a "$LOGS/$logname.log"
+        fi
+      else
+        echo "E2E pulpitu: SKIP (brak hasła u01)" | tee -a "$LOGS/$logname.log"
+      fi
+    else
+      echo "E2E pulpitu: SKIP (brak venv-e2e — ci/install-tools.sh e2e)" | tee -a "$LOGS/$logname.log"
+    fi
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
     # tozsamosc systemu z TEJ SAMEJ VM co dpkg-status (#129): osv-scanner ekosystem pakietow
@@ -152,6 +187,16 @@ acceptance() {
     # skan utwardzenia (Lynis) na działającej VM — raport, nie bramka (#11); nigdy nie psuje akceptacji
     "${SSH[@]}" 'sudo lynis audit system --quick --no-colors' >"$LOGS/lynis.log" 2>&1 || true
     "${SSH[@]}" 'sudo cat /var/log/lynis-report.dat' >"$ARTIFACTS/lynis-report.dat" 2>/dev/null || true
+  fi
+  # Artefakty render-smoke pulpitu (#138): fragment 45-pulpit-render.sh uruchamia render-smoke z
+  # WLB_SMOKE_ARTIFACT_DIR=/tmp/wlb-render-smoke na VM (PNG + result.json). Ściągamy je z żywej VM do
+  # build/ci-logs, żeby po FAIL/SKIP było co obejrzeć w CI — dotąd ginęły w katalogu badacza (#138 §8).
+  # Bezwarunkowo (render-smoke jest nie-bramkujący, więc rc akceptacji go nie odzwierciedla); brak
+  # katalogu = render-smoke nie biegł (flavor bez pulpitu), pomijamy. Póki VM żyje (przed stop-local).
+  if "${SSH[@]}" 'sudo test -d /tmp/wlb-render-smoke' 2>/dev/null; then
+    mkdir -p "$LOGS/render-smoke-$logname"
+    "${SSH[@]}" 'sudo tar -C /tmp -cf - wlb-render-smoke 2>/dev/null' |
+      tar -C "$LOGS/render-smoke-$logname" --strip-components=1 -xf - 2>/dev/null || true
   fi
   sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
@@ -375,6 +420,32 @@ memory_flavor() {
   acceptance "$mem_img" acceptance-memory
 }
 
+# Flavor wlb-histologia (#108): opt-in (etykieta build-histologia / zmiana plików flavora / nocny build —
+# workflow ustawia WLB_BUILD_HISTOLOGIA=1). Buduje warstwowo na obrazie bazowym i uruchamia tę samą
+# akceptację (adaptacyjne 47-histologia + 40-pulpit wykryją flavor). Łapie błędy runtime: instalację
+# jamovi-Flatpak i — kluczowo — start sandboxa bwrap (nieuprzywilejowane userns na utwardzonym jądrze).
+histologia_flavor() {
+  [[ ${WLB_BUILD_HISTOLOGIA:-0} == 1 ]] || {
+    echo "pominięto: brak etykiety build-histologia ani zmiany plików flavora (#108)"
+    return 0
+  }
+  local his_full="wlb-histologia-$IMAGE_VERSION-$IMAGE_DATE" his_img
+  his_img="$REPO_ROOT/output/$his_full/$his_full.qcow2"
+  rm -rf "output/$his_full"
+  echo "== Build flavora wlb-histologia (base_image=$IMAGE) =="
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-histologia.log" packer build -color=false -only='wlb-histologia.*' \
+    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
+    -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    echo "build flavora wlb-histologia nieudany (packer-histologia.log w artefaktach etapu 5)"
+    return 1
+  fi
+  ci/image-size-report.sh "$his_img" "$his_full" || return 1
+  echo "== Akceptacja wlb-histologia =="
+  acceptance "$his_img" acceptance-histologia
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -401,4 +472,5 @@ run_check "Jedno jądro w obrazie (#9)" kernel_single
 run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
 run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
 run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
+run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
 finish
