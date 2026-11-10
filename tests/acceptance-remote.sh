@@ -371,6 +371,88 @@ else
   skip "Faktyczna instalacja z kuratorowanego mirrora — wymaga mirrora z allowlistą pakietów (#16)"
 fi
 
+echo "== 6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2) =="
+# Dotąd izolacja u01 była testowana pozytywną ścieżką (brak sudo, egress TCP, blokada eksportu).
+# Tu dokładamy AKTYWNE próby: egress po innych protokołach, eskalacja uprawnień, obejścia eksportu.
+
+# --- Egress po protokołach innych niż dozwolony TCP (researcher_egress: allow-list + reject+log) ---
+expect_ok "Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)" \
+  bash -c "nft list chain inet wlb output | grep -q 'jump researcher_egress'"
+expect_ok "Egress: researcher_egress kończy się reject — default-deny (#288)" \
+  bash -c "nft list chain inet wlb researcher_egress | grep -qE 'reject with icmpx'"
+
+if as "$R1" sh -c 'command -v ping >/dev/null 2>&1'; then
+  expect_fail "Egress ICMP do zewnętrznego IP odrzucony (#288)" \
+    as "$R1" ping -c1 -W3 192.0.2.1
+  expect_fail "Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)" \
+    as "$R1" ping -6 -c1 -W3 2001:db8::1
+else
+  skip "Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)"
+fi
+
+expect_fail "Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)" \
+  as "$R1" curl -6 -s --noproxy '*' --max-time 5 'http://[2606:4700:4700::1111]/'
+
+# UDP (zapytanie DNS do zewnętrznego resolvera) — python3 zawsze dostępny; exit 0 = zablokowane.
+expect_ok "Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)" \
+  as "$R1" python3 -c 'import socket,sys
+q=b"\x00\x00\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01"
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(3)
+try:
+    s.sendto(q,("1.1.1.1",53));s.recvfrom(512);sys.exit(1)
+except OSError:
+    sys.exit(0)'
+
+# Odrzucony egress badacza trafia do logu jądra (nft log "wlb-egress-deny") -> journald -> SIEM (§21).
+as "$R1" ping -c1 -W2 192.0.2.173 >/dev/null 2>&1 || true
+for _ in $(seq 1 10); do
+  journalctl -k --since "-3 min" 2>/dev/null | grep -q 'wlb-egress-deny' && break
+  sleep 1
+done
+expect_ok "Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)" \
+  bash -c "journalctl -k --since '-3 min' 2>/dev/null | grep -q 'wlb-egress-deny'"
+
+# --- Eskalacja uprawnień: polkit/pkexec, cron, SUID/SGID, capabilities ---
+if as "$R1" sh -c 'command -v pkexec >/dev/null 2>&1'; then
+  expect_fail "Eskalacja: pkexec nie podnosi uprawnień badacza (#288)" \
+    as "$R1" pkexec --disable-internal-agent id
+else
+  skip "Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)"
+fi
+
+if as "$R1" sh -c 'command -v crontab >/dev/null 2>&1'; then
+  expect_fail "Eskalacja: badacz nie instaluje własnego crontaba (#288)" \
+    as "$R1" sh -c "printf '* * * * * id\n' | crontab -"
+else
+  skip "Eskalacja cron: brak crontab w środowisku badacza (#288)"
+fi
+expect_fail "Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)" \
+  as "$R1" touch /etc/cron.d/wlb-escalate-test
+
+# Żaden SUID/SGID w ścieżce kontrolowanej przez badacza ani zapisywalny przez niego.
+expect_fail "Brak binariów SUID/SGID w /workspace (#288)" \
+  bash -c "find /workspace -xdev -type f \\( -perm -4000 -o -perm -2000 \\) 2>/dev/null | grep -q ."
+expect_fail "Żaden plik SUID nie jest zapisywalny przez badacza (#288)" \
+  as "$R1" sh -c "find / -xdev -type f -perm -4000 -writable 2>/dev/null | grep -q ."
+
+# Groźne file-capabilities poza oczekiwanym ping(cap_net_raw) = regresja.
+if command -v getcap >/dev/null 2>&1; then
+  expect_fail "Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)" \
+    bash -c "getcap -r / 2>/dev/null | grep -qE 'cap_sys_admin|cap_setuid|cap_setgid|cap_dac_override|cap_sys_ptrace'"
+else
+  skip "Capabilities: brak getcap (libcap2-bin) na obrazie (#288)"
+fi
+
+# --- Obejście blokady eksportu innymi metodami HTTP (reguła Traefika jest method-agnostic) ---
+w6b_http_method() {
+  curl -s -o /dev/null -w '%{http_code}' -b "/tmp/wlb-test-$R1.jar" \
+    -X "$1" -L "$HUB/user/$R1/files/pobranie-test.csv"
+}
+for w6b_m in HEAD OPTIONS POST PUT; do
+  expect_ok "Obejście pobierania metodą $w6b_m odrzucone 403 (#288)" \
+    test "$(w6b_http_method "$w6b_m")" = 403
+done
+
 echo "== 7. Limity sesji (§9.5) =="
 # Oczekiwany limit sesji zależy od Laboratorium: domyślnie 12 h (43200 s), ale Lab z wydłużeniem
 # (MAX_SESSION_HOURS, #78) ma MAX_SESSION_HOURS*3600. Czytamy efektywną wartość z lab.env, żeby test
