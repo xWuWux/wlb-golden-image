@@ -1,5 +1,7 @@
 # Konfiguracja GitHub Merge Queue
 
+Przed zmianą ustawień domyślnej gałęzi sprawdź [procedurę ochrony i odbioru #259](ochrona-galezi.md). Sam trigger workflow oraz nazwa rulesetu nie potwierdzają aktywnej kolejki.
+
 ## Kontekst
 
 Problem „zielony PR, czerwony `main` po scaleniu" — PR przeszło wszystkie checki w momencie
