@@ -52,13 +52,16 @@ observability: ## 3.5. Kontrakty obrazu: obserwowalność i zmienne wdrożeniowe
 unit: ## 4. Testy jednostkowe z progami pokrycia
 	ci/unit.sh
 
+mutation: ## 4b. Testy mutacyjne (mutmut + harness powłoki; blokujące)
+	ci/mutation.sh
+
 integration: ## 5. Budowanie obrazu, akceptacja MVP, migracja, dryf locków (KVM, ~1–2 h)
 	ci/integration.sh
 
 perf: ## 6. Benchmarki wydajności ostatniego obrazu
 	ci/perf.sh
 
-ci: lint check security observability unit ## Etapy 1–4 (szybkie, przed każdym pushem)
+ci: lint check security observability unit mutation ## Etapy 1–4b (szybkie, przed każdym pushem)
 
 build: doctor keys ## Buduje golden image -> output/<nazwa>-<wersja>-<data>/
 	packer build -only='wlb.qemu.wlb' $(PACKER_VARS) packer/

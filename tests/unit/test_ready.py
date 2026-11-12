@@ -20,13 +20,17 @@ class RequiredCheckTests(unittest.TestCase):
             ("security failed", False, "security", "failure", 1),
             ("contracts skipped", False, "observability", "skipped", 1),
             ("unit missing", False, "unit", None, 1),
+            ("mutation skipped", False, "mutation", "skipped", 1),
             ("benchmark failed", False, "perf", "failure", 1),
             ("openstack cancelled", False, "ephemeral", "cancelled", 1),
+            ("mutation failed", False, "mutation", "failure", 1),
+            ("mutation skipped", False, "mutation", "skipped", 1),
         )
         for name, image, job, result, expected in cases:
             with self.subTest(name=name):
                 needs = {
-                    key: {"result": "success"} for key in ("lint", "build-check", "security", "observability", "unit")
+                    key: {"result": "success"}
+                    for key in ("lint", "build-check", "security", "observability", "unit", "mutation")
                 }
                 needs["lint"]["outputs"] = {"image": str(image).lower()}
                 needs.update({key: {"result": "skipped"} for key in ("integration", "perf", "ephemeral")})

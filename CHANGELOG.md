@@ -14,6 +14,20 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
+  naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
+  `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
+  liczy się z mutantów pokrytych testami („no tests” nie wchodzi do mianownika; globalny próg
+  pokrycia etapu 4 nie pilnuje pojedynczego pliku — to znana luka do domknięcia testami `main()`),
+  a timeout mutanta jest błędem. Przeżyty mutant spoza allowlisty (`ci/mutations/python-allowlist.txt`
+  — tylko mutanty równoważne, z uzasadnieniem) czerwieni pipeline. Powłoka: własny harness
+  `ci/mutation-bash.sh` z tabelą `ci/mutations/bash-mutations.tsv` — każda celowa mutacja skryptu
+  obrazu (np. reguła huba fazy 2 usunięta, brak znacznika `firstboot.done`, odwrócony warunek
+  sweepu AppArmor) MUSI zostać zabita przez wskazany test bats; baseline przed mutacją wymaga
+  dokładnie jednego zielonego testu, więc zepsuty test nie udaje „killed”. `--check` pilnuje, że
+  fragment do mutacji występuje w pliku dokładnie raz. Lokalnie: `make mutation`.
+  Runbook: [docs/ci-runbook.md](docs/ci-runbook.md#mutation).
+
 - **Anty-halucynacja pakietów apt (#294):** etap 3 sprawdza także pakiety OS z zadań Ansible
   (`apt:`/`ansible.builtin.apt`) wobec oficjalnego indeksu Ubuntu noble (noble/updates/security,
   wszystkie komponenty, nazwy wirtualne z `Provides`). Piny wersji są obcinane, nazwy z Jinja
