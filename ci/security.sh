@@ -49,9 +49,10 @@ licenses() {
 }
 
 # Anty-halucynacja LLM: zadeklarowane pakiety muszą istnieć w oficjalnych rejestrach (PyPI/conda-forge/
-# CRAN-snapshot/GitHub). Deterministyczne, bez zapytań do LLM; fail-closed przy błędzie rejestru.
+# CRAN-snapshot/GitHub) oraz w archiwum Ubuntu noble (apt/OS; indeks Packages, także nazwy wirtualne
+# z Provides). Deterministyczne, bez zapytań do LLM; fail-closed przy błędzie rejestru.
 pkg_existence() {
-  python3 ci/check_package_existence.py --root . --ecosystems python,r
+  python3 ci/check_package_existence.py --root . --ecosystems python,r,linux
 }
 
 run_check "SAST: semgrep" sast_semgrep
