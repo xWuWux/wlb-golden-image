@@ -14,9 +14,10 @@ Zasady:
   (weryfikowane przy budowaniu obrazu). Sprawdzamy MANIFESTY INTENCJI (pisane ręcznie/LLM), nie
   wygenerowane locki (environment.lock.yml/renv.lock) — tam halucynacja i tak wywaliłaby build.
 
-CRAN: istnienie sprawdzamy wobec snapshotu Posit Package Managera (r_cran_snapshot_date), zgodnie
-z tym, co realnie instaluje obraz. Jeśli endpoint snapshotu okaże się zawodny, łatwo podmienić
-CRAN_WEB na crandb.r-pkg.org (istnienie bez wersji) — logika i testy są od tego niezależne.
+CRAN: istnienie sprawdzamy w crandb.r-pkg.org (indeks CRAN, ~0,2 s/pakiet). Strona
+packagemanager.posit.co/.../web/packages/{name}/ zwraca 404 dla wszystkich pakietów (także
+ggplot2/dplyr), a snapshotowy indeks PACKAGES jest zbyt duży, by pobierać go na każdym PR.
+Snapshot z r_cran_snapshot_date pozostaje w raporcie — pokazuje, co realnie instaluje obraz.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ Fetch = Callable[[str], int]
 
 PYPI = "https://pypi.org/pypi/{name}/json"
 CONDA = "https://api.anaconda.org/package/conda-forge/{name}"
-CRAN_WEB = "https://packagemanager.posit.co/cran/{snapshot}/web/packages/{name}/"
+CRAN_WEB = "https://crandb.r-pkg.org/{name}"
 GITHUB = "https://api.github.com/repos/{repo}"
 
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*")
@@ -66,14 +67,20 @@ class Finding:
 
 def default_fetch(url: str, timeout: float = 10.0) -> int:
     """Zwraca kod HTTP (0 = błąd transportu/timeout). Nie czyta treści — tylko istnienie."""
+    # API Anaconda dla dużych pakietów (np. pyarrow) odpowiada 20-30 s. Krótszy timeout dawał
+    # fałszywe "rejestr nieosiągalny" (fail-closed); reszta rejestrów odpowiada < 2 s.
+    if "api.anaconda.org" in url:
+        timeout = max(timeout, 45.0)
     req = urllib.request.Request(url, method="HEAD", headers=_UA)
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             return resp.status
     except urllib.error.HTTPError as err:
         if err.code == 405:  # rejestr nie wspiera HEAD -> spróbuj GET
             try:
                 get = urllib.request.Request(url, method="GET", headers=_UA)
+                # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
                 with urllib.request.urlopen(get, timeout=timeout) as resp:  # nosec B310
                     return resp.status
             except urllib.error.HTTPError as gerr:
@@ -133,7 +140,7 @@ def parse_python(root: Path) -> list[Pkg]:
     return out
 
 
-def parse_r(root: Path, snapshot: str) -> list[Pkg]:
+def parse_r(root: Path, _snapshot: str) -> list[Pkg]:
     manifest = root / "envs/r/hades-packages.txt"
     if not manifest.is_file():
         return []
@@ -155,7 +162,7 @@ def parse_r(root: Path, snapshot: str) -> list[Pkg]:
                 repo = tok.split("@", 1)[0]
                 fallback = GITHUB.format(repo=repo)
                 break
-        url = CRAN_WEB.format(snapshot=snapshot, name=name)
+        url = CRAN_WEB.format(name=name)
         out.append(Pkg("CRAN", name, src, url, fallback))
     return out
 
