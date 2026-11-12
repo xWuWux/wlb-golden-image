@@ -260,6 +260,7 @@ class LinuxIndexError(Exception):
 def _default_bytes(url: str, timeout: float = 30.0) -> bytes:
     """GET całego zasobu (indeks Packages.xz); tylko HTTPS do archive/security.ubuntu.com."""
     req = urllib.request.Request(url, headers=_UA)
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
         return resp.read()
 
