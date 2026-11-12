@@ -72,6 +72,9 @@ LICENSE_PATTERNS = [
     (r"^tcl", "TCL"),
     (r"^ijg", "IJG"),
     # licencje niestandardowe (LicenseRef-*) — rodziny sprawdzone ręcznie, zob. ci/license-policy.yml
+    # conda-forge podaje nazwę SPDX-like "Ubuntu-font-1.0" (font-ttf-ubuntu), a nie LicenseRef-*;
+    # polityka dopuszcza rodzinę UFL-1.0, więc normalizujemy oba warianty nazwy.
+    (r"^(ufl|ubuntu[ -]?font)", "UFL-1.0"),
     (r"^licenseref-ubuntu-font-licen[cs]e", "UFL-1.0"),
     (r"^licenseref-libglvnd", "libglvnd"),
     (r"^licenseref-qhull", "Qhull"),
