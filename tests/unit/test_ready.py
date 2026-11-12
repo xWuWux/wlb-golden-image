@@ -20,6 +20,7 @@ class RequiredCheckTests(unittest.TestCase):
             ("security failed", False, "security", "failure", 1),
             ("contracts skipped", False, "observability", "skipped", 1),
             ("unit missing", False, "unit", None, 1),
+            ("mutation skipped", False, "mutation", "skipped", 1),
             ("benchmark failed", False, "perf", "failure", 1),
             ("openstack cancelled", False, "ephemeral", "cancelled", 1),
             ("mutation failed", False, "mutation", "failure", 1),

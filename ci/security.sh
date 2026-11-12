@@ -48,9 +48,16 @@ licenses() {
   python3 ci/license_check.py
 }
 
+# Anty-halucynacja LLM: zadeklarowane pakiety muszą istnieć w oficjalnych rejestrach (PyPI/conda-forge/
+# CRAN-snapshot/GitHub). Deterministyczne, bez zapytań do LLM; fail-closed przy błędzie rejestru.
+pkg_existence() {
+  python3 ci/check_package_existence.py --root . --ecosystems python,r
+}
+
 run_check "SAST: semgrep" sast_semgrep
 run_check "SAST: bandit (Python)" sast_bandit
 run_check "IaC: checkov (Ansible, GitHub Actions, sekrety)" iac_checkov
 run_check "SCA: podatności zależności (osv-scanner)" sca_osv
 run_check "Licencje (ci/license-policy.yml)" licenses
+run_check "Istnienie pakietów (anty-halucynacja LLM)" pkg_existence
 finish
