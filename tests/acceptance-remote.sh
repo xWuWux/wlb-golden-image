@@ -423,12 +423,8 @@ else
   skip "Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)"
 fi
 
-if as "$R1" sh -c 'command -v crontab >/dev/null 2>&1'; then
-  expect_fail "Eskalacja: badacz nie instaluje własnego crontaba (#288)" \
-    as "$R1" sh -c "printf '* * * * * id\n' | crontab -"
-else
-  skip "Eskalacja cron: brak crontab w środowisku badacza (#288)"
-fi
+# Crontab UŻYTKOWNIKA nie jest eskalacją — działa jako badacz (nie root), więc go nie testujemy.
+# Realny wektor to SYSTEM cron uruchamiany jako root; badacz nie może pisać do /etc/cron.d.
 expect_fail "Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)" \
   as "$R1" touch /etc/cron.d/wlb-escalate-test
 
