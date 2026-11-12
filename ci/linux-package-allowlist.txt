@@ -1,0 +1,10 @@
+# Allowlista pakietów apt, których nie ma w archiwum Ubuntu noble amd64.
+#
+# Oracle: oficjalny indeks Packages.xz dla noble/noble-updates/noble-security, wszystkie
+# komponenty (main, universe, restricted, multiverse) — w tym nazwy wirtualne z pola Provides.
+# Format: <nazwa>  # uzasadnienie (wymagane przy dodawaniu wpisu)
+# Pusta lista = każdy pakiet z `apt: name:` musi istnieć w archiwum. Wpis wycisza wyłącznie
+# ten jeden pakiet; nie ukrywa literówek w pozostałych nazwach.
+#
+# Przykład (obecnie nieużywany — DBeaver jest instalowany z .deb, nie przez apt: name):
+# dbeaver-ce  # .deb z repo producenta, poza archiwum Ubuntu (#271)
