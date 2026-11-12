@@ -134,6 +134,19 @@ events:
     acceptance: false
     wazuh_rule: 100116
 
+  - name: monitoring.message
+    description: >-
+      Komunikaty wlb-monitoring (#22): włączenie/wyłączenie ekspozycji metryk VM dla sieci monitoringu
+      (adres /32, nasłuch eksportera) oraz błędy i automatyczne cofnięcie ekspozycji. Zmiana zakresu
+      dostępu do niezabezpieczonego endpointu — do przeglądu w SIEM.
+    regulamin: "§21"
+    source: { tag: wlb-monitoring, file: ansible/roles/monitoring/files/wlb-monitoring }
+    trusted: { input: imuxsock, uid: "^0$" } # narzędzie roota (sudo / ExecStartPre)
+    format: text
+    pattern: ".+"
+    acceptance: true # tests/acceptance.d/67-monitoring-siec.sh włącza i wyłącza ekspozycję
+    wazuh_rule: 100127
+
   - name: hub.login
     description: Udane logowanie do JupyterHub (komunikat JupyterHub, usługa jupyterhub).
     regulamin: "§21"

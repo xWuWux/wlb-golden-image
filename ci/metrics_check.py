@@ -2,12 +2,37 @@
 """Weryfikacja kontraktu metryk WLB na odpowiedzi node_exportera."""
 
 import math
+import re
 import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Odpowiedź eksportera jest wystawiana do sieci monitoringu po HTTP bez uwierzytelnienia (#22),
+# więc w CAŁEJ odpowiedzi (także node_*, nie tylko wlb_*) nie może być identyfikatorów badaczy:
+# kont systemowych i stanowiskowych, katalogów domowych ani ścieżek wewnątrz udziałów §10
+# (punkty montowania samych udziałów — "/workspace", "/sluza-out" — są dozwolone), ani sesji
+# logind w zakresie UID badaczy. To kontrola regresji, nie dowód braku innych metadanych systemu.
+PRIVACY_PATTERNS = {
+    "konto systemowe badacza (jupyter-<login>)": re.compile(r"jupyter-"),
+    "konto stanowiskowe badacza (uNN)": re.compile(r'="u(0[1-9]|[1-9][0-9])"'),
+    "ścieżka wewnątrz udziału badaczy": re.compile(r'="/(workspace|sluza-in|sluza-out|data-mart|projekt)/[^"]'),
+    "sesja logind w zakresie UID badaczy": re.compile(r"/run/user/(1[0-9]{4}|[2-5][0-9]{4})\b"),
+}
+
+
+def check_privacy(data: str) -> list[str]:
+    """Identyfikatory badaczy w dowolnej metryce wystawianej na sieć (#22)."""
+    errors = []
+    for number, line in enumerate(data.splitlines(), 1):
+        if not line or line.startswith("#"):
+            continue
+        for description, pattern in PRIVACY_PATTERNS.items():
+            if pattern.search(line):
+                errors.append(f"wiersz {number}: {description} w odpowiedzi eksportera: {line.split(' ', 1)[0][:120]}")
+    return errors
 
 
 def check(data: str, contract: dict) -> list[str]:
@@ -20,7 +45,9 @@ def check(data: str, contract: dict) -> list[str]:
         if not line or line.startswith("#"):
             continue
         parts = line.split()
-        if len(parts) != 2 or not parts[0].startswith(("wlb_health_", "wlb_export_queue_", "wlb_siem_spool_")):
+        # Każda metryka wlb_* należy do kontraktu — nieznany prefiks (np. przyszłe wlb_hub_*) jest
+        # zgłaszany jako nieznana metryka, a nie cicho pomijany.
+        if len(parts) != 2 or not parts[0].startswith("wlb_"):
             continue
         if parts[0] in found:
             errors.append(f"duplikat metryki {parts[0]}")
@@ -39,6 +66,7 @@ def check(data: str, contract: dict) -> list[str]:
             errors.append(f"nieprawidłowy stan {selector}")
     if found:
         errors.append("nieznane metryki WLB: " + ", ".join(sorted(found)))
+    errors.extend(check_privacy(data))
     return errors
 
 
