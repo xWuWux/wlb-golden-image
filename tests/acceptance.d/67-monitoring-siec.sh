@@ -41,6 +41,14 @@ mon_loop_only() {
 mon_exposed() {
   ss -H -ltn 'sport = :9100' | awk '{print $4}' | grep -qxE '(\*|0\.0\.0\.0):9100'
 }
+mon_wait_exposed() { # `systemctl start` wraca przed otwarciem gniazda — czekamy do 10 s
+  local try
+  for ((try = 0; try < 50; try++)); do
+    mon_exposed && return 0
+    sleep 0.2
+  done
+  return 1
+}
 mon_hub_rule() {
   nft list chain inet wlb input | grep -qE 'tcp dport (80|\{ 80, 443 \}) accept'
 }
@@ -80,6 +88,7 @@ if pid_ok=$(mon_netns ok "$MON_OK_VM" "$MON_OK_SRC") && pid_no=$(mon_netns no "$
   systemctl start nftables
   systemctl reset-failed prometheus-node-exporter.service 2>/dev/null
   systemctl start prometheus-node-exporter.service
+  expect_ok "Po powrocie zapory eksporter otwiera gniazdo poza pętlą (#22)" mon_wait_exposed
   expect_ok "Po powrocie zapory ekspozycja wraca (#22)" mon_scrape "$pid_ok" "$MON_OK_VM"
 
   expect_ok "wlb-monitoring disable (#22)" wlb-monitoring disable
