@@ -10,6 +10,8 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/**" = ["S101", "S105", "S106"]  # assert i hasła testowe w testach
+# Kontrolowany HTTPS do rejestrów pakietów (stałe URL-e z szablonu); schematu file:/custom nie ma.
+"ci/check_package_existence.py" = ["S310"]
 
 [lint.isort]
 known-first-party = [
