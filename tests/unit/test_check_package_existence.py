@@ -78,7 +78,7 @@ def test_parse_r_cran_url_and_github_fallback(tmp_path):
     by_name = {p.name: p for p in parse_r(tmp_path, "2026-09-01")}
     assert set(by_name) == {"IRkernel", "renv", "DatabaseConnector", "oro.dicom"}
     assert by_name["IRkernel"].fallback_url is None
-    assert "2026-09-01" in by_name["IRkernel"].url
+    assert by_name["IRkernel"].url == "https://crandb.r-pkg.org/IRkernel"
     assert by_name["DatabaseConnector"].fallback_url == "https://api.github.com/repos/OHDSI/DatabaseConnector"
 
 
@@ -153,6 +153,22 @@ def test_default_fetch_status_and_transport_error(monkeypatch):
 
     monkeypatch.setattr(cpe.urllib.request, "urlopen", raise_url)
     assert cpe.default_fetch("https://x") == 0
+
+
+def test_default_fetch_slow_anaconda_api_gets_longer_timeout(monkeypatch):
+    # pyarrow na api.anaconda.org odpowiada ~20-30 s; 10 s dawało fałszywy fail-closed.
+    seen = {}
+
+    def fake(_req, timeout):
+        seen["timeout"] = timeout
+        return _Resp(200)
+
+    monkeypatch.setattr(cpe.urllib.request, "urlopen", fake)
+    assert cpe.default_fetch("https://api.anaconda.org/package/conda-forge/pyarrow") == 200
+    assert seen["timeout"] == 45.0
+
+    assert cpe.default_fetch("https://pypi.org/pypi/pandas/json") == 200
+    assert seen["timeout"] == 10.0
 
 
 def test_default_fetch_head_405_falls_back_to_get(monkeypatch):
