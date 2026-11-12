@@ -39,6 +39,19 @@ EOF
 
 hub_password() { cat "$HUBDB/$1"; }
 
+# fake_wlb_monitoring — atrapa narzędzia #22: firstboot tylko stosuje stan z lab.env, a włączanie
+# i wyłączanie na czynnej VM idzie przez wlb-monitoring (testy narzędzia: wlb-monitoring.bats).
+fake_wlb_monitoring() {
+  cat >"$STUBS/wlb-monitoring" <<EOF
+#!/usr/bin/env bash
+echo "wlb-monitoring \$*" >>"\$CALLS"
+[[ -f "$SANDBOX/wlb-monitoring.fail" ]] && exit 1
+exit 0
+EOF
+  chmod +x "$STUBS/wlb-monitoring"
+  export WLB_MONITORING="$STUBS/wlb-monitoring"
+}
+
 setup() {
   setup_sandbox
   cat >"$SANDBOX/etc/wlb/image.conf" <<'EOF'
@@ -85,6 +98,7 @@ EOF
   stub getent 2
   stub tljh-config 0 "users:"
   fake_hub_user
+  fake_wlb_monitoring
   export WLB_TLJH_CONFIG="$STUBS/tljh-config" WLB_HUB_USER_TOOL="$STUBS/wlb-hub-user" WLB_HUB_WAIT_SECONDS=4
   export WLB_HUB_USER_RETRY_SLEEP=0 # ponowienia narzędzia kont (#31) bez czekania
   # zasoby VM (#30): domyślnie 16 GiB RAM, 8 vCPU
@@ -1089,5 +1103,77 @@ hub_env() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"; }
     [ "$status" -ne 0 ]
     [[ $output == *"RESEARCHER_ACCOUNTS musi być liczbą 0–64"* ]]
     refute called 'wlb-hub-user'
+  done
+}
+
+# --- Metryki VM dla sieci monitoringu (#22) ---------------------------------------------------
+
+@test "#22 metryki: MONITORING_CIDR=/32 stosuje ekspozycję dopiero po otwarciu portu huba" {
+  lab_env MONITORING_CIDR=172.16.25.58/32
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'wlb-monitoring apply 172.16.25.58/32'
+  # reguła portu 9100 żyje w osobnym pliku włączanym przez include — nie w głównym rulesecie
+  grep -qF "include \"$SANDBOX/etc/nftables.d/*-wlb-*.nft\"" "$SANDBOX/etc/nftables.conf"
+  grep -q '        jump monitoring_in' "$SANDBOX/etc/nftables.conf"
+  grep -q 'chain monitoring_in {' "$SANDBOX/etc/nftables.conf"
+  refute grep -q 'dport 9100' "$SANDBOX/etc/nftables.conf"
+  [ -d "$SANDBOX/etc/nftables.d" ]
+  # ekspozycja PO fazie 2: żaden restart zapory nie następuje po włączeniu nasłuchu
+  local last_nft last_mon
+  last_nft=$(grep -n 'systemctl restart nftables' "$CALLS" | tail -1 | cut -d: -f1)
+  last_mon=$(grep -n 'wlb-monitoring apply' "$CALLS" | tail -1 | cut -d: -f1)
+  ((last_nft < last_mon))
+  # hub był już otwarty, gdy włączaliśmy metryki (błąd eksportera nie zabiera dostępu badaczom)
+  grep -q 'ip saddr 10.10.1.0/24 tcp dport { 80, 443 } accept' "$SANDBOX/etc/nftables.conf"
+}
+
+@test "#22 metryki: bez MONITORING_CIDR nic się nie zmienia (żadnego wywołania)" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  refute called 'wlb-monitoring'
+  [ ! -e "$SANDBOX/etc/nftables.d/50-wlb-monitoring.nft" ]
+  [ ! -e "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf" ]
+  refute grep -q 'dport 9100' "$SANDBOX/etc/nftables.conf"
+}
+
+@test "#22 metryki: --force po usunięciu MONITORING_CIDR wyłącza pozostałą ekspozycję" {
+  mkdir -p "$SANDBOX/etc/nftables.d" "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d"
+  echo 'add rule inet wlb monitoring_in ip saddr 172.16.25.58/32 tcp dport 9100 accept' \
+    >"$SANDBOX/etc/nftables.d/50-wlb-monitoring.nft"
+  touch "$SANDBOX/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  calls | grep -qx 'wlb-monitoring disable'
+}
+
+@test "#22 metryki: błąd wlb-monitoring nie zamyka huba i nie pomija reguł audytu" {
+  touch "$SANDBOX/wlb-monitoring.fail"
+  lab_env MONITORING_CIDR=172.16.25.58/32
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [[ $output == *"BŁĄD: nie udało się wystawić metryk dla 172.16.25.58/32"* ]]
+  # faza 2 zapory wykonała się przed ekspozycją metryk — dostęp do huba nie został zamknięty
+  grep -q 'ip saddr 10.10.1.0/24 tcp dport { 80, 443 } accept' "$SANDBOX/etc/nftables.conf"
+  # reguły audytu i znacznik zakończenia mimo błędu metryk (stan bezpieczny: tylko pętla)
+  calls | grep -qx 'systemctl start wlb-audit-rules.service'
+  [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "#22 metryki: niekanoniczny MONITORING_CIDR przerywa przed zmianą zapory" {
+  local value
+  for value in 0.0.0.0/1 192.0.2.58/24 010.000.000.001/32 172.16.25.58 172.16.25.0/33 \
+    0.0.0.0/32 172.16.25.58/32,10.0.0.0/8; do
+    sed -i '/^MONITORING_CIDR=/d' "$SANDBOX/etc/wlb/lab.env"
+    lab_env MONITORING_CIDR="$value"
+    : >"$CALLS"
+    run "$FIRSTBOOT"
+    [ "$status" -ne 0 ]
+    [[ $output == *"MONITORING_CIDR='${value}'"* ]]
+    [[ $output == *"kanonicznego adresu IPv4 z prefiksem /32"* || $output == *"0.0.0.0 nie identyfikuje"* ]]
+    [ ! -e "$SANDBOX/etc/nftables.conf" ]
+    [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+    refute called 'wlb-monitoring'
   done
 }
