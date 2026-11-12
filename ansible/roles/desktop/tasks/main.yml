@@ -48,6 +48,27 @@
     dest: /etc/tigervnc/vncserver-config-mandatory
     mode: "0644"
 
+# Propagacja autoryzacji X do natywnych apek GUI sesji (#278). Domyślny xstartup jrdp nie
+# eksportuje XAUTHORITY do potomków — LibreOffice Calc/Writer padają "no authorization protocol
+# specified". Nasz xstartup eksportuje ŻYWY cookie i łańcuchuje do domyślnego jrdp.
+- name: Katalog pulpitu WLB (#278)
+  ansible.builtin.file:
+    path: /opt/wlb/desktop
+    state: directory
+    mode: "0755"
+
+- name: Skrypt xstartup sesji pulpitu z eksportem XAUTHORITY (#278)
+  ansible.builtin.copy:
+    src: wlb-desktop-xstartup
+    dest: /opt/wlb/desktop/wlb-desktop-xstartup
+    mode: "0755"
+
+- name: Wskaż jrdp xstartup WLB przez środowisko sesji badacza (#278)
+  ansible.builtin.copy:
+    src: 85-wlb-desktop-session.py
+    dest: /opt/tljh/config/jupyterhub_config.d/85-wlb-desktop-session.py
+    mode: "0644"
+
 # Render-smoke pulpitu (#138, etap 1b): wgrywamy skrypt + helper do obrazu, żeby adaptacyjny
 # fragment akceptacji (tests/acceptance.d/45-pulpit-render.sh) mógł uruchomić go JAKO badacz na VM.
 # Źródło w repo (tests/) pozostaje kanoniczne — tu tylko kopia na obraz, bez duplikacji treści.

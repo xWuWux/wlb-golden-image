@@ -72,7 +72,9 @@ LICENSE_PATTERNS = [
     (r"^tcl", "TCL"),
     (r"^ijg", "IJG"),
     # licencje niestandardowe (LicenseRef-*) — rodziny sprawdzone ręcznie, zob. ci/license-policy.yml
-    (r"^licenseref-ubuntu-font-licen[cs]e", "UFL-1.0"),
+    # Ubuntu Font Licence: conda-forge podaje ją jako LicenseRef-Ubuntu-Font-Licence-…, a od
+    # listopada 2026 także jako "Ubuntu-font-1.0" (font-ttf-ubuntu 0.83) — ta sama licencja.
+    (r"^(licenseref-ubuntu-font-licen[cs]e|ubuntu-font-1\.0$)", "UFL-1.0"),
     (r"^licenseref-libglvnd", "libglvnd"),
     (r"^licenseref-qhull", "Qhull"),
 ]
