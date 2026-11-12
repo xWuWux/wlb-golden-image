@@ -1,0 +1,47 @@
+#!/bin/sh
+# WLB — xstartup sesji pulpitu badacza: PROPAGACJA AUTORYZACJI X do potomków.
+#
+# PROBLEM (#278): jupyter-remote-desktop-proxy startuje Xtigervnc i uruchamia xstartup
+# JAKO klienta tego serwera, więc $DISPLAY i $XAUTHORITY wskazują tu ŻYWY serwer i jego
+# cookie. Domyślny xstartup jrdp NIE eksportuje $XAUTHORITY do środowiska sesji — eksportuje
+# tylko $DISPLAY. Przez to kafelki/menu/terminal (potomkowie xfce4-session) dziedziczą
+# PUSTE XAUTHORITY i natywne apki GUI (LibreOffice Calc/Writer) padają:
+#   "Authorization required, but no authorization protocol specified / Failed to open display".
+# Flatpak (jamovi) działa, bo bwrap sam stawia sobie X11 — stąd mylące „jedno działa, drugie nie".
+# Domyślny fallback libX11 na ~/.Xauthority bywa nieaktualny na długo żyjącym VM (reuse numeru
+# display przy restartach sesji, rozjazd hostname) — dlatego nawet jawny
+# `export XAUTHORITY=$HOME/.Xauthority` nie wystarcza. Tu eksportujemy DOKŁADNIE ten plik, który
+# jrdp/tigervncserver ustawił dla ŻYWEGO serwera, więc autoryzacja zawsze się zgadza.
+#
+# Potomkowie sesji (xfdesktop, xfce4-panel, Whisker, kafelki .desktop) uruchamiają apki przez
+# zwykłe fork/exec (g_spawn) i dziedziczą środowisko procesu — eksport tu wystarcza, bez D-Bus
+# activation env. Skrypt wskazuje jrdp zmienna JUPYTER_REMOTE_DESKTOP_PROXY_XSTARTUP (rola desktop,
+# config.d 85-wlb-desktop-session.py).
+set -eu
+
+# jrdp daje tu już poprawne XAUTHORITY; fallback na domyślną lokalizację libX11 tylko gdyby puste.
+[ -n "${XAUTHORITY:-}" ] || XAUTHORITY="${HOME}/.Xauthority"
+export XAUTHORITY
+export DISPLAY
+
+# Łańcuchujemy do DOMYŚLNEGO xstartup jrdp (zachowujemy jego dokładną inicjalizację sesji);
+# eksport powyżej dziedziczą wszyscy potomkowie. Gdy go nie znajdziemy — fallback na sprawdzony
+# wzorzec render-smoke (tests/desktop-render-smoke.sh): dbus-launch + startxfce4.
+# WLB_TLJH_PYTHON nadpisywalny tylko dla testów jednostkowych; w produkcji stały interpreter TLJH.
+_wlb_python="${WLB_TLJH_PYTHON:-/opt/tljh/user/bin/python}"
+_wlb_jrdp_xstartup="$(
+  "${_wlb_python}" - <<'PY' 2>/dev/null
+import os
+
+import jupyter_remote_desktop_proxy as j
+
+print(os.path.join(os.path.dirname(j.__file__), "share", "xstartup"))
+PY
+)"
+
+if [ -n "${_wlb_jrdp_xstartup}" ] && [ -r "${_wlb_jrdp_xstartup}" ]; then
+  [ -x "${_wlb_jrdp_xstartup}" ] && exec "${_wlb_jrdp_xstartup}"
+  exec /bin/sh "${_wlb_jrdp_xstartup}"
+fi
+
+exec dbus-launch --exit-with-session startxfce4
