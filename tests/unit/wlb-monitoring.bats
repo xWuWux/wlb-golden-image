@@ -72,13 +72,19 @@ EOF
   cat >"$STUBS/ss" <<EOF
 #!/usr/bin/env bash
 echo "ss \$*" >>"\$CALLS"
+# ss.delay: liczba pierwszych odczytów bez gniazda (eksporter jeszcze nie słucha po restarcie)
+if [[ -s "$SANDBOX/ss.delay" ]]; then
+  n=\$(cat "$SANDBOX/ss.delay")
+  echo \$((n - 1)) >"$SANDBOX/ss.delay"
+  ((n > 0)) && exit 0
+fi
 while read -r addr; do printf 'LISTEN 0 4096 %s 0.0.0.0:*\n' "\$addr"; done <"$SANDBOX/ss.out"
 EOF
   printf '#!/bin/sh\nexit 0\n' >"$STUBS/logger"
   chmod +x "$STUBS"/*
   export WLB_NFT="$STUBS/nft" WLB_SYSTEMCTL="$STUBS/systemctl" WLB_SS="$STUBS/ss"
   export WLB_NFT_DIR="$SANDBOX/etc/nftables.d" WLB_NODE_EXPORTER_DROPIN_DIR="$DROPIN_DIR"
-  export WLB_MONITORING_SELF="$MONITORING" PATH="$STUBS:$PATH"
+  export WLB_MONITORING_SELF="$MONITORING" WLB_MONITORING_WAIT=3 PATH="$STUBS:$PATH"
 }
 
 include_file() { cat "$SANDBOX/etc/nftables.d/50-wlb-monitoring.nft"; }
@@ -168,6 +174,23 @@ CONF
   [ -z "$(chain_rules)" ]
 }
 
+@test "#22 apply: czeka na gniazdo eksportera po restarcie (wyścig z etapu 5)" {
+  echo '*:9100' >"$SANDBOX/ss.out"
+  echo 2 >"$SANDBOX/ss.delay" # dwa pierwsze odczyty ss bez gniazda
+  run "$MONITORING" apply 172.16.25.58/32
+  [ "$status" -eq 0 ]
+  [ -e "$SANDBOX/etc/nftables.d/50-wlb-monitoring.nft" ]
+}
+
+@test "#22 apply: brak gniazda po restarcie cofa ekspozycję" {
+  : >"$SANDBOX/ss.out"
+  run "$MONITORING" apply 172.16.25.58/32
+  [ "$status" -ne 0 ]
+  [[ $output == *"nie otworzył gniazda"* ]]
+  [ ! -e "$SANDBOX/etc/nftables.d/50-wlb-monitoring.nft" ]
+  [ ! -e "$DROPIN_DIR/20-wlb-monitoring.conf" ]
+}
+
 # --- disable ----------------------------------------------------------------------------------
 
 @test "#22 disable: zamyka regułę, usuwa pliki i wraca na pętlę" {
@@ -197,6 +220,13 @@ CONF
   run "$MONITORING" disable
   [ "$status" -eq 0 ]
   [ -z "$(chain_rules)" ]
+}
+
+@test "#22 disable: brak gniazda po restarcie to niepotwierdzony stan, nie sukces" {
+  : >"$SANDBOX/ss.out"
+  run "$MONITORING" disable
+  [ "$status" -ne 0 ]
+  [[ $output == *"stan nie jest potwierdzony"* ]]
 }
 
 @test "#22 disable: idempotentne, gdy ekspozycja nigdy nie była włączona" {

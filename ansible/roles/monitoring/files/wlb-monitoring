@@ -119,25 +119,45 @@ listeners() { # adresy nasłuchu na porcie 9100, jeden na wiersz
   "$SS" -H -ltn "sport = :${PORT}" 2>/dev/null | awk '{print $4}'
 }
 
+# `systemctl restart` wraca, gdy proces wystartował, a nie gdy otworzył gniazdo — pierwszy odczyt ss
+# bywa pusty (etap 5). Czekamy na gniazdo, zanim cokolwiek ocenimy; pusty wynik to „brak nasłuchu",
+# nigdy „tylko pętla".
+wait_listeners() { # wypisuje adresy nasłuchu po ich pojawieniu się (maks. WLB_MONITORING_WAIT prób co 0,2 s)
+  local tries=${WLB_MONITORING_WAIT:-50} out try
+  for ((try = 0; try < tries; try++)); do
+    out=$(listeners)
+    if [[ -n $out ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
 verify_exposed() { # $1=adres/32
   rule_present "$1" ||
     die "reguła dla ${1} nie jest aktywna w jądrze po włączeniu (#22)"
-  local found=0 addr
+  local found=0 addr seen
+  seen=$(wait_listeners) ||
+    die "eksporter nie otworzył gniazda na porcie ${PORT} po restarcie (#22)"
   while read -r addr; do
     [[ $addr == "0.0.0.0:${PORT}" || $addr == "*:${PORT}" ]] && found=1
-  done < <(listeners)
+  done <<<"$seen"
   ((found == 1)) ||
-    die "eksporter nie słucha na 0.0.0.0:${PORT} (nasłuch: $(listeners | tr '\n' ' ')) (#22)"
+    die "eksporter nie słucha na 0.0.0.0:${PORT} (nasłuch: $(tr '\n' ' ' <<<"$seen")) (#22)"
 }
 
 verify_loopback_only() {
   "$SYSTEMCTL" is-active --quiet "$SERVICE" ||
     die "eksporter nie działa po restarcie — stan nie jest potwierdzony (#22)"
-  local addr
+  local addr seen
+  seen=$(wait_listeners) ||
+    die "eksporter nie otworzył gniazda na porcie ${PORT} po restarcie — stan nie jest potwierdzony (#22)"
   while read -r addr; do
     [[ $addr == "127.0.0.1:${PORT}" ]] ||
       die "eksporter nadal słucha poza pętlą (${addr}) — wyłączenie nie zakończyło się bezpiecznym stanem (#22)"
-  done < <(listeners)
+  done <<<"$seen"
 }
 
 apply() { # $1=adres/32
@@ -161,11 +181,11 @@ EOF
   write_dropin
   "$SYSTEMCTL" daemon-reload
   if ! restart_exporter; then
-    disable >/dev/null 2>&1 || true
+    (disable) >/dev/null 2>&1 || true # podpowłoka: `die` w disable nie może przerwać zgłoszenia przyczyny
     die "eksporter nie wystartował z nasłuchem na 0.0.0.0:${PORT} — cofnięto ekspozycję (#22)"
   fi
   if ! reason=$(verify_exposed "$cidr" 2>&1); then
-    disable >/dev/null 2>&1 || true
+    (disable) >/dev/null 2>&1 || true # podpowłoka: `die` w disable nie może przerwać zgłoszenia przyczyny
     die "weryfikacja ekspozycji nie powiodła się (${reason}) — cofnięto ekspozycję (#22)"
   fi
   log "metryki VM: nasłuch na 0.0.0.0:${PORT}, dostęp tylko z ${cidr} (#22)"
