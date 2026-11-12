@@ -91,6 +91,7 @@ Korelacja w SIEM (journald): zdarzenie `export_request user=… entry=… sha256
 
 ## Powiązane
 
+- [RB-sluza-wydanie-tymczasowe.md](RB-sluza-wydanie-tymczasowe.md) — **tymczasowa** procedura ręcznego wydania do czasu #20 (operator + Kontroler).
 - [RB-eksport-kolejka.md](RB-eksport-kolejka.md) — wewnętrzny format, awarie, kwarantanna, `verify` (operator).
 - [docs/architektura/sluza-eksportu.md](../architektura/sluza-eksportu.md) — diagramy przepływu śluzy.
 - `/docs/README` na VM — skrót dla badacza (ten sam opis `/sluza-*`).
