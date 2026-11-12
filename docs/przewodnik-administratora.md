@@ -141,7 +141,7 @@ Wszystko przez `make` (pełna lista: `make help`). Szczegółowy pierwszy przebi
 | Cel | Co robi |
 |---|---|
 | `make doctor` | sprawdza środowisko (repo, CRLF, KVM, narzędzia, miejsce, pamięć) |
-| `make ci` | etapy 1–4 lokalnie (lint, build-check, bezpieczeństwo, obserwowalność, testy jednostkowe) — przed każdym pushem |
+| `make ci` | etapy 1–4b lokalnie (lint, build-check, bezpieczeństwo, obserwowalność, testy jednostkowe, mutacje) — przed każdym pushem |
 | `make build` | buduje **bazę** `wlb-general` → `output/<nazwa>-<wersja>-<data>/` |
 | `make test-up` / `make test` / `make test-down` | uruchamia najnowszy obraz jako VM testową, odpala akceptację MVP, zatrzymuje |
 | `make test-password` | hasło początkowe Administratora Klienta z działającej VM testowej |

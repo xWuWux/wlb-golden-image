@@ -103,7 +103,7 @@ case $EVENT in
     ;;
   schedule)
     # nocny pełny build: etapy 1–6 niezależnie od zakresu zmian (regresje spoza repo).
-    # cotygodniowo (pon.): tylko etapy 1–4 (nowe CVE w lockach, zmiany licencji) → image=false.
+    # cotygodniowo (pon.): tylko etapy 1–4b (nowe CVE w lockach, zmiany licencji) → image=false.
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && image=true
     ;;
   workflow_dispatch)
