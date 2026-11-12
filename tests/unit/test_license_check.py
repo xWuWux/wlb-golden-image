@@ -45,6 +45,8 @@ POLICY = yaml.safe_load((REPO_ROOT / "ci/license-policy.yml").read_text())
         ("IJG AND BSD-3-Clause AND Zlib", "allowed"),
         ("LicenseRef-libglvnd", "allowed"),
         ("LicenseRef-Ubuntu-Font-Licence-Version-1.0", "allowed"),
+        ("Ubuntu-font-1.0", "allowed"),  # font-ttf-ubuntu 0.83 w API conda-forge
+        ("Ubuntu-font-2.0", "unknown"),  # inna wersja nie przechodzi bez przeglądu
         ("LicenseRef-Nieznana", "unknown"),
     ],
 )
