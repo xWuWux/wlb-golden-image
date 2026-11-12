@@ -14,6 +14,12 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Anty-halucynacja pakietów apt (#294):** etap 3 sprawdza także pakiety OS z zadań Ansible
+  (`apt:`/`ansible.builtin.apt`) wobec oficjalnego indeksu Ubuntu noble (noble/updates/security,
+  wszystkie komponenty, nazwy wirtualne z `Provides`). Piny wersji są obcinane, nazwy z Jinja
+  bez literalnej pętli są raportowane jako pominięte, a pakiety spoza archiwum (PPA/.deb) mają
+  allowlistę z uzasadnieniem. Oracle to jednorazowy indeks `Packages.xz` zamiast ~80 zapytań
+  do Launchpada na PR (Launchpad rate-limituje i pojedyncze strony timeoutują).
 - **Architektura WLB (#226):** [diagramy cyklu życia, kontrakty i macierz odbioru](docs/architektura-wlb.md).
 - **AppArmor w warstwie pulpitu (#65, CIS 1.6.3):** rola `desktop` wymusza enforce **po**
   wszystkich swoich pakietach — skrypt `wlb-apparmor-enforce` (`/usr/local/sbin`) przełącza
