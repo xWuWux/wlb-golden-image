@@ -67,3 +67,32 @@ def test_main(monkeypatch, tmp_path, capsys):
     path.write_text("bad\n")
     assert metrics_check.main() == 1
     assert "brak" in capsys.readouterr().err
+
+
+def test_unknown_wlb_prefix_is_reported_not_ignored():
+    errors = metrics_check.check(valid() + "wlb_hub_active_sessions 3\n", CONTRACT)
+    assert any("nieznane metryki WLB" in error and "wlb_hub_active_sessions" in error for error in errors)
+
+
+def test_privacy_rejects_researcher_identifiers_anywhere_in_response():
+    leaks = [
+        'node_filesystem_avail_bytes{mountpoint="/workspace/jupyter-u01"} 1',
+        'node_systemd_unit_state{name="jupyter-u01.service"} 1',
+        'node_some_info{user="u07"} 1',
+        'node_filesystem_size_bytes{mountpoint="/sluza-out/u01-wniosek"} 1',
+        'node_filesystem_avail_bytes{mountpoint="/run/user/10001"} 1',
+    ]
+    for leak in leaks:
+        errors = metrics_check.check(valid() + leak + "\n", CONTRACT)
+        assert any("w odpowiedzi eksportera" in error for error in errors), leak
+
+
+def test_privacy_allows_share_mountpoints_and_admin_sessions():
+    allowed = [
+        'node_filesystem_avail_bytes{device="/dev/vdb1",fstype="ext4",mountpoint="/workspace"} 1',
+        'node_filesystem_avail_bytes{mountpoint="/sluza-out"} 1',
+        'node_filesystem_avail_bytes{mountpoint="/run/user/1001"} 1',
+        'node_uname_info{nodename="lab-test01",release="6.8.0-90-generic"} 1',
+        "# HELP node_filesystem_avail_bytes jupyter-u01 w komentarzu nie jest metryką",
+    ]
+    assert metrics_check.check(valid() + "\n".join(allowed) + "\n", CONTRACT) == []

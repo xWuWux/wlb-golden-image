@@ -22,6 +22,10 @@ AUDIT_READY=$STATE_DIR/audit-config.requested
 # Marker „żądania" konfiguracji audytu: firstboot zapisuje go PRZED uruchomieniem jednostki.
 # Nazwa „ready" byłaby myląca — gotowość reguł w jądrze potwierdza sama jednostka (#251).
 HUB_CONFIG_D=$R/opt/tljh/config/jupyterhub_config.d
+NODE_EXPORTER_MONITORING_DROPIN=$R/etc/systemd/system/prometheus-node-exporter.service.d/20-wlb-monitoring.conf
+NFT_DIR=$R/etc/nftables.d
+MONITORING_INCLUDE=$NFT_DIR/50-wlb-monitoring.nft
+WLB_MONITORING=${WLB_MONITORING:-/usr/local/sbin/wlb-monitoring}
 ADMIN_PASSWORD_FILE=$R/root/wlb-hub-admin-initial-password
 TLJH_CONFIG=${WLB_TLJH_CONFIG:-/opt/tljh/hub/bin/tljh-config}
 HUB_USER_TOOL=${WLB_HUB_USER_TOOL:-/usr/local/sbin/wlb-hub-user}
@@ -70,25 +74,44 @@ CRAN_MIRROR_URL=${CRAN_MIRROR_URL:-}
 # rozstrzygać kwestii regulaminowej — dlatego domyślnie deny, a nie „mirror, gdy URL ustawiony”.
 RESEARCHER_PACKAGE_INSTALL=${RESEARCHER_PACKAGE_INSTALL:-deny}
 EGRESS_ALLOW=${EGRESS_ALLOW:-}
+# Metryki VM dla centralnego monitoringu (#22). Puste = brak ekspozycji: node_exporter słucha tylko
+# na 127.0.0.1:9100. Niepuste = JEDEN kanoniczny adres IPv4 z /32 (serwer Prometheus albo adres
+# źródłowy po NAT); eksporter słucha na wszystkich interfejsach, a dostęp ogranicza zapora.
+# Scrape idzie po HTTP bez TLS i bez auth — kontrola wyłącznie siecią, dlatego zakres musi być
+# dokładnie jednym adresem, a nie siecią (sieć obejmowałaby też innych klientów).
+MONITORING_CIDR=${MONITORING_CIDR:-}
 # Fail-secure (#18/IMG-005): wymagany jawny zakres źródłowy — brak domyślnego 0.0.0.0/0. Zakres jest
 # walidowany jako pojedyncza kanoniczna sieć IPv4 (prefiks 1–32); listy, zakresy, dodatkowe tokeny,
 # spacje, /0 i IPv6 są odrzucane PRZED modyfikacją zapory. To walidacja składni konfiguracji
 # administratora platformy, nie twierdzenie, że badacz może edytować lab.env.
-validate_cidr() { # $1=nazwa zmiennej $2=wartość
-  local name=$1 val=$2 prefix o
+validate_cidr() { # $1=nazwa zmiennej $2=wartość [$3=tag zgłoszenia do komunikatu]
+  local name=$1 val=$2 tag=${3:-#18} prefix o
   [[ $val =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] ||
-    die "${name}='${val}' — oczekiwano pojedynczej sieci IPv4 w zapisie A.B.C.D/prefiks, bez list, spacji i IPv6 (#18)"
+    die "${name}='${val}' — oczekiwano pojedynczej sieci IPv4 w zapisie A.B.C.D/prefiks, bez list, spacji i IPv6 (${tag})"
   for o in "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" "${BASH_REMATCH[4]}"; do
-    ((10#$o <= 255)) || die "${name}='${val}' — oktet ${o} poza zakresem 0–255 (#18)"
+    ((10#$o <= 255)) || die "${name}='${val}' — oktet ${o} poza zakresem 0–255 (${tag})"
   done
   prefix=${BASH_REMATCH[5]}
   ((10#$prefix >= 1 && 10#$prefix <= 32)) ||
-    die "${name}='${val}' — prefiks musi być 1–32 (/0 otwierające cały internet i >32 są zabronione, #18)"
+    die "${name}='${val}' — prefiks musi być 1–32 (/0 otwierające cały internet i >32 są zabronione, ${tag})"
 }
 : "${ADMIN_SSH_CIDR:?ADMIN_SSH_CIDR jest wymagane (#18): zakres źródłowy SSH administratora platformy}"
 : "${HUB_ALLOWED_CIDR:?HUB_ALLOWED_CIDR jest wymagane (#18): zakres źródłowy dostępu do huba}"
 validate_cidr ADMIN_SSH_CIDR "$ADMIN_SSH_CIDR"
 validate_cidr HUB_ALLOWED_CIDR "$HUB_ALLOWED_CIDR"
+# Metryki (#22): walidacja PRZED zmianą zapory i bindowaniem eksportera — błędne źródło nie może
+# doprowadzić do wystawienia metryk na sieć. Wymagany jeden kanoniczny adres /32: bez zer wiodących,
+# bez list i bez sieci („0.0.0.0/1" albo „192.0.2.58/24" przeszłyby przez validate_cidr i dały
+# dostęp szerszy niż zadeklarowany).
+validate_monitoring_address() { # $1=nazwa $2=wartość
+  local name=$1 val=$2 octet
+  octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
+  [[ $val =~ ^${octet}\.${octet}\.${octet}\.${octet}/32$ ]] ||
+    die "${name}='${val}' — oczekiwano jednego kanonicznego adresu IPv4 z prefiksem /32 (bez zer wiodących, bez list i spacji) (#22)"
+  [[ $val != 0.0.0.0/32 ]] ||
+    die "${name}='${val}' — 0.0.0.0 nie identyfikuje serwera monitoringu (#22)"
+}
+[[ -z $MONITORING_CIDR ]] || validate_monitoring_address MONITORING_CIDR "$MONITORING_CIDR"
 # TLS huba (#18/IMG-005, §20): domyślnie włączony. HUB_TLS=0 tylko świadomie (dev/izolowana sieć,
 # z ostrzeżeniem). HUB_TLS=1 wymaga certyfikatu i klucza z cloud-init write_files (jak SIEM_CA_CERT) —
 # traefik/TLJH słucha HTTPS na 443, a 80 przekierowuje. Wewnętrzne sprawdzenia huba idą wtedy po HTTPS.
@@ -379,6 +402,12 @@ done
 
 # Porty huba (#18): przy TLS otwieramy 80 (przekierowanie traefika) i 443; bez TLS tylko 80.
 hub_dports=$([[ $HUB_TLS == 1 ]] && echo '{ 80, 443 }' || echo '80')
+# Metryki (#22): reguła portu 9100 żyje w osobnym pliku /etc/nftables.d/50-wlb-monitoring.nft,
+# włączanym przez `include` (tylko pliki *-wlb-*.nft — obce pliki w katalogu nie trafiają do zapory;
+# wzorzec bez dopasowań nie jest błędem) i zmienianym przez wlb-monitoring (`nft -f` samej reguły, bez
+# przepisywania całego rulesetu i restartu zapory). Łańcuch istnieje zawsze, pusty gdy ekspozycja
+# wyłączona — dzięki temu włączanie/wyłączanie na czynnej VM nie dotyka huba ani SSH.
+mkdir -p "$NFT_DIR"
 # Fail-secure (#18): zaporę ładujemy NAJPIERW bez reguły portu huba — SSH administratora, egress i polityka
 # drop działają od razu, ale hub jest niedostępny z sieci, dopóki nie potwierdzimy TLS i gotowości huba po
 # HTTPS. Samo przesunięcie walidacji nie wystarcza: proxy mogło już działać po HTTP, więc trzymamy port zamknięty.
@@ -391,6 +420,9 @@ write_nftables() { # $1=1 dołącza regułę portu huba (faza 2)
 flush ruleset
 
 table inet wlb {
+    chain monitoring_in {
+    }
+
     chain input {
         type filter hook input priority filter; policy drop;
         iif "lo" accept
@@ -399,7 +431,8 @@ table inet wlb {
         meta l4proto { icmp, ipv6-icmp } accept
         udp dport { 68, 546 } accept
         ip saddr ${ADMIN_SSH_CIDR} tcp dport 22 accept
-${hub_rule}        limit rate 5/second log prefix "wlb-in-deny " level info
+${hub_rule}        jump monitoring_in
+        limit rate 5/second log prefix "wlb-in-deny " level info
     }
 
     chain output {
@@ -414,6 +447,7 @@ ${allow_rules}        limit rate 5/second log prefix "wlb-egress-deny " level in
         reject with icmpx type admin-prohibited
     }
 }
+include "${NFT_DIR}/*-wlb-*.nft"
 EOF
   nft -c -f "$R/etc/nftables.conf" || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
   systemctl restart nftables
@@ -786,4 +820,20 @@ write_nftables 1
 # `|| die`, nie `&&`: w liście `&&` bash z `set -e` NIE kończy skryptu na błędzie nie-last command.
 date -Is >"$DONE.tmp" || die "nie udało się zapisać znacznika ukończenia (firstboot.done)"
 mv "$DONE.tmp" "$DONE"
+
+# --- 8b. Metryki VM dla sieci monitoringu (#22) -----------------------------------------------
+# Ekspozycja idzie PO opublikowaniu huba i zapisaniu firstboot.done: błąd eksportera nie zostawia
+# Laboratorium bez dostępu do huba (pułapka fail-closed zamyka hub tylko przed firstboot.done),
+# a konta i reguły audytu są już gotowe. Błąd jest niekrytyczny — wlb-monitoring sam cofa
+# ekspozycję do 127.0.0.1:9100 (stan bezpieczny). Włączanie/wyłączanie na działającej VM robi
+# `wlb-monitoring` — bez zamykania huba, proxy i śluzy; firstboot tylko stosuje stan z lab.env.
+if [[ -n $MONITORING_CIDR ]]; then
+  "$WLB_MONITORING" apply "$MONITORING_CIDR" ||
+    log "BŁĄD: nie udało się wystawić metryk dla ${MONITORING_CIDR} — metryki tylko lokalnie; diagnoza: wlb-monitoring status (#22)"
+elif [[ -e $MONITORING_INCLUDE || -e $NODE_EXPORTER_MONITORING_DROPIN ]]; then
+  # Pozostałość po wcześniejszym wdrożeniu (usunięty MONITORING_CIDR) — wlb-monitoring disable
+  # naprawia stan także wtedy, gdy plik konfiguracji już zniknął.
+  "$WLB_MONITORING" disable ||
+    log "BŁĄD: nie udało się potwierdzić wyłączenia ekspozycji metryk; diagnoza: wlb-monitoring status (#22)"
+fi
 log "Laboratorium ${LAB_NAME} skonfigurowane"

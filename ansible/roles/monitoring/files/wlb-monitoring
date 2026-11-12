@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# wlb-monitoring — włącza/wyłącza ekspozycję metryk VM dla sieci monitoringu (#22).
+#
+#   wlb-monitoring apply ADRES/32   # reguła zapory + nasłuch eksportera poza pętlą
+#   wlb-monitoring disable          # powrót do 127.0.0.1:9100 (idempotentne, naprawia stan)
+#   wlb-monitoring status           # co jest włączone (diagnostyka)
+#   wlb-monitoring guard            # ExecStartPre eksportera: nie startuj bez aktywnej reguły
+#
+# Dlaczego osobne narzędzie, a nie `wlb-firstboot --force`: firstboot przy każdym przebiegu zamyka
+# port huba (faza 1 zapory) i otwiera go dopiero po potwierdzeniu TLS i gotowości. Zmiana jednego
+# parametru monitoringu na czynnej VM nie może przechodzić przez tę ścieżkę — tu dotykamy wyłącznie
+# reguły portu 9100 i eksportera, więc hub, proxy i śluza zachowują dotychczasową dostępność.
+#
+# Model: jedno źródło scrape'a, HTTP bez TLS i bez auth — kontrola wyłącznie siecią, dlatego
+# akceptowany jest tylko kanoniczny adres IPv4 z prefiksem /32 (bez zer wiodących, bez list).
+# Reguły trzymamy w osobnym pliku włączanym przez `include` w /etc/nftables.conf, a nie przez
+# przepisywanie całego rulesetu i restart zapory: `nft -f` dokłada/usuwa tylko tę jedną regułę.
+set -euo pipefail
+
+NFT=${WLB_NFT:-/usr/sbin/nft}
+SYSTEMCTL=${WLB_SYSTEMCTL:-/usr/bin/systemctl}
+SS=${WLB_SS:-/usr/bin/ss}
+NFT_DIR=${WLB_NFT_DIR:-/etc/nftables.d}
+NFT_INCLUDE=$NFT_DIR/50-wlb-monitoring.nft
+DROPIN_DIR=${WLB_NODE_EXPORTER_DROPIN_DIR:-/etc/systemd/system/prometheus-node-exporter.service.d}
+IMAGE_DROPIN=$DROPIN_DIR/10-wlb.conf
+MONITORING_DROPIN=$DROPIN_DIR/20-wlb-monitoring.conf
+FAMILY=inet
+TABLE=wlb
+CHAIN=monitoring_in
+PORT=9100
+SERVICE=prometheus-node-exporter.service
+SELF=${WLB_MONITORING_SELF:-/usr/local/sbin/wlb-monitoring}
+
+die() {
+  log "BŁĄD: $*"
+  exit 1
+}
+log() {
+  logger -t wlb-monitoring -- "$*" 2>/dev/null || true
+  echo "wlb-monitoring: $*"
+}
+
+validate_address() { # $1=wartość; wymagany jeden kanoniczny adres IPv4 z /32
+  local value=$1 octet
+  octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])'
+  [[ $value =~ ^${octet}\.${octet}\.${octet}\.${octet}/32$ ]] ||
+    die "oczekiwano jednego kanonicznego adresu IPv4 z prefiksem /32 (bez zer wiodących, bez list i spacji), jest '${value}' (#22)"
+  [[ $value != 0.0.0.0/32 ]] ||
+    die "'${value}' nie jest źródłem scrape'a — 0.0.0.0 nie identyfikuje żadnego serwera monitoringu (#22)"
+}
+
+chain_exists() {
+  "$NFT" list chain "$FAMILY" "$TABLE" "$CHAIN" >/dev/null 2>&1
+}
+
+flush_monitoring_chain() {
+  chain_exists || return 0
+  printf 'flush chain %s %s %s\n' "$FAMILY" "$TABLE" "$CHAIN" | "$NFT" -f - ||
+    die "nie udało się wyczyścić łańcucha ${CHAIN} (#22)"
+}
+
+chain_rules() {
+  "$NFT" list chain "$FAMILY" "$TABLE" "$CHAIN" 2>/dev/null
+}
+
+# Bez `nft ... | grep -q`: grep -q kończy czytanie po pierwszym trafieniu, nft dostaje SIGPIPE,
+# a przy `set -o pipefail` cała rura jest błędem. Reguły porównujemy w powłoce.
+rule_present() { # $1=adres/32
+  chain_exists || return 1
+  local rules
+  rules=$(chain_rules) || return 1
+  [[ $rules == *"ip saddr ${1%/*} tcp dport ${PORT} accept"* ]]
+}
+
+write_dropin() {
+  local base exposed
+  [[ -r $IMAGE_DROPIN ]] ||
+    die "brak ${IMAGE_DROPIN} — rola monitoring nie zainstalowała eksportera (#22)"
+  base=$(grep -m1 '^ExecStart=/usr/bin/prometheus-node-exporter' "$IMAGE_DROPIN" || true)
+  [[ -n $base ]] ||
+    die "${IMAGE_DROPIN} nie zawiera ExecStart eksportera — nie mogę wystawić metryk (#22)"
+  [[ $base == *"--web.listen-address=127.0.0.1:${PORT}"* ]] ||
+    die "${IMAGE_DROPIN}: oczekiwano --web.listen-address=127.0.0.1:${PORT} w obrazie, jest '${base}' (#22)"
+  exposed=${base/--web.listen-address=127.0.0.1:${PORT}/--web.listen-address=0.0.0.0:${PORT}}
+  # Podmiana musi realnie zadziałać — inaczej zostalibyśmy na pętli albo na nieoczekiwanym adresie.
+  [[ $exposed == *"--web.listen-address=0.0.0.0:${PORT}"* ]] &&
+    [[ $exposed != *"--web.listen-address=127.0.0.1:${PORT}"* ]] ||
+    die "podmiana adresu nasłuchu w ${IMAGE_DROPIN} nie powiodła się (#22)"
+  mkdir -p "$DROPIN_DIR"
+  cat >"$MONITORING_DROPIN" <<EOF
+# Wygenerowane przez wlb-monitoring — metryki VM dla sieci monitoringu (#22).
+# Nadpisuje ExecStart z 10-wlb.conf (wyższy numer = ładowane później); flagi kolektorów z obrazu.
+[Unit]
+# Start po zaporze, a stop/restart zapory zatrzymuje najpierw eksporter (PartOf + After): przy
+# restarcie zapory reguły znikają na chwilę — nasłuch poza pętlą nie może wtedy działać.
+After=nftables.service
+Wants=nftables.service
+PartOf=nftables.service
+
+[Service]
+ExecStart=
+${exposed}
+# Nie startuj nasłuchu poza pętlą bez aktywnej reguły zapory (guard sprawdza ją w jądrze).
+ExecStartPre=+${SELF} guard
+EOF
+  chmod 0644 "$MONITORING_DROPIN"
+}
+
+# Restart eksportera z wyzerowaniem licznika startów: apply z automatycznym cofnięciem i kolejne
+# disable to kilka restartów w kilka sekund — bez reset-failed systemd odrzuca start
+# (start-limit-hit) i narzędzie zostawiałoby eksporter zatrzymany.
+restart_exporter() {
+  "$SYSTEMCTL" reset-failed "$SERVICE" >/dev/null 2>&1 || true
+  "$SYSTEMCTL" restart "$SERVICE"
+}
+
+listeners() { # adresy nasłuchu na porcie 9100, jeden na wiersz
+  "$SS" -H -ltn "sport = :${PORT}" 2>/dev/null | awk '{print $4}'
+}
+
+# `systemctl restart` wraca, gdy proces wystartował, a nie gdy otworzył gniazdo — pierwszy odczyt ss
+# bywa pusty (etap 5). Czekamy na gniazdo, zanim cokolwiek ocenimy; pusty wynik to „brak nasłuchu",
+# nigdy „tylko pętla".
+wait_listeners() { # wypisuje adresy nasłuchu po ich pojawieniu się (maks. WLB_MONITORING_WAIT prób co 0,2 s)
+  local tries=${WLB_MONITORING_WAIT:-50} out try
+  for ((try = 0; try < tries; try++)); do
+    out=$(listeners)
+    if [[ -n $out ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    sleep 0.2
+  done
+  return 1
+}
+
+verify_exposed() { # $1=adres/32
+  rule_present "$1" ||
+    die "reguła dla ${1} nie jest aktywna w jądrze po włączeniu (#22)"
+  local found=0 addr seen
+  seen=$(wait_listeners) ||
+    die "eksporter nie otworzył gniazda na porcie ${PORT} po restarcie (#22)"
+  while read -r addr; do
+    [[ $addr == "0.0.0.0:${PORT}" || $addr == "*:${PORT}" ]] && found=1
+  done <<<"$seen"
+  ((found == 1)) ||
+    die "eksporter nie słucha na 0.0.0.0:${PORT} (nasłuch: $(tr '\n' ' ' <<<"$seen")) (#22)"
+}
+
+verify_loopback_only() {
+  "$SYSTEMCTL" is-active --quiet "$SERVICE" ||
+    die "eksporter nie działa po restarcie — stan nie jest potwierdzony (#22)"
+  local addr seen
+  seen=$(wait_listeners) ||
+    die "eksporter nie otworzył gniazda na porcie ${PORT} po restarcie — stan nie jest potwierdzony (#22)"
+  while read -r addr; do
+    [[ $addr == "127.0.0.1:${PORT}" ]] ||
+      die "eksporter nadal słucha poza pętlą (${addr}) — wyłączenie nie zakończyło się bezpiecznym stanem (#22)"
+  done <<<"$seen"
+}
+
+apply() { # $1=adres/32
+  local cidr=$1 tmp
+  validate_address "$cidr"
+  mkdir -p "$NFT_DIR"
+  tmp=$(mktemp "$NFT_DIR/.50-wlb-monitoring.XXXXXX")
+  cat >"$tmp" <<EOF
+# Wygenerowane przez wlb-monitoring — metryki VM dla sieci monitoringu ${cidr} (#22).
+# Włączane przez include z /etc/nftables.conf; nie edytować ręcznie.
+add rule ${FAMILY} ${TABLE} ${CHAIN} ip saddr ${cidr} tcp dport ${PORT} accept
+EOF
+  # Najpierw reguła w jądrze, potem plik na dysku: brak pliku po restarcie zamyka port (fail-closed),
+  # odwrotna kolejność zostawiłaby plik bez reguły, czyli cichą ekspozycję po następnym przeładowaniu.
+  flush_monitoring_chain
+  if ! "$NFT" -f "$tmp"; then
+    rm -f "$tmp"
+    die "nie udało się dodać reguły dla ${cidr} (#22)"
+  fi
+  mv -f "$tmp" "$NFT_INCLUDE"
+  write_dropin
+  "$SYSTEMCTL" daemon-reload
+  if ! restart_exporter; then
+    (disable) >/dev/null 2>&1 || true # podpowłoka: `die` w disable nie może przerwać zgłoszenia przyczyny
+    die "eksporter nie wystartował z nasłuchem na 0.0.0.0:${PORT} — cofnięto ekspozycję (#22)"
+  fi
+  if ! reason=$(verify_exposed "$cidr" 2>&1); then
+    (disable) >/dev/null 2>&1 || true # podpowłoka: `die` w disable nie może przerwać zgłoszenia przyczyny
+    die "weryfikacja ekspozycji nie powiodła się (${reason}) — cofnięto ekspozycję (#22)"
+  fi
+  log "metryki VM: nasłuch na 0.0.0.0:${PORT}, dostęp tylko z ${cidr} (#22)"
+}
+
+disable() {
+  # Kolejność jest istotna: najpierw zamykamy dostęp (reguły), potem nasłuch. Przerwanie w dowolnym
+  # miejscu zostawia stan bezpieczny — bez reguły port 9100 jest odrzucany przez politykę drop.
+  flush_monitoring_chain
+  rm -f "$NFT_INCLUDE"
+  rm -f "$MONITORING_DROPIN"
+  "$SYSTEMCTL" daemon-reload
+  # Restart także wtedy, gdy pliku już nie było: poprzedni przebieg mógł zostać przerwany po rm,
+  # a proces nadal słucha na 0.0.0.0 — inaczej ponowienie nie naprawiłoby stanu.
+  restart_exporter || true
+  verify_loopback_only
+  log "metryki VM: ekspozycja wyłączona — nasłuch tylko na 127.0.0.1:${PORT} (#22)"
+}
+
+guard() {
+  "$SYSTEMCTL" is-active --quiet nftables.service ||
+    die "zapora (nftables.service) nieaktywna — nie uruchamiam nasłuchu poza pętlą (#22)"
+  [[ -s $NFT_INCLUDE ]] ||
+    die "brak ${NFT_INCLUDE} — brak utrwalonej reguły, nie uruchamiam nasłuchu poza pętlą (#22)"
+  local rules
+  rules=$(chain_rules) ||
+    die "brak aktywnej reguły portu ${PORT} w ${CHAIN} — nie uruchamiam nasłuchu poza pętlą (#22)"
+  [[ $rules == *"tcp dport ${PORT} accept"* ]] ||
+    die "brak aktywnej reguły portu ${PORT} w ${CHAIN} — nie uruchamiam nasłuchu poza pętlą (#22)"
+}
+
+status() {
+  echo "plik reguły: ${NFT_INCLUDE}"
+  [[ -e $NFT_INCLUDE ]] && sed 's/^/  /' "$NFT_INCLUDE" || echo "  (brak)"
+  echo "drop-in eksportera: ${MONITORING_DROPIN}"
+  [[ -e $MONITORING_DROPIN ]] && sed 's/^/  /' "$MONITORING_DROPIN" || echo "  (brak)"
+  echo "reguła w jądrze:"
+  if chain_exists; then
+    chain_rules | sed 's/^/  /'
+  else
+    echo "  (brak łańcucha ${CHAIN})"
+  fi
+  echo "nasłuch ${PORT}:"
+  listeners | sed 's/^/  /'
+  [[ -n $(listeners) ]] || echo "  (brak nasłuchu)"
+}
+
+main() {
+  case ${1:-} in
+    apply)
+      [[ $# -eq 2 ]] || die "użycie: wlb-monitoring apply ADRES/32"
+      apply "$2"
+      ;;
+    disable)
+      [[ $# -eq 1 ]] || die "użycie: wlb-monitoring disable"
+      disable
+      ;;
+    guard)
+      guard
+      ;;
+    status)
+      status
+      ;;
+    *)
+      die "użycie: wlb-monitoring {apply ADRES/32 | disable | status | guard} (#22)"
+      ;;
+  esac
+}
+
+main "$@"
