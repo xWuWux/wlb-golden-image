@@ -14,6 +14,15 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **DR drill bazy huba (#288):** nowy fragment akceptacji `tests/acceptance.d/80-dr-odtworzenie-bazy.sh`
+  waliduje runbook **RB-07b** na żywej VM: świeża kopia na żądanie → stop huba → uszkodzenie
+  `jupyterhub.sqlite` (zły nagłówek + losowy blok, stary WAL/SHM usunięty) → kopia bezpieczeństwa →
+  `install` z najnowszej kopii (`0600 root:root`) → start huba → logowanie **u01 i a01 starym hasłem**
+  + zgodność liczby kont z kopią. Kontrola pozytywna przed awarią (hub API + login) odróżnia awarię
+  DR od wcześniej zepsutego huba. Do tego test jednostkowy `wlb-hub-db-backup.bats` (odtworzenie
+  z kopii przywraca spójność) i uzupełnienie obu runbooków o krok **usunięcia WAL/SHM** przed
+  odtworzeniem — bez niego SQLite doklei stary dziennik do odtworzonej bazy.
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)

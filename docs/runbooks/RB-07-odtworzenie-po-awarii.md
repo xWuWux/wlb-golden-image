@@ -55,6 +55,9 @@ LATEST=$(ls -1 "$BK"/jupyterhub-*.sqlite | sort | tail -1); echo "$LATEST"
 sqlite3 "$LATEST" 'PRAGMA integrity_check;'                       # ma zwrócić: ok
 
 systemctl stop jupyterhub
+# 2a. Usuń stary WAL/SHM: bez tego SQLite doklei dziennik do odtworzonej bazy
+#     i „spójna” kopia może w praktyce wrócić uszkodzona.
+rm -f "$DB-wal" "$DB-shm"
 cp -a "$DB" "$DB.przed-odtworzeniem-$(date -u +%Y%m%dT%H%M%SZ)"
 install -m 0600 -o root -g root "$LATEST" "$DB"
 systemctl start jupyterhub
@@ -111,5 +114,5 @@ systemctl is-active jupyterhub wlb-hub-db-backup.timer
 - Kolejka eksportu: `RB-eksport-kolejka.md`.
 - Zamknięcie Laboratorium / trwałe usunięcie: `RB-08` (#13, IMG-006).
 - Incydent nieudanego odtworzenia: `RB-09`.
-- Testy (żywa VM): `tests/acceptance-remote.sh` sekcja 9 (odtworzenie bazy), `tests/migration-remote.sh` (wymiana obrazu z zachowaniem bazy).
+- Testy (żywa VM): `tests/acceptance-remote.sh` sekcja 9 i `tests/acceptance.d/80-dr-odtworzenie-bazy.sh` (DR drill — odtworzenie po uszkodzeniu bazy, #288), `tests/migration-remote.sh` (wymiana obrazu z zachowaniem bazy).
 - DoD: #49 (scenariusz odtworzenia), #61 (kopia przed snapshotem).

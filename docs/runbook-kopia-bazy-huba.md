@@ -49,6 +49,8 @@ sqlite3 "$LATEST" 'PRAGMA integrity_check;'        # ma zwrócić: ok
 
 # 2. Zatrzymaj hub i zrób kopię bezpieczeństwa bieżącej bazy
 systemctl stop jupyterhub
+# 2a. Usuń stary WAL/SHM — inaczej SQLite doklei dziennik do odtworzonej bazy
+rm -f "$DB-wal" "$DB-shm"
 cp -a "$DB" "$DB.przed-odtworzeniem-$(date -u +%Y%m%dT%H%M%SZ)"
 
 # 3. Podmień bazę na kopię (zachowaj właściciela i prawa) i wystartuj hub
@@ -65,7 +67,7 @@ razem z resztą `/workspace` — użyj najnowszej spójnej kopii tak samo jak wy
 
 ## Powiązania
 
-- Test odtworzenia (żywa VM): `tests/acceptance-remote.sh` sekcja 9; testy jednostkowe skryptu:
+- Test odtworzenia (żywa VM): `tests/acceptance-remote.sh` sekcja 9 i `tests/acceptance.d/80-dr-odtworzenie-bazy.sh` (DR drill po uszkodzeniu bazy, #288); testy jednostkowe skryptu:
   `tests/unit/wlb-hub-db-backup.bats`.
 - Migracja/wymiana obrazu z zachowaniem bazy: `tests/migration-remote.sh`.
 - DoD: domyka częściowo #61 (kopia przed snapshotem) i uzupełnia #49 (scenariusz odtworzenia).
