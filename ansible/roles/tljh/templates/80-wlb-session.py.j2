@@ -14,6 +14,9 @@
 import json
 import os
 import pwd
+import re
+import shutil
+import stat
 import subprocess
 import time
 import uuid
@@ -24,6 +27,17 @@ _WLB_SESSION_LOG = "/opt/wlb/bin/wlb-session-log"
 _WLB_USAGE_RECORD = "/opt/wlb/bin/wlb-usage-record"
 _WLB_STATE_DIR = os.environ.get("WLB_USAGE_STATE_DIR", "/run/wlb/usage/sessions")
 _WLB_TIMEOUT_S = 2  # tylko lokalny zapis — dluzszy czas oznacza awarie, nie prace
+
+# Sprzatanie scratcha sesji (#318). HOME badacza to /workspace na TRWALYM dysku roboczym,
+# wiec nie wolno tam niczego czyscic rekurencyjnie. Scratch zyje na tmpfs (/run) i jest
+# usuwany w calosci po stopie; artefakty display-scoped tylko dla zwalnianego uid/DISPLAY.
+_WLB_SCRATCH_ROOT = os.environ.get("WLB_SCRATCH_ROOT", "/run/wlb/scratch")
+_WLB_TMP_ROOT = os.environ.get("WLB_TMP_ROOT", "/tmp")
+_WLB_XAUTHORITY = os.environ.get("WLB_XAUTHORITY", "/workspace/.Xauthority")
+_WLB_DENY_PREFIX = "/workspace"
+_WLB_UID_MIN = 10000  # zgodne z wlb_researcher_uid_min/max (ansible/group_vars/all.yml)
+_WLB_UID_MAX = 59999
+_WLB_CLEAN_TIMEOUT_S = 2  # krotki timeout lokalnego xauth; sprzatanie nie moze blokowac stopu
 
 
 def _wlb_lab(spawner):
@@ -79,6 +93,144 @@ def _wlb_read_state(unit):
         return None
 
 
+def _wlb_uid_in_range(uid):
+    try:
+        n = int(uid)
+    except (TypeError, ValueError):
+        return False
+    return _WLB_UID_MIN <= n <= _WLB_UID_MAX
+
+
+def _wlb_denied(path):
+    # Absolutna deny-lista: /workspace jest TRWAŁE (dysk roboczy) i nie wolno na nim sprzątać
+    # rekurencyjnie — zwłaszcza /workspace/.wlb-export-queue (kolejka eksportu, #20).
+    p = os.path.abspath(path)
+    return p == _WLB_DENY_PREFIX or p.startswith(_WLB_DENY_PREFIX + "/")
+
+
+def _wlb_scratch_path(unit):
+    safe = unit.replace("/", "_").replace("..", "_")
+    root = os.path.abspath(_WLB_SCRATCH_ROOT)
+    p = os.path.abspath(os.path.join(root, safe))
+    if not p.startswith(root + "/") or _wlb_denied(p):
+        return None
+    return p
+
+
+def _wlb_prepare_scratch(spawner, user, unit, uid):
+    # Dedykowany scratch per-unit na tmpfs (/run) — POZA trwałym /workspace. TMPDIR sesji
+    # wskazuje tutaj, więc pliki tymczasowe badacza nie lądują na dysku roboczym.
+    if not _wlb_uid_in_range(uid):
+        spawner.log.warning("wlb-session: scratch pominięty — uid %r poza zakresem badaczy", uid)
+        return ""
+    path = _wlb_scratch_path(unit)
+    if path is None:
+        spawner.log.warning("wlb-session: scratch poza allowlistą (%s) — pomijam", unit)
+        return ""
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        os.chmod(path, 0o700)
+    except OSError as exc:
+        spawner.log.warning("wlb-session: scratch %s nie utworzony: %s", path, exc)
+        return ""
+    try:
+        pw = pwd.getpwnam(user)
+        os.chown(path, pw.pw_uid, pw.pw_gid)
+    except (KeyError, OSError) as exc:
+        # Właściciel to wzmocnienie, nie warunek działania — sesja i tak startuje.
+        spawner.log.warning("wlb-session: chown scratch %s pominięty: %s", path, exc)
+    return path
+
+
+def _wlb_unlink_owned(spawner, path, uid):
+    # Tylko JAWNE artefakty (nie katalogi), tylko właściciel = badacz, nigdy kolejka eksportu.
+    if "/.wlb-export-queue/" in path:
+        return False
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if stat.S_ISDIR(st.st_mode) or st.st_uid != int(uid):
+        return False
+    try:
+        os.unlink(path)
+    except OSError as exc:
+        spawner.log.warning("wlb-session: nie usunięto %s: %s", path, exc)
+        return False
+    return True
+
+
+def _wlb_remove_scratch(spawner, path, uid):
+    if not path or not _wlb_uid_in_range(uid):
+        return
+    root = os.path.abspath(_WLB_SCRATCH_ROOT)
+    p = os.path.abspath(path)
+    if not p.startswith(root + "/") or _wlb_denied(p):
+        spawner.log.warning("wlb-session: odmowa sprzątania scratch %s (poza allowlistą)", p)
+        return
+    try:
+        shutil.rmtree(p)
+    except FileNotFoundError:
+        pass  # idempotentnie: brak katalogu to sukces
+    except OSError as exc:
+        spawner.log.warning("wlb-session: scratch %s nie usunięty: %s", p, exc)
+
+
+def _wlb_reap_display(spawner, user, uid):
+    # Artefakty display-scoped TYLKO dla zwalnianego konta (właściciel = uid badacza):
+    # gniazda/locki X, pliki .vnc (pid/log) oraz wpis xauth dla tego DISPLAY. Nie ruszamy
+    # całego .Xauthority (trwały, współdzielony) ani katalogów.
+    if not _wlb_uid_in_range(uid):
+        return
+    displays = set()
+    sock_dir = os.path.join(_WLB_TMP_ROOT, ".X11-unix")
+    try:
+        names = os.listdir(sock_dir)
+    except OSError:
+        names = []
+    for name in names:
+        if not re.fullmatch(r"X\d+", name):
+            continue
+        if _wlb_unlink_owned(spawner, os.path.join(sock_dir, name), uid):
+            displays.add(name[1:])
+    try:
+        names = os.listdir(_WLB_TMP_ROOT)
+    except OSError:
+        names = []
+    for name in names:
+        m = re.fullmatch(r"\.X(\d+)-lock", name)
+        if m and _wlb_unlink_owned(spawner, os.path.join(_WLB_TMP_ROOT, name), uid):
+            displays.add(m.group(1))
+    try:
+        home = pwd.getpwnam(user).pw_dir
+    except KeyError:
+        home = ""
+    if home:
+        vnc = os.path.join(home, ".vnc")
+        try:
+            names = os.listdir(vnc)
+        except OSError:
+            names = []
+        for name in names:
+            if name.endswith(".pid") or name.endswith(".log"):
+                _wlb_unlink_owned(spawner, os.path.join(vnc, name), uid)
+    for d in sorted(displays):
+        try:
+            subprocess.run(["xauth", "-f", _WLB_XAUTHORITY, "remove", ":" + d],
+                           check=False, timeout=_WLB_CLEAN_TIMEOUT_S)
+        except Exception as exc:  # noqa: BLE001 — sprzątanie nie może blokować stopu
+            spawner.log.warning("wlb-session: xauth remove :%s pominięty: %s", d, exc)
+
+
+def _wlb_cleanup_session(spawner, user, unit, uid):
+    # FAIL-SECURE: każdy krok ma własną osłonę; awaria to warning, nie wyjątek.
+    if not _wlb_uid_in_range(uid):
+        spawner.log.warning("wlb-session: sprzątanie pominięte — uid %r poza zakresem badaczy", uid)
+        return
+    _wlb_remove_scratch(spawner, _wlb_scratch_path(unit), uid)
+    _wlb_reap_display(spawner, user, uid)
+
+
 def wlb_pre_spawn_hook(spawner):
     user, uid, unit, _ = _wlb_ident(spawner)
     lab, lab_source = _wlb_lab(spawner)
@@ -90,6 +242,15 @@ def wlb_pre_spawn_hook(spawner):
                            str(stale.get("start_wall", "")), "", "",
                            "interrupted:" + lab_source],
                  "rekord_użycia_interrupted")
+    try:
+        scratch = _wlb_prepare_scratch(spawner, user, unit, uid)
+        if scratch:
+            env = dict(getattr(spawner, "environment", None) or {})
+            env["TMPDIR"] = scratch
+            spawner.environment = env
+            spawner._wlb_scratch = scratch
+    except Exception as exc:  # noqa: BLE001 — brak scratch nie może blokować spawnu
+        spawner.log.warning("wlb-session: przygotowanie scratch nie powiodło się: %s", exc)
     spawner._wlb_session = uuid.uuid4().hex
     spawner._wlb_start = time.monotonic()
     spawner._wlb_start_wall = time.time()
@@ -125,6 +286,10 @@ def wlb_post_stop_hook(spawner):
         _wlb_run(spawner, [_WLB_USAGE_RECORD, unit, sid, lab,
                            str(int(start_wall)), str(int(time.time())), duration, lab_source],
                  "rekord_użycia")
+    try:
+        _wlb_cleanup_session(spawner, user, unit, uid)
+    except Exception as exc:  # noqa: BLE001 — sprzątanie nie może blokować stopu
+        spawner.log.warning("wlb-session: sprzątanie sesji nie powiodło się: %s", exc)
     try:
         os.remove(_wlb_state_path(unit))
     except OSError:
