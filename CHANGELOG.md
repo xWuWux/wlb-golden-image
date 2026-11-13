@@ -19,6 +19,13 @@ pierwszym Laboratorium na klastrze).
   zamiast zgłaszać konflikt. Automatyzuje dotychczasową ręczną regułę „zachowaj wszystkie wpisy",
   także na przycisku merge w GitHub. Przy wydaniu warto sprawdzić kolejność wpisów (union może je poprzeplatać).
 
+- **Testy izolacji Ring3->Ring0 (#288, klasa 2):** rozszerzenie sekcji 6b w `tests/acceptance-remote.sh`
+  o aktywne próby naruszenia granic uprawnień jądra z przestrzeni badacza:
+  kontrola file-capabilities rozszerzona o `cap_sys_module`, nowa asercja weryfikująca zbiór capabilities
+  procesu badacza (`CapEff=0` i `CapAmb=0` w `/proc/self/status`), oraz odmowa odczytu urządzeń pamięci
+  i portów jądra (`/dev/mem`, `/proc/kcore`, `/dev/kmem`, `/dev/port`) kończąca się błędem uprawnień
+  (`EACCES`/`EPERM`). Brak opcjonalnego urządzenia na obrazie jest zgłaszany jako `SKIP` (fail-secure).
+
 - **Test dryfu wersji bez fałszywych alarmów (#277/#304):** `ci/lock_drift.py` porównuje wersje
   semantycznie (PEP 440), a nie znakowo. Lock (pip) zapisuje `soupsieve==4.0.0`, a `conda env export`
   w obrazie podaje `4.0` — to to samo wydanie, więc pin jest spełniony i pip nic nie doinstalowuje.
