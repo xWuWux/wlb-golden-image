@@ -43,6 +43,12 @@ pierwszym Laboratorium na klastrze).
   Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
   a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
   (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
+- **Bramka regresji utwardzenia Lynis (#288):** etap 5 nadal domyślnie tylko raportuje
+  (`hardening_index`, ostrzeżenia, sugestie), ale `WLB_LYNIS_GATING=1` promuje wynik do bramki:
+  spadek `hardening_index` poniżej `WLB_LYNIS_BASELINE` (domyślnie 72) albo dowolne `warning[]`
+  czerwieni etap. Brak raportu przy włączonej bramce = fail-closed. Nie wymagamy absolutnego 100 —
+  pilnujemy regresji względem bieżącego baseline. Parser i bramka mają testy offline na fixture
+  `tests/fixtures/lynis-report.dat`.
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
