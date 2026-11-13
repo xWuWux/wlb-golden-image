@@ -65,7 +65,7 @@ razem z resztą `/workspace` — użyj najnowszej spójnej kopii tak samo jak wy
 
 ## Powiązania
 
-- Test odtworzenia (żywa VM): `tests/acceptance-remote.sh` sekcja 9; testy jednostkowe skryptu:
+- Test odtworzenia (żywa VM): `tests/acceptance-remote.sh` sekcja 9 i `tests/acceptance.d/80-dr-odtworzenie-bazy.sh` (DR drill po uszkodzeniu bazy, #288); testy jednostkowe skryptu:
   `tests/unit/wlb-hub-db-backup.bats`.
 - Migracja/wymiana obrazu z zachowaniem bazy: `tests/migration-remote.sh`.
 - DoD: domyka częściowo #61 (kopia przed snapshotem) i uzupełnia #49 (scenariusz odtworzenia).
