@@ -23,7 +23,8 @@ if grep -qx "WLB_IMAGE_NAME=wlb-radiologia" /etc/wlb/image-release 2>/dev/null; 
   expect_ok "FSLeyes obecny (w FSL)" test -x /usr/local/fsl/share/fsl/bin/fsleyes
   expect_ok "3DSlicer na PATH (Slicer)" test -x /usr/local/bin/Slicer
 
-  # Dodatkowe narzędzia z pierwszego wdrożenia (#200): MRtrix3 (dwidenoise/mp-pca) + czytnik PDF.
+  # Dodatkowe narzędzia z pierwszego wdrożenia (#200): MRtrix3 (dwidenoise/mp-pca) oraz czytnik PDF
+  # (evince przeniesiony do standardu biurowego w roli desktop; tu weryfikacja regresji #200).
   echo "== Dodatkowe narzędzia (MRtrix3, czytnik PDF, #200) =="
   expect_ok "MRtrix3 dwidenoise na PATH (#200)" bash -c "command -v dwidenoise >/dev/null"
   # Realny smoke: dwidenoise -version ładuje binarkę MRtrix3 i kończy się czysto.

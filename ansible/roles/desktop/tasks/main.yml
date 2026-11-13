@@ -168,19 +168,21 @@
     create: true
     mode: "0644"
 
-# --- Standard biurowy pulpitu (#269) ------------------------------------------------
-# Writer jest uniwersalny dla KAŻDEGO flavora z pulpitem (decyzja PO: Opcja A — biuro w roli
-# desktop, bez wyjątku dla radiologii). Sam Writer + libreoffice-core/common; bez Impress/Base,
+# --- Standard biurowy pulpitu (#269, #270) ------------------------------------------
+# Writer i czytnik PDF (evince) są uniwersalne dla KAŻDEGO flavora z pulpitem (decyzja PO:
+# Opcja A — biuro w roli desktop, bez wyjątku dla radiologii; evince przeniesiony z neuro_apps
+# w ramach deduplikacji #270). Sam Writer + libreoffice-core/common; bez Impress/Base,
 # żeby nie dublować metapakietu libreoffice. `libreoffice-gtk3` jest tu świadomie, mimo że Calc
 # w memory_apps/histo_apps już go wnosi: desktop ma być samowystarczalny, a *_apps mogą z czasem
-# odpaść przy deduplikacji. Pakiet MUSI być zainstalowany PRZED sweepem AppArmor na końcu roli —
-# libreoffice-common wnosi profil soffice w complain, a sweep (ostatni task) przełącza go na enforce.
-- name: Edytor tekstu — LibreOffice Writer (+ VCL GTK3 pod XFCE) (#269)
+# odpaść przy deduplikacji. Pakiety MUSZĄ być zainstalowane PRZED sweepem AppArmor na końcu roli —
+# libreoffice-common i pakiety desktopowe wnoszą profile w complain, a sweep (ostatni task) przełącza je na enforce.
+- name: "Standard biurowy pulpitu — LibreOffice Writer (+ VCL GTK3) i czytnik PDF (evince) (#269, #270)"
   ansible.builtin.apt:
     update_cache: true
     name:
       - libreoffice-writer
       - libreoffice-gtk3
+      - evince
     state: present
 
 # --- AppArmor w warstwie pulpitu (#65, CIS 1.6.3) ------------------------------------
