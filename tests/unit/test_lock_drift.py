@@ -3,6 +3,8 @@
 Regresja z CI: `markupsafe` bywa zainstalowany przez conda (zależność `jinja2`) albo przez pip
 (stos Jupyter/TLJH). Dawniej ta sama wersja w innym dziale dawała dwa sprzeczne komunikaty
 i czerwony etap; teraz migracja menedżera jest uwagą, a dryf wersji wciąż failuje.
+Druga regresja: `soupsieve` 4.0.0 w locku i 4.0 w obrazie (conda) to TO SAMO wydanie wg PEP 440
+— porównanie znakowe fałszywie czerwieniło etap 5 po bumpie bezpieczeństwa (#304/#277).
 """
 
 import lock_drift as drift
@@ -69,6 +71,25 @@ def test_build_pip_zakresy_i_markery_sredowiska_pominiete():
     conda, pip = drift.sections(lock(pip=["jupyterhub==5.5.2", "pakiet>=1.0", "-e .", "# komentarz"]))
     assert conda == {}
     assert pip == {"jupyterhub": ("jupyterhub", "5.5.2")}
+
+
+def test_ta_sama_wersja_w_innej_notacji_to_nie_dryf():
+    """conda podaje 4.0, lock (pip) 4.0.0 — PEP 440 mówi, że to to samo wydanie."""
+    problemy, uwagi = drift.compare(lock(pip=["soupsieve==4.0.0"]), lock(conda=["soupsieve=4.0"]))
+    assert problemy == []
+    assert uwagi == ["Python: soupsieve — ta sama wersja w innej notacji (lock 4.0.0, obraz 4.0, menedżer pip → conda)"]
+
+
+def test_inna_notacja_nie_maskuje_realnego_dryfu():
+    problemy, uwagi = drift.compare(lock(pip=["soupsieve==4.0.1"]), lock(conda=["soupsieve=4.0.0"]))
+    assert uwagi == []
+    assert problemy == ["Python: soupsieve — lock 4.0.1, obraz 4.0.0 (pip → conda)"]
+
+
+def test_wersje_nieparsowalne_porownywane_znakowo():
+    problemy, _ = drift.compare(lock(conda=["pakiet=local-build"]), lock(conda=["pakiet=inny-build"]))
+    assert problemy == ["Python: pakiet — lock local-build, obraz inny-build"]
+    assert drift.compare(lock(conda=["pakiet=local-build"]), lock(conda=["pakiet=local-build"])) == ([], [])
 
 
 def test_main_wypisuje_dryf_i_zwraca_1(tmp_path, capsys):
