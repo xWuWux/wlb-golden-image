@@ -7,3 +7,9 @@
 *.pdf binary
 *.docx binary
 *.xlsx binary
+
+# CHANGELOG „Niewydane" jest append-only i dotykany przez wiele równoległych PR-ów naraz.
+# Wbudowany sterownik `union` scala konflikt zachowując linie z OBU stron zamiast go zgłaszać —
+# czyli automatyzuje regułę „zachowaj wszystkie wpisy" (także na przycisku merge w GitHub).
+# Przy wydaniu warto rzucić okiem: union może poprzeplatać kolejność wpisów pod nagłówkiem.
+CHANGELOG.md merge=union
