@@ -49,6 +49,8 @@ sqlite3 "$LATEST" 'PRAGMA integrity_check;'        # ma zwrócić: ok
 
 # 2. Zatrzymaj hub i zrób kopię bezpieczeństwa bieżącej bazy
 systemctl stop jupyterhub
+# 2a. Usuń stary WAL/SHM — inaczej SQLite doklei dziennik do odtworzonej bazy
+rm -f "$DB-wal" "$DB-shm"
 cp -a "$DB" "$DB.przed-odtworzeniem-$(date -u +%Y%m%dT%H%M%SZ)"
 
 # 3. Podmień bazę na kopię (zachowaj właściciela i prawa) i wystartuj hub
