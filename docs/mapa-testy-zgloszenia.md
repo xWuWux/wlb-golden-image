@@ -3,6 +3,8 @@
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
 _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -253,6 +255,12 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odświ
 ### #272 — Standard pulpitu: edytor tekstu/kodu w stylu Notepad++ (Geany/odpowiednik) na każdym flavorze  ·  _otwarte_
 - `tests/acceptance.d/41-biuro.sh` — `Edytor tekstu mousepad obecny (binarka, #272)`, `Kafelek edytora tekstu w menu XFCE (org.xfce.mousepad.desktop, #272)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272)*
 
+### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
+- `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
+
+### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
+- `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
+
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
 - `tests/desktop-e2e-novnc.py` — *scenariusze*
 - `tests/unit/test_channels_matrix.py` — `test_jrdp_pin_is_audited_version`
@@ -282,6 +290,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odświ
 ### #340 — Testy mutacyjne: kontrakty abstrakcji i polimorfizm implementacji (etap 4b)  ·  _otwarte_
 - `tests/unit/test_deployment_vars.py` — *wartości aktywne w przykładach wdrożenia (#340)*
 - `tests/unit/wlb-firstboot.bats` — `kontrakt reguł firstboot HTTP`, `kontrakt reguł firstboot HTTPS`, `wycofanie reguły firstboot HTTP`, `wycofanie reguły firstboot HTTPS`
+
+### #288 — Testy: domknięcie 5 klas — CIS, izolacja u01, idempotencja Ansible, macierz flavorów, UI JupyterLab  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Brak binariów SUID/SGID w /workspace (#288)`, `Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)`, `Capabilities: brak getcap (libcap2-bin) na obrazie (#288)`, `Egress ICMP do zewnętrznego IP odrzucony (#288)`, `Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)`, `Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)`, `Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)`, `Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)`, `Egress: researcher_egress kończy się reject — default-deny (#288)`, `Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)`, `Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)`, `Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)`, `Eskalacja: pkexec nie podnosi uprawnień badacza (#288)`, `Obejście pobierania metodą $w6b_m odrzucone 403 (#288)`, `Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)`, *6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2)*, `Żaden plik SUID nie jest zapisywalny przez badacza (#288)`
+- `tests/acceptance.d/80-dr-odtworzenie-bazy.sh` — `Administrator Klienta a01 loguje się starym hasłem po odtworzeniu (RB-07b, #288)`, `Badacz u01 loguje się starym hasłem po odtworzeniu (RB-07b, #288)`, `Baza huba uszkodzona przed procedurą DR (integrity_check, #288)`, `Hub działa i odpowiada na API po odtworzeniu (RB-07b, #288)`, `Konta u01 i a01 obecne w odtworzonej bazie (#288)`, `Kopia bazy huba wykonana na żądanie przed symulacją awarii (#288)`, `Kopia bazy spójna przed symulacją awarii (PRAGMA integrity_check, #288)`, `Kopia bezpieczeństwa uszkodzonej bazy utworzona (RB-07b, #288)`, `Odczyt tabeli użytkowników z uszkodzonej bazy niemożliwy (#288)`, `Odtworzona baza ma uprawnienia 0600 root:root (#288)`, `Odtworzona baza przeszła PRAGMA integrity_check (#288)`, `Potwierdzenie spójności wybranej kopii (PRAGMA integrity_check, #288)`, `Serwer notebooków badacza u01 startuje po odtworzeniu (#288)`, `Timer kopii bazy wlb-hub-db-backup aktywny po procedurze DR (#288)`, `Wybór najnowszej kopii do odtworzenia (#288)`, *Próba odtworzenia po awarii bazy huba (DR drill, RB-07b, #288)*, `Świeża kopia do odtworzenia istnieje (#288)`
+- `tests/unit/wlb-hub-db-backup.bats` — `odtworzenie bazy z najnowszej kopii przywraca spójność po uszkodzeniu (DR drill, RB-07b, #288)`
 
 ## Uwagi
 

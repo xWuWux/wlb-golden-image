@@ -80,3 +80,33 @@ copies() { find "$BACKUP_DIR" -maxdepth 1 -type f -name 'jupyterhub-*.sqlite' | 
   [ "$status" -ne 0 ]
   [[ $output == *"KEEP musi być liczbą"* ]]
 }
+
+@test "odtworzenie bazy z najnowszej kopii przywraca spójność po uszkodzeniu (DR drill, RB-07b, #288)" {
+  make_db "$HUB_DB" 3
+  "$BACKUP" # spójna kopia bazy
+  mapfile -t c < <(copies)
+  [ "${#c[@]}" -eq 1 ]
+  latest="${c[0]}"
+
+  # Symulacja uszkodzenia bazy
+  printf 'USZKODZENIE_BAZY_WLB_DISASTER' >"$HUB_DB"
+  run sqlite3 "$HUB_DB" 'PRAGMA integrity_check;'
+  [ "$status" -ne 0 ] || [ "$output" != "ok" ]
+
+  # Procedura z runbooka RB-07b:
+  # 1. Sprawdź spójność wybranej kopii
+  [ "$(sqlite3 "$latest" 'PRAGMA integrity_check;')" = ok ]
+
+  # 2. Kopia bezpieczeństwa uszkodzonej bazy przed odtworzeniem
+  pre_restore="$HUB_DB.przed-odtworzeniem-$(date -u +%Y%m%dT%H%M%SZ)"
+  cp -a "$HUB_DB" "$pre_restore"
+  [ -f "$pre_restore" ]
+
+  # 3. Podmień bazę na kopię z uprawnieniami 0600
+  install -m 0600 "$latest" "$HUB_DB"
+
+  # 4. Weryfikacja spójności, uprawnień i danych
+  [ "$(sqlite3 "$HUB_DB" 'PRAGMA integrity_check;')" = ok ]
+  [ "$(sqlite3 "$HUB_DB" 'SELECT count(*) FROM users;')" -eq 3 ]
+  [ "$(stat -c %a "$HUB_DB")" = 600 ]
+}
