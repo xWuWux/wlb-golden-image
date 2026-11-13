@@ -26,6 +26,18 @@ pierwszym Laboratorium na klastrze).
   i portów jądra (`/dev/mem`, `/proc/kcore`, `/dev/kmem`, `/dev/port`) kończąca się błędem uprawnień
   (`EACCES`/`EPERM`). Brak opcjonalnego urządzenia na obrazie jest zgłaszany jako `SKIP` (fail-secure).
 
+- **Sprzatanie scratcha sesji w post_stop_hook (#318):** `pre_spawn` tworzy dedykowany scratch
+  per-unit na tmpfs (`/run/wlb/scratch/<unit>`, właściciel = UID badacza) i wstawia go do środowiska
+  sesji jako `TMPDIR`; `post_stop` usuwa go w całości. Artefakty display-scoped (gniazda/locki X
+  w `/tmp`, `~/.vnc/*.pid|*.log`, wpis `xauth` dla zwalnianego DISPLAY) są reapowane **tylko** dla
+  właściciela o UID 10000–59999; cały `.Xauthority` nie jest usuwany. **Deny-lista absolutna**:
+  `/workspace` i wszystko pod nim (zwłaszcza `.wlb-export-queue` — kolejka eksportu #20) nigdy nie
+  jest czyszczone rekurencyjnie. Sprzatanie jest fail-secure (awaria = warning, nie blokuje stopu),
+  idempotentne i name-agnostic. Testy: jednostkowe w `tests/unit/test_wlb_session_hook.py`
+  (scratch/TMPDIR, deny-lista, reaping display, fail-secure, zakres UID) oraz akceptacyjne w
+  `tests/acceptance.d/50-hooki-sesji.sh` (scratch znika, plik-świadek w `/workspace` i w kolejce
+  zostaje, ścieżka spoza allowlisty nietknięta).
+
 - **Test dryfu wersji bez fałszywych alarmów (#277/#304):** `ci/lock_drift.py` porównuje wersje
   semantycznie (PEP 440), a nie znakowo. Lock (pip) zapisuje `soupsieve==4.0.0`, a `conda env export`
   w obrazie podaje `4.0` — to to samo wydanie, więc pin jest spełniony i pip nic nie doinstalowuje.
