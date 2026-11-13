@@ -9,9 +9,14 @@
 # kafelek Leaf) dojdą do TEJ roli osobnymi PR-ami. Build warstwowy Packera (desktop.yml): role desktop
 # + rstudio + memory_apps na obrazie wlb-general — baza lekka (§ „Poza zakresem obrazu" w #105).
 
-- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+  ansible.builtin.apt:
     name:
       # Sam Calc + libreoffice-core; bez Writer/Impress/Base — mniejszy obraz niż metapakiet libreoffice.
       - libreoffice-calc

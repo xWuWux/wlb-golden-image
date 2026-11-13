@@ -43,6 +43,15 @@ pierwszym Laboratorium na klastrze).
   Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
   a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
   (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
+- **Idempotencja Ansible w etapie 5 (#288, klasa 3):** po pierwszym provisioningu VM drugi przebieg
+  `ansible/site.yml` jest uruchamiany na tej samej maszynie, a PLAY RECAP musi dać **changed=0**
+  (bramka `ci/idempotency.py`, testy `tests/unit/test_idempotency.py`). Żeby bramka była realna,
+  przejrzano taski raportujące zmianę przy każdym przebiegu: cache apt wydzielony do osobnego
+  tasku z `changed_when: false` (9 miejsc), `pip`/`conda`/`R`/`Julia` raportują changed tylko przy
+  realnej instalacji (lub są no-op), `fetch` artefaktów nie jest zmianą stanu, a strefa czasowa
+  używa modułu `timezone`. Blok wersjonowanego prefiksu Pythona (#193) jest pomijany, gdy prefiks
+  jest już dowiązaniem — inaczej drugi przebieg przełączałby hub.
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)

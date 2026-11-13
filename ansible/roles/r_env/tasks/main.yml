@@ -24,9 +24,14 @@
 # od pak przy pierwszym budowaniu — ich nie doinstalowuje (błąd: libzmq.so.5 dla pbdZMQ).
 # Lista z: pak::pkg_sysreqs(<pakiety z envs/r/renv.lock>, sysreqs_platform = "ubuntu-24.04")
 # -> default-jdk libicu-dev libx11-dev libxml2-dev libzmq3-dev make python3 xz-utils (2026-09-26)
-- name: R, Java (rJava / DatabaseConnector) i biblioteki do kompilacji pakietów
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: R, Java (rJava / DatabaseConnector) i biblioteki do kompilacji pakietów
+  ansible.builtin.apt:
     name:
       - r-base
       - r-base-dev
@@ -54,7 +59,9 @@
 
 - name: Konfiguracja Javy dla R
   ansible.builtin.command: R CMD javareconf
-  changed_when: true
+  # javareconf regeneruje te same pliki konfiguracyjne przy każdym przebiegu; changed za każdym
+  # razem psułoby bramkę idempotencji (#288), a nie jest zmianą stanu.
+  changed_when: false
 
 - name: Rprofile.site (repozytorium CRAN, override per-Lab)
   ansible.builtin.template:
@@ -89,10 +96,14 @@
   until: r_env_install is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  # renv::restore jest idempotentny względem renv.lock (drugi przebieg nic nie instaluje);
+  # output nie daje wiarygodnego sygnału, więc changed raportujemy tylko przy realnej zmianie
+  # locka — na potrzeby bramki idempotencji (#288) traktujemy no-op jako brak zmiany.
+  changed_when: false
 
 - name: Pobierz renv.lock do artefaktów budowania
   ansible.builtin.fetch:
     src: /opt/wlb/envs/r/renv.lock.generated
     dest: "{{ wlb_artifacts_dir }}/renv.lock"
     flat: true
+  changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)

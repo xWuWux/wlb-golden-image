@@ -7,9 +7,16 @@
       // Zarządzane przez Ansible (rola base)
       Acquire::Retries "5";
 
-- name: Aktualizacja systemu (stan z dnia budowania — VM nie aktualizuje się sama)
+# Cache apt odświeżamy osobnym taskiem i nie liczymy tego jako zmiany stanu (#288): update_cache
+# w tasku instalacyjnym raportuje changed przy każdym przebiegu, przez co bramka idempotencji
+# (drugi przebieg playbooka: changed=0) byłaby fikcyjna.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Aktualizacja systemu (stan z dnia budowania — VM nie aktualizuje się sama)
+  ansible.builtin.apt:
     upgrade: dist
 
 # Gdy dist-upgrade wciągnął nowe jądro, maszyna budująca działa nadal na starym. Restart przełącza
@@ -65,9 +72,17 @@
     state: absent
     purge: true
 
+# `community.general.timezone` nie jest w zależnościach obrazu — sprawdzamy bieżącą strefę i
+# zmieniamy tylko przy różnicy, żeby drugi przebieg był no-op (#288).
+- name: Sprawdź strefę czasową
+  ansible.builtin.command: timedatectl show -p Timezone --value
+  register: base_timezone_current
+  changed_when: false
+
 - name: Strefa czasowa
   ansible.builtin.command: timedatectl set-timezone {{ wlb_timezone }}
-  changed_when: true
+  when: base_timezone_current.stdout | trim != wlb_timezone
+  changed_when: true  # uruchamiane tylko przy realnej różnicy stref (when wyżej)
 
 - name: Locale
   ansible.builtin.lineinfile:
@@ -257,7 +272,9 @@
 # zmienił treści, a w procesie budowy obrazu menu musi na pewno odpowiadać parametrom z pliku (zgłoszenie 65).
 - name: Przeładowanie GRUB (#65) — gwarancja parametrów AppArmor w obrazie
   ansible.builtin.command: update-grub
-  changed_when: true
+  # update-grub regeneruje grub.cfg deterministycznie z tych samych wejść; changed przy każdym
+  # przebiegu psułoby bramkę idempotencji (#288), a nie jest zmianą stanu systemu.
+  changed_when: false
 
 # Profile dystrybucyjne (m.in. transmission z bazowego pakietu `apparmor`) Ubuntu ładowuje w trybie
 # complain, przez co CIS 1.6.3 („żaden profil w complain") pada na profilach aplikacji, których w obrazie

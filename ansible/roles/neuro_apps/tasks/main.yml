@@ -61,9 +61,14 @@
 # wtyczka platformy libqxcb.so linkuje do systemowych bibliotek XCB, których XFCE z roli desktop nie
 # wciąga. Bez nich Slicer NIE startuje: "libxcb-icccm.so.4: cannot open shared object file" (#135, #4).
 # Potwierdzone ldd wtyczki platforms/libqxcb.so na zbudowanym obrazie — to pełny komplet brakujących.
-- name: Biblioteki platformy Qt xcb wymagane przez 3DSlicer (#4)
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Biblioteki platformy Qt xcb wymagane przez 3DSlicer (#4)
+  ansible.builtin.apt:
     name:
       - libxcb-icccm4
       - libxcb-image0
@@ -239,7 +244,6 @@
 # na wszystkich flavorach z pulpitem (memory też).
 - name: Narzędzia dMRI (MRtrix3) i czytnik PDF (evince) na pulpicie (#200)
   ansible.builtin.apt:
-    update_cache: true
     name:
       - mrtrix3 # dwidenoise (mp-pca), mrconvert, mrinfo… — pipeline dMRI badacza
       - evince # czytnik PDF na pulpicie
