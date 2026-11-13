@@ -166,11 +166,17 @@ acceptance() {
           >"$LOGS/e2e-$logname.log" 2>&1 || e2e_rc=$?
         if [[ $e2e_rc -eq 0 ]]; then
           echo "E2E pulpitu: PASS" | tee -a "$LOGS/$logname.log"
-        elif [[ ${WLB_E2E_GATING:-0} == 1 ]]; then
-          echo "E2E pulpitu: FAIL (rc=$e2e_rc; WLB_E2E_GATING=1)" | tee -a "$LOGS/$logname.log"
-          rc=1
         else
-          echo "E2E pulpitu: SKIP (rc=$e2e_rc; nie bramkuje)" | tee -a "$LOGS/$logname.log"
+          # Powód z result.json — bez niego log etapu 5 mówi tylko "rc=2", a diagnostyka
+          # (brak transmisji vs brak reakcji pulpitu, #277) zostaje w artefakcie.
+          e2e_reason=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reason"])' \
+            "$LOGS/e2e-$logname/result.json" 2>/dev/null || true)
+          if [[ ${WLB_E2E_GATING:-0} == 1 ]]; then
+            echo "E2E pulpitu: FAIL (rc=$e2e_rc; WLB_E2E_GATING=1): $e2e_reason" | tee -a "$LOGS/$logname.log"
+            rc=1
+          else
+            echo "E2E pulpitu: SKIP (rc=$e2e_rc; nie bramkuje): $e2e_reason" | tee -a "$LOGS/$logname.log"
+          fi
         fi
       else
         echo "E2E pulpitu: SKIP (brak hasła u01)" | tee -a "$LOGS/$logname.log"
