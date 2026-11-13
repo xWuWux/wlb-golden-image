@@ -36,6 +36,23 @@ pierwszym Laboratorium na klastrze).
   Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
   a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
   (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
+- **Standard biurowy pulpitu — LibreOffice Writer (#269):** edytor tekstu (`.odt`/`.docx`) w roli
+  `desktop`, czyli na **każdym** flavorze z pulpitem (memory, histologia, radiologia) — decyzja PO:
+  Opcja A, bez wyjątku. Instalowane `libreoffice-writer` + `libreoffice-gtk3` (natywny VCL pod XFCE);
+  bez Impress/Base i bez metapakietu `libreoffice`. Pakiet jest przed końcowym sweepem AppArmor,
+  więc profil `soffice` z `libreoffice-common` trafia od razu w enforce (CIS 1.6.3). Kafelek stockowy
+  `libreoffice-writer.desktop`. Akceptacja `41-biuro.sh`: binarka + kafelek + GTK3 + smoke
+  `.txt`→`.odt`→`.docx` (silnik dokumentów, nie tylko `--version`). Koszt: radiologia zyskuje biuro
+  (~+240 MB warstwy) — świadomie zaakceptowane.
+
+- **Standard biurowy pulpitu — czytnik PDF (evince) (#270):** przeglądarka dokumentów PDF
+  przeniesiona z `neuro_apps` (#200) do ogólnej roli `desktop`, dzięki czemu czytnik PDF jest
+  dostępny na **każdym** flavorze z pulpitem (memory, histologia, radiologia) bez podwójnej
+  instalacji (deduplikacja). Instalowany pakiet `evince` przed końcowym sweepem AppArmor (CIS 1.6.3).
+  Kafelek stockowy `/usr/share/applications/org.gnome.Evince.desktop`. Akceptacja w `41-biuro.sh`:
+  weryfikacja binarki, kafelka w menu XFCE oraz headless smoke renderowania PDF bez środowiska
+  graficznego (`evince-thumbnailer`).
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
