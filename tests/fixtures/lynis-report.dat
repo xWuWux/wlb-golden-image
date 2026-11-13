@@ -1,0 +1,11 @@
+# Fragment lynis-report.dat z przebiegu etapu 5 (fixture offline dla testów #11/#288).
+# hardening_index = bieżący baseline obrazu; brak warning[] = brak nowych ostrzeżeń.
+lynis_version=3.0.9
+report_version=1.0
+hardening_index=72
+os_name=Ubuntu
+os_version=24.04
+suggestion[]=Consider hardening SSH configuration|SSH-7408|Details here|text:Run tool
+suggestion[]=Install a file integrity tool|FINT-4350|-|-
+suggestion[]=Harden compilers|HRDN-7222|-|-
+plugin_firewall=ok
