@@ -43,6 +43,16 @@ pierwszym Laboratorium na klastrze).
   Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
   a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
   (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
+- **Statyczna bramka kafelek → Exec (#314 część A):** nowy fragment akceptacji
+  `tests/acceptance.d/43-kafelki-exec.sh` sprawdza **każdy** `/usr/share/applications/wlb-*.desktop`:
+  parsuje `Exec=`, odcina field-codes (`%f %F %u %U %i %c %k`), bierze pierwszy token i wymaga
+  ścieżki absolutnej albo rozwiązania na **PATH sesji XFCE/jrdp** — nie roota (root ma
+  `/usr/local/bin`, sesja go nie ma, #199/#202; `command -v` roota dawał fałszywy zielony).
+  Cel musi istnieć i być wykonywalny, a wrapper WLB (`/usr/local/bin`, `/opt/wlb`) musi wskazywać
+  istniejący cel (m.in. `fsleyes`/`fsl` przez `FSLDIR`). Do tego **obowiązkowy test negatywny**:
+  kopia kafelka ze złym `Exec` musi dać FAIL. Headless i deterministyczna → bramkuje etap 5 (`ko`).
+  Parser w `tests/lib/kafelki-exec.sh`, testy jednostkowe `tests/unit/kafelki-exec.bats` (15).
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
