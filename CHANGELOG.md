@@ -53,6 +53,12 @@ pierwszym Laboratorium na klastrze).
   weryfikacja binarki, kafelka w menu XFCE oraz headless smoke renderowania PDF bez środowiska
   graficznego (`evince-thumbnailer`).
 
+- **Standard biurowy pulpitu — edytor tekstu Mousepad (#272):** lekki graficzny edytor tekstu
+  i kodu (GTK3, podświetlanie składni, numeracja linii) w roli `desktop` na **każdym** flavorze
+  z pulpitem (memory, histologia, radiologia) jako linuksowy odpowiednik Notepad++ dla badacza.
+  Instalowany pakiet `mousepad` przed końcowym sweepem AppArmor (CIS 1.6.3). Kafelek stockowy
+  `/usr/share/applications/org.xfce.mousepad.desktop`. Akceptacja w `41-biuro.sh`.
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)

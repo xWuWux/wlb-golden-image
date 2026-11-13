@@ -1,9 +1,9 @@
 # shellcheck shell=bash
-# Adaptacyjna: standard biurowy pulpitu (#269, #270) — LibreOffice Writer i czytnik PDF (evince)
-# na KAŻDYM flavorze z pulpitem (decyzja PO: Opcja A, bez wyjątku dla radiologii).
+# Adaptacyjna: standard biurowy pulpitu (#269, #270, #272) — LibreOffice Writer, czytnik PDF (evince)
+# i edytor tekstu (mousepad) na KAŻDYM flavorze z pulpitem (decyzja PO: Opcja A, bez wyjątku dla radiologii).
 # wlb-general jest headless, więc nie dotyczy.
 if grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia|histologia)' /etc/wlb/image-release 2>/dev/null; then
-  echo "== Standard biurowy pulpitu: LibreOffice Writer (#269) i czytnik PDF (#270) =="
+  echo "== Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272) =="
   expect_ok "LibreOffice obecny (binarka)" test -x /usr/bin/libreoffice
   # Kafelek stockowy z libreoffice-common — bez własnego .desktop (jak Calc w 45-memory/47-histologia).
   expect_ok "Kafelek LibreOffice Writer w menu XFCE" test -f /usr/share/applications/libreoffice-writer.desktop
@@ -53,4 +53,9 @@ with open(sys.argv[1], \"wb\") as f:
       test -s "$d/out.png"
     '
   fi
+
+  # Lekki edytor tekstu (mousepad, #272): binarka i stockowy kafelek XFCE
+  expect_ok "Edytor tekstu mousepad obecny (binarka, #272)" test -x /usr/bin/mousepad
+  expect_ok "Kafelek edytora tekstu w menu XFCE (org.xfce.mousepad.desktop, #272)" \
+    test -f /usr/share/applications/org.xfce.mousepad.desktop
 fi

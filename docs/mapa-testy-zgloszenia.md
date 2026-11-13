@@ -233,13 +233,16 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odświ
 - `tests/unit/wlb-firstboot.bats` — `awaria finalizacji audytu nie otwiera portu huba ani nie publikuje firstboot.done (#251)`, `awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)`, `awaria restartu nftables przy otwieraniu huba zamyka bramkę (trap, #251)`, `firstboot otwiera hub po gotowości kont i finalizacji audytu (#251)`
 
 ### #269 — Standard biurowy pulpitu: LibreOffice Writer (edytor tekstu + OpenDocument)  ·  _otwarte_
-- `tests/acceptance.d/41-biuro.sh` — `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, *Standard biurowy pulpitu: LibreOffice Writer (#269) i czytnik PDF (#270)*
+- `tests/acceptance.d/41-biuro.sh` — `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, *Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272)*
 
 ### #270 — Standard pulpitu: przeglądarka PDF (evince) we wspólnej roli desktop  ·  _otwarte_
-- `tests/acceptance.d/41-biuro.sh` — `Czytnik PDF evince obecny (binarka, #270)`, `Kafelek czytnika PDF w menu XFCE (org.gnome.Evince.desktop, #270)`, `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269) i czytnik PDF (#270)*
+- `tests/acceptance.d/41-biuro.sh` — `Czytnik PDF evince obecny (binarka, #270)`, `Kafelek czytnika PDF w menu XFCE (org.gnome.Evince.desktop, #270)`, `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272)*
 
 ### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
 - `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
+
+### #272 — Standard pulpitu: edytor tekstu/kodu w stylu Notepad++ (Geany/odpowiednik) na każdym flavorze  ·  _otwarte_
+- `tests/acceptance.d/41-biuro.sh` — `Edytor tekstu mousepad obecny (binarka, #272)`, `Kafelek edytora tekstu w menu XFCE (org.xfce.mousepad.desktop, #272)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272)*
 
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
 - `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
