@@ -445,11 +445,31 @@ expect_fail "Żaden plik SUID nie jest zapisywalny przez badacza (#288)" \
 
 # Groźne file-capabilities poza oczekiwanym ping(cap_net_raw) = regresja.
 if command -v getcap >/dev/null 2>&1; then
-  expect_fail "Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)" \
-    bash -c "getcap -r / 2>/dev/null | grep -qE 'cap_sys_admin|cap_setuid|cap_setgid|cap_dac_override|cap_sys_ptrace'"
+  expect_fail "Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace/sys_module) (#288)" \
+    bash -c "getcap -r / 2>/dev/null | grep -qE 'cap_sys_admin|cap_setuid|cap_setgid|cap_dac_override|cap_sys_ptrace|cap_sys_module'"
 else
   skip "Capabilities: brak getcap (libcap2-bin) na obrazie (#288)"
 fi
+
+# Zbiór capabilities procesu badacza w Ring 3: CapEff i CapAmb muszą być puste (brak aktywnych/ambient cap).
+# shellcheck disable=SC2016  # zmienne rozwijane w podpowłoce badacza, nie tu
+expect_ok "Zbiór capabilities procesu badacza jest pusty/minimalny (CapBnd/CapEff w /proc/self/status, #288)" \
+  as "$R1" bash -c '
+    eff=$(sed -n "s/^CapEff:[[:space:]]*//p" /proc/self/status)
+    bnd=$(sed -n "s/^CapBnd:[[:space:]]*//p" /proc/self/status)
+    amb=$(sed -n "s/^CapAmb:[[:space:]]*//p" /proc/self/status)
+    test -n "$eff" && test -n "$bnd" && [[ "$eff" =~ ^0+$ ]] && { [ -z "$amb" ] || [[ "$amb" =~ ^0+$ ]]; }
+  '
+
+# --- Izolacja pamięci jądra z Ring 3: siłowa próba odczytu struktur Ring 0 -> odmowa (EACCES/EPERM) (#288) ---
+for target in /dev/mem /proc/kcore /dev/kmem /dev/port; do
+  if [[ -e "$target" ]]; then
+    expect_fail "Odczyt $target zablokowany dla badacza (Ring3->Ring0, #288)" \
+      as "$R1" head -c1 "$target"
+  else
+    skip "Odczyt $target: urządzenie nie występuje na obrazie (#288)"
+  fi
+done
 
 # --- Obejście blokady eksportu innymi metodami HTTP (reguła Traefika jest method-agnostic) ---
 w6b_http_method() {
