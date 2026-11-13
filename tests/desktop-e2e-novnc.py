@@ -282,6 +282,23 @@ def _probe_state(desktop) -> dict:
     return desktop.evaluate(_PROBE_JS)
 
 
+def _pointer_click(desktop, canvas, pos: dict, click: dict, button: str = "left") -> str:
+    """Klik na canvasie z actionability Playwrighta; fallback wprost we współrzędne viewportu.
+
+    `locator.click(position=…)` liczy punkt względem ELEMENTU, więc nie zależy od offsetu paska
+    noVNC ani od `margin:auto`. Gdyby Playwright nie potrafił przewinąć canvasu większego niż okno,
+    klikamy w `viewportX/Y` z probu — to zawsze środek widocznej części. Zwraca "" przy kliknięciu
+    przez locator albo opis błędu, gdy zadziałał fallback (do diagnostyki w result.json).
+    """
+    try:
+        canvas.click(position=pos, button=button, timeout=15000)
+        return ""
+    except Exception as exc:
+        desktop.mouse.move(click["viewportX"], click["viewportY"])
+        desktop.mouse.click(click["viewportX"], click["viewportY"], button=button)
+        return f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"
+
+
 def _wait_settled(desktop, deadline: float, settle: float = 1.0) -> dict:
     """Czeka, aż canvas będzie gotowy i STABILNY (noVNC resizeSession zmienia rozmiar po połączeniu)."""
     probe: dict = {"present": False, "found": False}
@@ -343,7 +360,11 @@ def _interact(desktop, probe: dict, art: pathlib.Path, left, min_changed: int) -
 
     # Hover PRZED bazowym zrzutem: samo najechanie może podświetlić element (hover/tooltip), więc
     # nie może zostać policzone jako reakcja na klik.
-    canvas.hover(position=pos, timeout=min(left(), 15) * 1000)
+    try:
+        canvas.hover(position=pos, timeout=min(left(), 15) * 1000)
+    except Exception as exc:
+        out["hover_error"] = f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"
+        desktop.mouse.move(probe["click"]["viewportX"], probe["click"]["viewportY"])
     time.sleep(0.4)
     desktop.evaluate(_SNAPSHOT_JS)
     time.sleep(0.5)
@@ -351,10 +372,23 @@ def _interact(desktop, probe: dict, art: pathlib.Path, left, min_changed: int) -
     out["idle_diff"] = idle
     out["baseline_stable"] = bool(idle.get("ok") and idle.get("changed", 0) < min_changed)
 
-    desktop.evaluate(_SNAPSHOT_JS)  # świeży baseline tuż przed prawym klikiem
-    canvas.click(position=pos, button="right", timeout=min(left(), 15) * 1000)
-    menu, elapsed = _wait_diff(desktop, min(left(), 6.0), min_changed)
-    out["right_click"] = {"diff": menu, "elapsed_s": round(elapsed, 2)}
+    # xfdesktop/panel mogą się mapować kilka sekund po pierwszym niepustym canvasie, więc prawy klik
+    # ma DWIE próby. Między nimi zamykamy ewentualne spóźnione menu (Escape), by nie zaburzyć baseline'u.
+    attempts: list[dict] = []
+    menu: dict = {"ok": False}
+    for attempt in (1, 2):
+        desktop.evaluate(_SNAPSHOT_JS)  # świeży baseline tuż przed prawym klikiem
+        locator_error = _pointer_click(desktop, canvas, pos, probe["click"], button="right")
+        if locator_error:
+            out["click"]["locator_error"] = locator_error
+        menu, elapsed = _wait_diff(desktop, min(left(), 5.0), min_changed)
+        attempts.append({"attempt": attempt, "diff": menu, "elapsed_s": round(elapsed, 2)})
+        if menu.get("ok") and menu.get("changed", 0) >= min_changed:
+            break
+        desktop.keyboard.press("Escape")
+        if attempt == 1 and left() > 12:
+            time.sleep(3)
+    out["right_click"] = {"diff": menu, "elapsed_s": attempts[-1]["elapsed_s"], "attempts": attempts}
     out["after_click"] = _probe_state(desktop)
 
     reacted = bool(menu.get("ok") and menu.get("changed", 0) >= min_changed)
@@ -381,7 +415,10 @@ def _interact(desktop, probe: dict, art: pathlib.Path, left, min_changed: int) -
         ay = round(vis["top"] + vis["h"] * 0.30)
         bx = round(vis["left"] + vis["w"] * 0.65)
         by = round(vis["top"] + vis["h"] * 0.65)
-        canvas.hover(position={"x": ax - probe["left"], "y": ay - probe["top"]}, timeout=min(left(), 15) * 1000)
+        try:
+            canvas.hover(position={"x": ax - probe["left"], "y": ay - probe["top"]}, timeout=min(left(), 15) * 1000)
+        except Exception:
+            desktop.mouse.move(ax, ay)
         time.sleep(0.3)
         desktop.evaluate(_SNAPSHOT_JS)
         desktop.mouse.down()
