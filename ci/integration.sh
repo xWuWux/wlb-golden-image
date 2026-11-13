@@ -85,6 +85,33 @@ collect_vm_logs() {
   cp build/test/serial.log "$LOGS/$name-serial.log" 2>/dev/null || true
 }
 
+# #288 klasa 3: bramka idempotencji Ansible. Drugi przebieg TEGO SAMEGO playbooka (site.yml)
+# na tej samej, już zbudowanej VM musi dać changed=0. Taski, które legalnie raportowałyby zmianę
+# przy każdym przebiegu (cache apt, pip/conda/R/Julia no-op, fetch artefaktów), mają changed_when
+# ustawione tak, żeby changed znaczyło realną zmianę stanu — inaczej bramka byłaby fikcyjna.
+# Uruchamiane tylko dla obrazu bazowego: flavory budują się osobnymi playbookami warstwowymi
+# (memory.yml, radiologia.yml, histologia.yml), więc site.yml nie odtwarza ich stanu.
+idempotency_run() {
+  local logname=$1
+  local log=$LOGS/idempotency-$logname.log inv=$LOGS/idempotency-$logname.ini rc=0
+  cat >"$inv" <<EOF
+[wlb_test]
+wlb-test ansible_host=127.0.0.1 ansible_port=2222 ansible_user=wlbadmin ansible_ssh_private_key_file=$REPO_ROOT/build/test/id_ed25519
+EOF
+  ANSIBLE_CONFIG=$REPO_ROOT/ansible/ansible.cfg ansible-playbook -i "$inv" ansible/site.yml \
+    -e "wlb_image_name=wlb-general wlb_image_version=$IMAGE_VERSION wlb_image_date=$IMAGE_DATE wlb_prepare_versioned_python=true" \
+    -e "wlb_artifacts_dir=$ARTIFACTS" \
+    -e "wlb_git_commit=${GIT_COMMIT:-} wlb_git_describe=${GIT_DESCRIBE:-} wlb_git_dirty=${GIT_DIRTY:-} wlb_build_run=${BUILD_RUN:-local}" \
+    >"$log" 2>&1 || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    echo "Drugi przebieg playbooka nie zakończył się czysto (rc=$rc) — ogon logu:"
+    tail -40 "$log"
+  fi
+  # Parsowanie PLAY RECAP w osobnym module (testy jednostkowe: tests/unit/test_idempotency.py).
+  python3 ci/idempotency.py "$log" || rc=1
+  return $rc
+}
+
 acceptance() {
   # $1 obraz (domyślnie baza), $2 nazwa logu — reużywane dla flavora wlb-radiologia (#135)
   local img=${1:-$IMAGE} logname=${2:-acceptance}
@@ -135,6 +162,11 @@ acceptance() {
     return 1
   fi
   tests/run-local.sh "$img" || rc=$?
+  # Idempotencja (#288 klasa 3) przed testami akceptacji: testy zmieniają stan VM, więc drugi
+  # przebieg playbooka musiałby je odkręcać — bramka ma sprawdzać stan po pierwszym provisioningu.
+  if [[ $rc -eq 0 && $img == "$IMAGE" ]]; then
+    idempotency_run "$logname" || rc=$?
+  fi
   if [[ $rc -eq 0 ]]; then
     WLB_TEST_NTP=$ntp_flag WLB_TEST_PROXY=1 tests/acceptance.sh | tee "$LOGS/$logname.log" || rc=$?
     # Sprawdzamy rzeczywistą odpowiedź node_exportera, nie tylko lokalny plik textfile.
