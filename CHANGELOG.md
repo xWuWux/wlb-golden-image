@@ -23,6 +23,14 @@ pierwszym Laboratorium na klastrze).
   `.txt`→`.odt`→`.docx` (silnik dokumentów, nie tylko `--version`). Koszt: radiologia zyskuje biuro
   (~+240 MB warstwy) — świadomie zaakceptowane.
 
+- **Standard biurowy pulpitu — czytnik PDF (evince) (#270):** przeglądarka dokumentów PDF
+  przeniesiona z `neuro_apps` (#200) do ogólnej roli `desktop`, dzięki czemu czytnik PDF jest
+  dostępny na **każdym** flavorze z pulpitem (memory, histologia, radiologia) bez podwójnej
+  instalacji (deduplikacja). Instalowany pakiet `evince` przed końcowym sweepem AppArmor (CIS 1.6.3).
+  Kafelek stockowy `/usr/share/applications/org.gnome.Evince.desktop`. Akceptacja w `41-biuro.sh`:
+  weryfikacja binarki, kafelka w menu XFCE oraz headless smoke renderowania PDF bez środowiska
+  graficznego (`evince-thumbnailer`).
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
