@@ -14,6 +14,23 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Test dryfu wersji bez fałszywych alarmów (#277/#304):** `ci/lock_drift.py` porównuje wersje
+  semantycznie (PEP 440), a nie znakowo. Lock (pip) zapisuje `soupsieve==4.0.0`, a `conda env export`
+  w obrazie podaje `4.0` — to to samo wydanie, więc pin jest spełniony i pip nic nie doinstalowuje.
+  Wcześniej taki zapis czerwienił etap 5 jako `DRYF` (po bumpie bezpieczeństwa soupsieve), mimo że
+  obraz był zgodny z lockiem. Wersje nieparsowalne nadal porównujemy znakowo, a realna różnica
+  (np. `4.0.1` vs `4.0.0`) pozostaje błędem.
+- **E2E wejścia pulpitu w przeglądarce (#277):** krok interakcji `tests/desktop-e2e-novnc.py` przestał
+  być best-effort i **deterministycznie potwierdza reakcję** pulpitu. Przyczyną fałszywego
+  `before == after` była próbka: czytała tylko lewy-górny róg 200×200, a prawy klik trafiał w ~(640,400)
+  — menu xfdesktop powstawało poza próbką, a zrzut robiono już po `Escape`. Teraz porównujemy **pełny
+  bufor** canvasu (próg na piksel + minimalna liczba zmienionych pikseli), klikamy przez
+  `locator.click(position=…)` (bez ręcznego offsetu paska noVNC) i fotografujemy menu, zanim `Escape`
+  je zamknie. Dodatkowo opakowany `WebSocket.send` liczy komunikaty RFB (`PointerEvent`/`KeyEvent`),
+  więc wynik rozróżnia „zdarzenie nie dotarło do noVNC” od „noVNC wysłał, pulpit nie zareagował”.
+  Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
+  a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
+  (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
