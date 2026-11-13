@@ -27,7 +27,9 @@
   until: python_env_update is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  # conda przy braku zmian wypisuje „All requested packages already installed”; tylko realna
+  # instalacja ma być changed — inaczej bramka idempotencji (#288) pada na no-opie.
+  changed_when: "'All requested packages already installed' not in python_env_update.stdout"
 
 # #179: TLJH/pip pozostawił dist-info 2.14.2 obok wersji 2.14.1 z conda.
 # Nie zmieniamy locka ani kodu pakietu. Niejednoznaczna własność zatrzymuje build.
@@ -50,14 +52,23 @@
   ansible.builtin.debug:
     var: python_env_metadata.stdout
 
-- name: Zamrożenie wersji (conda env export)
+- name: Zamrożenie wersji (conda env export) — zapis tylko przy realnej zmianie locka
   ansible.builtin.shell: |
     set -o pipefail
+    tmp=$(mktemp)
     /opt/tljh/user/bin/conda env export --prefix /opt/tljh/user --no-builds \
-      | grep -v '^prefix:' > /opt/wlb/envs/python/environment.lock.yml
+      | grep -v '^prefix:' > "$tmp"
+    if cmp -s "$tmp" /opt/wlb/envs/python/environment.lock.yml; then
+      rm -f "$tmp"
+      echo LOCK_UNCHANGED
+    else
+      mv "$tmp" /opt/wlb/envs/python/environment.lock.yml
+      echo LOCK_CHANGED
+    fi
   args:
     executable: /bin/bash
-  changed_when: true
+  register: python_env_lock_export
+  changed_when: "'LOCK_CHANGED' in python_env_lock_export.stdout"
 
 - name: Zapisz przebieg instalacji środowiska (diagnostyka migracji menedżerów pakietów)
   ansible.builtin.copy:
@@ -69,24 +80,38 @@
       {{ python_env_update.stderr_lines[-500:] | join('\n') }}
     dest: /opt/wlb/envs/python/conda-env-update.log
     mode: "0644"
+  # Log diagnostyczny zmienia się przy każdym przebiegu (output condy) — to nie stan systemu (#288).
+  changed_when: false
 
 - name: Pobierz lock do artefaktów budowania
   ansible.builtin.fetch:
     src: /opt/wlb/envs/python/environment.lock.yml
     dest: "{{ wlb_artifacts_dir }}/environment.lock.yml"
     flat: true
+  changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)
 
 - name: Pobierz przebieg instalacji do artefaktów budowania
   ansible.builtin.fetch:
     src: /opt/wlb/envs/python/conda-env-update.log
     dest: "{{ wlb_artifacts_dir }}/conda-env-update.log"
     flat: true
+  changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)
 
 # M0 (#193) dotyczy WYŁĄCZNIE nowo budowanego obrazu, nie działającej VM badacza.
 # TLJH instaluje swój prefiks pod /opt/tljh/user; zwykłe mv nie relokuje conda.
 # Klon używa mechanizmu conda i docelowego prefiksu; przed publikacją weryfikujemy importy.
+# Drugi przebieg playbooka na zbudowanej VM nie może przełączać huba w tło: gdy prefiks jest już
+# dowiązaniem wersjonowanym, blok M0 jest no-op (#288, klasa 3).
+- name: "Czy prefiks Pythona jest już wersjonowany (#193, #288)"
+  ansible.builtin.stat:
+    path: /opt/tljh/user
+    follow: false
+  register: python_env_user_present
+
 - name: Przygotuj wersjonowany prefiks Pythona w budowanym obrazie (#193)
-  when: wlb_prepare_versioned_python | default(false) | bool
+  when:
+    - wlb_prepare_versioned_python | default(false) | bool
+    - not (python_env_user_present.stat.islnk | default(false))
   block:
     - name: Sprawdź status huba przed migracją podczas budowy
       ansible.builtin.systemd:

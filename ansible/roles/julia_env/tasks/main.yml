@@ -78,10 +78,13 @@
   until: julia_env_install is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  # Pkg.instantiate/precompile jest idempotentne względem Manifest.toml; output nie daje sygnału
+  # o realnej zmianie, więc no-op nie może psuć bramki idempotencji (#288).
+  changed_when: false
 
 - name: Pobierz Manifest Julii do artefaktów budowania
   ansible.builtin.fetch:
     src: "{{ julia_project_dir }}/Manifest.toml.generated"
     dest: "{{ wlb_artifacts_dir }}/julia-Manifest.toml"
     flat: true
+  changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)

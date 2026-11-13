@@ -15,9 +15,14 @@
 # bwrap mimo restrykcji. Realny start sandboxa weryfikuje akceptacja (47-histologia smoke) — jeśli
 # utwardzenie bazy zablokuje userns twardo, złapie to build+akceptacja, nie ciche przejście.
 
-- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+  ansible.builtin.apt:
     name:
       # Sam Calc + libreoffice-core; bez Writer/Impress/Base — mniejszy obraz niż metapakiet libreoffice.
       - libreoffice-calc
@@ -29,7 +34,6 @@
 # --- jamovi (Flatpak) ---------------------------------------------------------------
 - name: Flatpak (menedżer aplikacji sandboxowanych dla jamovi)
   ansible.builtin.apt:
-    update_cache: true
     name: flatpak
     state: present
 
@@ -75,7 +79,9 @@
       - --system
       - --filesystem={{ jamovi_data_path }}
       - "{{ jamovi_flatpak_id }}"
-  changed_when: true
+  # flatpak override ustawia tę samą politykę przy każdym przebiegu i nie raportuje różnicy;
+  # changed przy każdym re-runie psułoby bramkę idempotencji (#288).
+  changed_when: false
 
 # Kafelek w /usr/share/applications z ABSOLUTNYM Exec (#199): sesja XFCE ma /usr/bin w PATH, ale katalog
 # eksportów Flatpaka (/var/lib/flatpak/exports/share/applications) bywa poza XDG_DATA_DIRS spawnera —

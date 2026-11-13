@@ -78,3 +78,4 @@
         src: /etc/wlb/image-release
         dest: "{{ wlb_artifacts_dir }}/image-release"
         flat: true
+      changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)
