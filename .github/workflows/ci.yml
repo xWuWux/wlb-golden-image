@@ -249,6 +249,10 @@ jobs:
           # Flavor wlb-histologia analogicznie opt-in (etykieta build-histologia / zmiana plików flavora /
           # nocny build) — pulpit + Calc + RStudio + jamovi-Flatpak na realnym obrazie (#108).
           WLB_BUILD_HISTOLOGIA: ${{ needs.lint.outputs.histologia == 'true' && '1' || '0' }}
+          # Bramka regresji Lynis (#288): domyślnie raport; vars.WLB_LYNIS_GATING=1 promuje,
+          # vars.WLB_LYNIS_BASELINE nadpisuje baseline (domyślnie 72).
+          WLB_LYNIS_GATING: ${{ vars.WLB_LYNIS_GATING || '0' }}
+          WLB_LYNIS_BASELINE: ${{ vars.WLB_LYNIS_BASELINE || '72' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

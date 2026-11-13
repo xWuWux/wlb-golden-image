@@ -7,7 +7,8 @@
 #      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem), a dekodery i reguły
 #      Wazuh parsują ten log na nazwane pola i rozpoznają podrobione wpisy (#17)
 #   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
+#   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11;
+#      WLB_LYNIS_GATING=1 promuje go do bramki regresji (#288): index < WLB_LYNIS_BASELINE lub warning[]
 #   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
 #   8. E2E renderu pulpitu w przeglądarce: Playwright/Chromium na runnerze → Hub VM (#206) — raport,
@@ -365,15 +366,33 @@ image_oval() {
 }
 
 hardening_report() {
-  # Raport utwardzenia z VM testowej (zebrany w acceptance). Krok opcjonalny: zawsze zwraca 0,
+  # Raport utwardzenia z VM testowej (zebrany w acceptance). Domyślnie krok opcjonalny (zawsze 0),
   # bo audyt walidują osobne testy akceptacyjne, a odstępstwa są świadome i opisane (#11).
+  # WLB_LYNIS_GATING=1 promuje go do bramki REGRESJI (#288): hardening_index poniżej baseline
+  # (WLB_LYNIS_BASELINE, domyślnie 72) albo dowolne warning[] = błąd. Bez flagi — tylko raport.
+  local rc=0 args=()
+  if [[ ${WLB_LYNIS_GATING:-0} == 1 ]]; then
+    args=(--gate --baseline "${WLB_LYNIS_BASELINE:-72}")
+    if [[ ! -s $ARTIFACTS/lynis-report.dat ]]; then
+      echo "Brak raportu Lynis — bramka WLB_LYNIS_GATING=1 (fail-closed)"
+      return 1
+    fi
+  fi
   if [[ ! -s $ARTIFACTS/lynis-report.dat ]]; then
     echo "Brak raportu Lynis (VM nie wystartowała lub skan się nie wykonał) — pomijam"
     return 0
   fi
-  python3 ci/lynis_report.py "$ARTIFACTS/lynis-report.dat" | summary >/dev/null
+  python3 ci/lynis_report.py "${args[@]}" "$ARTIFACTS/lynis-report.dat" | summary >/dev/null || rc=$?
   grep -oP '^hardening_index=\K\d+' "$ARTIFACTS/lynis-report.dat" |
     tail -1 | sed 's/^/Lynis hardening index: /' || true
+  if [[ ${WLB_LYNIS_GATING:-0} == 1 ]]; then
+    if ((rc == 0)); then
+      echo "Lynis: bramka regresji PASS"
+    else
+      echo "Lynis: bramka regresji FAIL (rc=$rc)"
+    fi
+  fi
+  return "$rc"
 }
 
 # Flavor wlb-radiologia (#135): opt-in (etykieta build-radiologia / zmiana plików flavora / nocny build —
@@ -475,7 +494,7 @@ run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 run_check "Jedno jądro w obrazie (#9)" kernel_single
-run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
+run_check "Utwardzenie systemu (Lynis, raport; bramka z WLB_LYNIS_GATING=1)" hardening_report
 run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
 run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
 run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
