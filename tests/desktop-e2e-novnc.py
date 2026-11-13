@@ -574,12 +574,16 @@ def main() -> None:
             art.mkdir(parents=True, exist_ok=True)
             desktop.screenshot(path=str(art / "desktop-ok.png"))
             (art / "console.log").write_text("\n".join(console_errors), encoding="utf-8")
+            if interaction_mode == "off":
+                reason = "pulpit renderuje (Hub→proxy→noVNC); pomiar interakcji wyłączony (WLB_E2E_INTERACTION=off)"
+            elif interaction.get("reacted"):
+                reason = "pulpit renderuje (Hub→proxy→noVNC) i reaguje na wejście"
+            else:
+                reason = f"pulpit renderuje; interakcja niepotwierdzona ({interaction_mode})"
             _fail(
                 art,
                 0,
-                "pulpit renderuje (Hub→proxy→noVNC) i reaguje na wejście"
-                if interaction.get("reacted")
-                else f"pulpit renderuje; interakcja niepotwierdzona ({interaction_mode})",
+                reason,
                 hub=hub,
                 sample=sample,
                 interaction=interaction,
