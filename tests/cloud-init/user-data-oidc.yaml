@@ -1,0 +1,77 @@
+#cloud-config
+# Laboratorium testowe dla wariantu z uwierzytelnianiem OIDC (#288 klasa 4, #18).
+# Weryfikuje fail-secure firstboota oraz renderowanie GenericOAuthenticator (70-wlb-auth.py).
+hostname: lab-test01
+fqdn: lab-test01.wlb.local
+
+users:
+  - name: wlbadmin
+    uid: 1001
+    groups: [sudo, wlb-platform-admins]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_PUBKEY__
+ssh_pwauth: false
+
+disk_setup:
+  /dev/vdb:
+    table_type: gpt
+    layout: true
+    overwrite: false
+fs_setup:
+  - label: workspace
+    filesystem: ext4
+    device: /dev/vdb
+    partition: auto
+mounts:
+  - [LABEL=workspace, /workspace, ext4, "defaults,nodev,nosuid", "0", "2"]
+
+write_files:
+  - path: /etc/wlb/lab.env
+    permissions: "0600"
+    content: |
+      LAB_NAME=lab-test01
+      HUB_ADMIN_USER=a01
+      RESEARCHER_ACCOUNTS=2
+      RESEARCHER_PACKAGE_INSTALL=deny
+      AUTH_MODE=oidc
+      OIDC_CLIENT_ID=klient-wlb
+      OIDC_CLIENT_SECRET=sekret-bardzo-tajny
+      OIDC_AUTHORIZE_URL=https://login.example.com/oauth2/authorize
+      OIDC_TOKEN_URL=https://login.example.com/oauth2/token
+      OIDC_USERDATA_URL=https://login.example.com/oauth2/userinfo
+      OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+      ADMIN_SSH_CIDR=10.0.2.0/24
+      HUB_ALLOWED_CIDR=10.0.2.0/24
+      HUB_TLS=1
+      HUB_TLS_CERT=/etc/wlb/hub-tls.crt
+      HUB_TLS_KEY=/etc/wlb/hub-tls.key
+      NTP_SERVERS=10.0.2.2
+      SIEM_HOST=10.0.2.2
+      SIEM_PORT=5514
+      SIEM_PROTOCOL=tcp
+      SIEM_TLS_NAME=siem.test.local
+      LOCAL_TEST_MODE=1
+      RESEARCHER_TASKS_MAX=256
+      RESEARCHERS_PER_VM=2
+  - path: /etc/wlb/siem-ca.pem
+    permissions: "0644"
+    encoding: b64
+    content: __SIEM_CA_B64__
+  - path: /etc/wlb/hub-tls.crt
+    permissions: "0644"
+    encoding: b64
+    content: __HUB_CERT_B64__
+  - path: /etc/wlb/hub-tls.key
+    permissions: "0600"
+    encoding: b64
+    content: __HUB_KEY_B64__
+  - path: /etc/wlb/hub-ca.pem
+    permissions: "0644"
+    encoding: b64
+    content: __HUB_CA_B64__
+
+runcmd:
+  - [/usr/local/sbin/wlb-firstboot]

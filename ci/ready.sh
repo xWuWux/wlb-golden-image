@@ -15,10 +15,14 @@ stages = [
     ("observability", "3.5. Kontrakty obrazu", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
     ("mutation", "4b. Testy mutacyjne", True),
+]
+if "build-base" in needs:
+    stages.append(("build-base", "5a. Budowa bazy", image))
+stages.extend([
     ("integration", "5. Integracja i migracja", image),
     ("perf", "6a. Benchmarki (opcjonalne)", False),
     ("ephemeral", "6b. Wdrożenie tymczasowe (opcjonalne)", False),
-]
+])
 rows, ok = [], True
 for job, label, required in stages:
     result = needs.get(job, {}).get("result", "skipped")

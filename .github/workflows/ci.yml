@@ -23,10 +23,9 @@ on:
     branches: [main]
   schedule:
     - cron: "0 5 * * 1" # poniedziałki: etapy 1–4 (nowe CVE w zamrożonych wersjach, zmiany licencji)
-    # Nocny pełny build (etapy 1–6) wyłączony na tym etapie projektu (oszczędność minut CI).
-    # Włączanie stopniowe: najpierw raz w tygodniu (np. "0 3 * * 1"), potem częściej wg potrzeb.
-    # Przy włączaniu ustaw TEN SAM cron tutaj i w NIGHTLY_CRON w ci/changes.sh (muszą być identyczne).
-    # - cron: "0 3 * * 2,5"  # wt./pt. nocny pełny build: etapy 1–6 niezależnie od zmian (dryf, CVE, e2e)
+    # Nocny pełny build: start ostrożnie — raz w tygodniu (wtorki 03:00 UTC, #288).
+    # Przy zmianie ustaw TEN SAM cron tutaj i w NIGHTLY_CRON w ci/changes.sh (muszą być identyczne).
+    - cron: "0 3 * * 2" # wt. nocny pełny build: etapy 1–6 niezależnie od zmian (dryf, CVE, e2e)
   workflow_dispatch:
     inputs:
       perf:
@@ -202,12 +201,56 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  integration:
-    name: "5. Integracja i migracja"
+  build-base:
+    name: "5a. Budowa bazy"
     needs: [lint, unit]
     if: needs.lint.outputs.image == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Miejsce na dysku
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/boost \
+            /usr/lib/google-cloud-sdk /opt/microsoft /usr/local/graalvm 2>/dev/null || true
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo apt-get clean
+          df -h /
+      - name: Dostęp do KVM
+        run: ci/enable-kvm.sh
+      - name: QEMU i narzędzia obrazu
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools
+          key: tools-security-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-security.txt') }}
+      - run: ci/install-tools.sh lint security
+      - run: ci/guard.sh --name "5a. Budowa bazy" --timeout 70m --memory auto -- ci/integration.sh build-base
+        env:
+          IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+      # obraz bazowy dla matrixa integracji i etapów 6a/6b (#288 klasa 4)
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: output/
+          key: image-${{ github.run_id }}
+
+  integration:
+    name: "5. Integracja (${{ matrix.flavor }})"
+    needs: [lint, unit, build-base]
+    if: needs.lint.outputs.image == 'true'
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        flavor: [general, memory, histologia, radiologia]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Miejsce na dysku (obraz + VM testowe)
@@ -220,6 +263,11 @@ jobs:
           sudo docker image prune --all --force 2>/dev/null || true
           sudo apt-get clean
           df -h /
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: output/
+          key: image-${{ github.run_id }}
+          fail-on-cache-miss: true
       - name: Dostęp do KVM
         run: ci/enable-kvm.sh
       - name: QEMU i narzędzia obrazu
@@ -237,9 +285,11 @@ jobs:
             ~/.cache/ms-playwright
           key: tools-e2e-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-e2e.txt') }}
       - run: ci/install-tools.sh lint security e2e
-      - run: ci/guard.sh --name "5. Integracja i migracja" --timeout 150m --memory auto -- ci/integration.sh
+      - run: ci/guard.sh --name "5. Integracja (${{ matrix.flavor }})" --timeout 150m --memory auto -- ci/integration.sh
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+          REUSE_IMAGE: "1"
+          WLB_FLAVOR: ${{ matrix.flavor }}
           # Flavor wlb-radiologia budowany+testowany tylko na żądanie (etykieta build-radiologia / zmiana
           # plików flavora / nocny build) — opt-in, bez kosztu na każdym PR (#135).
           WLB_BUILD_RADIOLOGIA: ${{ needs.lint.outputs.radiologia == 'true' && '1' || '0' }}
@@ -252,7 +302,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: integration-logs
+          name: integration-logs-${{ matrix.flavor }}
           path: |
             build/ci-logs/
             build/artifacts/
@@ -264,25 +314,19 @@ jobs:
       # osobny krok z limitem czasu: wcześniej przebieg przerywał się w tym miejscu
       # i nie zostawały żadne artefakty
       - name: Podatności pakietów w obrazie (raport)
-        if: always()
+        if: matrix.flavor == 'general'
         continue-on-error: true
         timeout-minutes: 15
         run: ci/integration.sh image-sca
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
+        if: matrix.flavor == 'general'
         with:
           name: image-sca
           path: build/sca/
           if-no-files-found: ignore
           retention-days: 30
-      # obraz dla etapu 6 (za duży na artefakt — przekazywany przez cache)
-      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: needs.lint.outputs.perf == 'true' || needs.lint.outputs.ephemeral == 'true'
-        with:
-          path: output/
-          key: image-${{ github.run_id }}
 
   perf:
     name: "6a. Benchmarki wydajności"
@@ -345,7 +389,7 @@ jobs:
 
   ready:
     name: "Gotowe do code review"
-    needs: [lint, build-check, security, observability, unit, mutation, integration, perf, ephemeral]
+    needs: [lint, build-check, security, observability, unit, mutation, build-base, integration, perf, ephemeral]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

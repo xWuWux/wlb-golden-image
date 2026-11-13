@@ -452,6 +452,19 @@ histologia_flavor() {
   acceptance "$his_img" acceptance-histologia
 }
 
+# Wariant cloud-init: mirror pakietów (#288 klasa 4, IMG-004/#16).
+# Weryfikuje konfigurację kuratorowanego mirrora PyPI/CRAN z testowym proxy_sink.py.
+acceptance_mirror() {
+  local img=${1:-$IMAGE}
+  local tmpl="$REPO_ROOT/tests/cloud-init/user-data-mirror.yaml"
+  [[ -f $tmpl ]] || {
+    echo "brak szablonu $tmpl — pomijam"
+    return 0
+  }
+  echo "== Akceptacja wariantu mirror (RESEARCHER_PACKAGE_INSTALL=mirror) =="
+  USER_DATA_TEMPLATE="$tmpl" acceptance "$img" acceptance-mirror
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -466,17 +479,56 @@ if [[ ${1:-} == image-sca ]]; then
   finish
   exit
 fi
+
+if [[ ${1:-} == build-base || ${1:-} == build ]]; then
+  step "Budowanie obrazu bazowego $FULL"
+  build_image
+  endstep
+  finish
+  exit 0
+fi
+
+FLAVOR=${WLB_FLAVOR:-${1:-all}}
+echo "Uruchamiam testy integracji dla wariantu: $FLAVOR"
 step "Budowanie obrazu $FULL"
 build_image
 endstep
-run_check "Kryteria akceptacji MVP" acceptance
-run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
-run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
-run_check "Migracja na istniejącym dysku roboczym" migration
-run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
-run_check "Jedno jądro w obrazie (#9)" kernel_single
-run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
-run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
-run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
-run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
+
+case $FLAVOR in
+  general)
+    run_check "Kryteria akceptacji MVP" acceptance
+    run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
+    run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
+    run_check "Migracja na istniejącym dysku roboczym" migration
+    run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror
+    run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+    run_check "Jedno jądro w obrazie (#9)" kernel_single
+    run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
+    ;;
+  memory)
+    run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
+    ;;
+  histologia)
+    run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
+    ;;
+  radiologia)
+    run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
+    ;;
+  mirror)
+    run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror
+    ;;
+  all | *)
+    run_check "Kryteria akceptacji MVP" acceptance
+    run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
+    run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
+    run_check "Migracja na istniejącym dysku roboczym" migration
+    run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror
+    run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+    run_check "Jedno jądro w obrazie (#9)" kernel_single
+    run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
+    run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
+    run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
+    run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
+    ;;
+esac
 finish
