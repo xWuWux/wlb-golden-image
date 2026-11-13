@@ -18,9 +18,9 @@ EVENT=${EVENT:-push}
 LABELS=${LABELS:-[]}
 SCHEDULE=${SCHEDULE:-}
 BASE=${BASE:-}
-# Nocny pełny build jest chwilowo WYŁĄCZONY (zakomentowany w on.schedule w ci.yml). Przy włączaniu
-# ustaw tutaj dokładnie ten sam cron, który odkomentujesz w ci.yml (github.event.schedule zwraca napis crona).
-NIGHTLY_CRON="0 3 * * 2,5"          # dopóki w ci.yml nie ma tego crona, ta gałąź nigdy się nie wyzwala
+# Nocny pełny build (wtorki 03:00 UTC). Przy zmianie
+# ustaw tutaj dokładnie ten sam cron, który jest w on.schedule w ci.yml (github.event.schedule zwraca napis crona).
+NIGHTLY_CRON="0 3 * * 2"            # wt. nocny pełny build; musi dokładnie zgadzać się ze schedule w ci.yml
 INTEGRATION_LABEL="run-integration" # etykieta PR wymuszająca etap 5 na żądanie
 
 # Pliki czysto tekstowe pakowane do obrazu, bez wpływu na jego DZIAŁANIE: strona pomocy Launchera i inne
@@ -121,6 +121,9 @@ case $EVENT in
   schedule)
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && radiologia=true
     ;;
+  workflow_dispatch)
+    radiologia=true # ręczny pełny matrix flavorów (#288)
+    ;;
 esac
 [[ $radiologia == true ]] && image=true
 
@@ -134,6 +137,9 @@ case $EVENT in
   schedule)
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && memory=true
     ;;
+  workflow_dispatch)
+    memory=true # ręczny pełny matrix flavorów (#288)
+    ;;
 esac
 [[ $memory == true ]] && image=true
 
@@ -146,6 +152,9 @@ case $EVENT in
     ;;
   schedule)
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && histologia=true
+    ;;
+  workflow_dispatch)
+    histologia=true # ręczny pełny matrix flavorów (#288)
     ;;
 esac
 [[ $histologia == true ]] && image=true

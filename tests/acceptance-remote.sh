@@ -27,12 +27,21 @@ expect_ok "Self-signup wyłączony w konfiguracji huba (IMG-002)" \
 
 echo "== 1. Logowanie do TLJH i izolacja katalogów domowych =="
 expect_ok "Hub odpowiada" curl -sf "$HUB/hub/api"
-expect_ok "Logowanie $R1 poprawnym hasłem" test "$(hub_login $R1 "${PW[$R1]}")" = 302
-expect_fail "Odmowa przy błędnym haśle" test "$(hub_login $R2 "zle-haslo-123456")" = 302
-hub_login $R2 "${PW[$R2]}" >/dev/null
-hub_spawn $R1
-hub_spawn $R2
-expect_ok "Serwer notebooków uruchomiony ($R1)" systemctl is-active --quiet jupyter-$R1
+AUTH_MODE=$(sed -n 's/^AUTH_MODE=//p' /etc/wlb/lab.env 2>/dev/null || true)
+AUTH_MODE=${AUTH_MODE:-native}
+if [[ $AUTH_MODE == native ]]; then
+  expect_ok "Logowanie $R1 poprawnym hasłem" test "$(hub_login $R1 "${PW[$R1]}")" = 302
+  expect_fail "Odmowa przy błędnym haśle" test "$(hub_login $R2 "zle-haslo-123456")" = 302
+  hub_login $R2 "${PW[$R2]}" >/dev/null
+  hub_spawn $R1
+  hub_spawn $R2
+  expect_ok "Serwer notebooków uruchomiony ($R1)" systemctl is-active --quiet jupyter-$R1
+else
+  # #18/#57: GenericOAuthenticator poprawnie wygenerowany, ale brak produkcyjnego IdP
+  skip "AUTH_MODE=oidc: logowanie runtime zablokowane — brak produkcyjnego IdP (#18, #57)"
+  expect_ok "OIDC: konfiguracja 70-wlb-auth.py obecna (#18)" test -f /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
+  expect_ok "OIDC: klasa generic-oauth w konfiguracji (#18)" grep -q "c.JupyterHub.authenticator_class = 'generic-oauth'" /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
+fi
 expect_ok "Katalog domowy w /workspace" test "$(getent passwd jupyter-$R1 | cut -d: -f6)" = /workspace/jupyter-$R1
 expect_ok "Badacz widzi własny katalog" as $R1 ls /workspace/jupyter-$R1
 expect_fail "Badacz nie widzi katalogu innego badacza" as $R1 ls /workspace/jupyter-$R2

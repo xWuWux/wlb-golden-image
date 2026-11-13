@@ -150,6 +150,7 @@ esac
 AUTH_MODE=${AUTH_MODE:-native}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
 OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-} # .../.well-known/openid-configuration (opcjonalny punkt discovery)
 OIDC_AUTHORIZE_URL=${OIDC_AUTHORIZE_URL:-} # .../authorize
 OIDC_TOKEN_URL=${OIDC_TOKEN_URL:-}         # .../token
 OIDC_USERDATA_URL=${OIDC_USERDATA_URL:-}   # .../userinfo
@@ -633,6 +634,19 @@ case $AUTH_MODE in
     log "uwierzytelnianie: native (Native Authenticator)"
     ;;
   oidc)
+    if [[ -n ${OIDC_DISCOVERY_URL:-} ]]; then
+      [[ $OIDC_DISCOVERY_URL == https://* ]] || die "AUTH_MODE=oidc: OIDC_DISCOVERY_URL musi być https (#18)"
+      disco_json=$(curl -fsSL --connect-timeout 5 --max-time 10 "$OIDC_DISCOVERY_URL" 2>/dev/null) || die "AUTH_MODE=oidc: błąd pobierania OIDC discovery ${OIDC_DISCOVERY_URL} (fail-secure, #18)"
+      if [[ -z ${OIDC_AUTHORIZE_URL:-} ]]; then
+        OIDC_AUTHORIZE_URL=$(python3 -c "import sys, json; print(json.loads(sys.argv[1]).get('authorization_endpoint', ''))" "$disco_json" 2>/dev/null || true)
+      fi
+      if [[ -z ${OIDC_TOKEN_URL:-} ]]; then
+        OIDC_TOKEN_URL=$(python3 -c "import sys, json; print(json.loads(sys.argv[1]).get('token_endpoint', ''))" "$disco_json" 2>/dev/null || true)
+      fi
+      if [[ -z ${OIDC_USERDATA_URL:-} ]]; then
+        OIDC_USERDATA_URL=$(python3 -c "import sys, json; print(json.loads(sys.argv[1]).get('userinfo_endpoint', ''))" "$disco_json" 2>/dev/null || true)
+      fi
+    fi
     for v in OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_AUTHORIZE_URL OIDC_TOKEN_URL OIDC_USERDATA_URL OIDC_CALLBACK_URL; do
       [[ -n ${!v} ]] || die "AUTH_MODE=oidc: brak wymaganej zmiennej ${v}"
     done

@@ -126,10 +126,21 @@ repo_with_base() {
 # --- schedule / workflow_dispatch ---
 
 @test "schedule nocny (NIGHTLY_CRON): pełny build 1–6" {
-  run env EVENT=schedule SCHEDULE="0 3 * * 2,5" bash "$CHANGES"
+  run env EVENT=schedule SCHEDULE="0 3 * * 2" bash "$CHANGES"
   [ "$status" -eq 0 ]
   has_line "image=true"
   has_line "perf=true"
+  has_line "radiologia=true"
+  has_line "memory=true"
+  has_line "histologia=true"
+}
+
+@test "ci.yml i changes.sh: NIGHTLY_CRON jest identyczny ze schedule w workflow" {
+  local workflow="$REPO_ROOT/.github/workflows/ci.yml"
+  local changes_cron
+  changes_cron=$(grep '^NIGHTLY_CRON=' "$CHANGES" | cut -d'"' -f2)
+  [ -n "$changes_cron" ]
+  grep -Fq -- "- cron: \"$changes_cron\"" "$workflow"
 }
 
 @test "schedule tygodniowy (inny cron): tylko etapy 1–4" {
@@ -143,6 +154,9 @@ repo_with_base() {
   [ "$status" -eq 0 ]
   has_line "image=true"
   has_line "perf=true"
+  has_line "radiologia=true"
+  has_line "memory=true"
+  has_line "histologia=true"
 }
 
 @test "śluza: PR i merge_group wymagają integracji bez etykiety (#149)" {
