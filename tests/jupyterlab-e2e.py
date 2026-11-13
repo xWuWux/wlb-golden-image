@@ -10,7 +10,7 @@ pobierania i eksportu są ZABLOKOWANE (#284). Ten sam stack Playwrighta co tests
 Zakres (mapowanie na #288 sekcja 5):
   (a) logowanie u01 przez formularz Huba → JupyterLab i brak UI admina (`/hub/admin` = 403),
   (b) Launcher: kafelki Python/R/Julia + Help; Desktop (memory/radiologia/histologia),
-      RStudio (histologia) — wymagania zależne od WLB_JLAB_FLAVOR,
+      RStudio (memory/histologia) — wymagania zależne od WLB_JLAB_FLAVOR,
   (c) kernel Python z UI i `1+1`; to samo dla R; Julia, jeśli jest kafelek
       (WLB_JLAB_REQUIRE_JULIA=0 czyni ją opcjonalną),
   (d) file browser: utwórz/otwórz/edytuj/zapisz plik (zapis potwierdzony przez zamknięcie i ponowne
@@ -34,7 +34,7 @@ Parametry (env):
     WLB_JLAB_FLAVOR          general (domyślnie) | memory | radiologia | histologia | auto
                              „auto” = nie wymagaj kafelków flavora, tylko raportuj
     WLB_JLAB_REQUIRE_JULIA   1 (domyślnie) = brak kafelka Julia to błąd; 0 = tylko raport
-    WLB_JLAB_RSTUDIO_LOAD    1 (domyślnie na histologii) = kliknij RStudio i sprawdź, że proxy wstaje
+    WLB_JLAB_RSTUDIO_LOAD    1 (domyślnie) = kliknij RStudio i sprawdź, że proxy realnie się ładuje
 
 Kody wyjścia: 0 = JupyterLab działa wg scenariuszy; 1 = błąd konfiguracji/środowiska (brak zmiennych,
 brak Playwrighta); 2 = błąd E2E (scenariusz nie przeszedł).
@@ -57,7 +57,9 @@ SCHEMA = "wlb.jupyterlab-e2e/v1"
 # ich pojawienie się jest regresją lekkości obrazu bazowego (tests/acceptance.d/40-pulpit.sh).
 FLAVOR_TILES = {
     "general": {"Desktop": False, "RStudio": False},
-    "memory": {"Desktop": True, "RStudio": False},
+    # wlb-memory = ansible/desktop.yml (desktop + rstudio), radiologia = desktop + neuro_apps,
+    # histologia = desktop + rstudio + histo_apps (packer/*.pkr.hcl, #108/#135).
+    "memory": {"Desktop": True, "RStudio": True},
     "radiologia": {"Desktop": True, "RStudio": False},
     "histologia": {"Desktop": True, "RStudio": True},
     "auto": {"Desktop": None, "RStudio": None},  # None = tylko raportuj
@@ -195,6 +197,16 @@ def _download_export_blocked(page, clock: Clock) -> dict:
     """(e) Download i eksport zablokowane w menu File — dowód z DOM, nie z page_config (#284)."""
     snap = _menu_snapshot(page, "File", clock)
     items = snap["items"]
+    labels = snap["labels"]
+
+    # Kontrola pozytywna: menu File musi się realnie otworzyć i zawierać bazowe pozycje
+    # (np. New/Open/Save). Puste lub nieotwarte menu to FAIL, nie PASS (#288, #313).
+    has_base_items = (
+        bool(items)
+        and any(re.search(r"\bnew\b", lbl, re.IGNORECASE) for lbl in labels)
+        and any(re.search(r"\bsave\b", lbl, re.IGNORECASE) for lbl in labels)
+    )
+
     download = [i for i in items if i["text"].strip().lower() == "download"]
     export_top = [i for i in items if re.search(r"save\s+and\s+export\s+notebook", i["text"], re.IGNORECASE)]
 
@@ -207,7 +219,8 @@ def _download_export_blocked(page, clock: Clock) -> dict:
 
     enabled_export = [i for i in export_submenu if not i["disabled"] and i["text"]]
     out = {
-        "file_menu": snap["labels"],
+        "file_menu": labels,
+        "menu_opened": has_base_items,
         "download_present": bool(download),
         "download_enabled": any(not i["disabled"] for i in download),
         "export_item_present": bool(export_top),
@@ -217,7 +230,8 @@ def _download_export_blocked(page, clock: Clock) -> dict:
     }
     # Eksport byłby „martwą ścieżką” także wtedy, gdy podmenu jest puste — ale aktywna pozycja
     # (np. HTML/PDF) znaczy, że ktoś przywrócił plugin, czyli blokada #284 zniknęła.
-    out["blocked"] = not out["download_enabled"] and not enabled_export
+    # Wymagamy dowodu obecności menu (has_base_items): brak pozycji w menu to błąd renderu, nie blokada.
+    out["blocked"] = has_base_items and not out["download_enabled"] and not enabled_export
     return out
 
 
@@ -269,10 +283,31 @@ def _wait_output(nb, timeout: float) -> str:
     return last
 
 
+def _show_launcher(page, clock: Clock) -> bool:
+    """Aktywuj kartę Launchera — po otwarciu notebooka kafelki przestają być widoczne."""
+    if page.locator(".jp-Launcher:visible").count():
+        return True
+    tab = page.locator("#jp-main-dock-panel .lm-TabBar-tab", has_text="Launcher").first
+    if tab.count():
+        tab.click(timeout=clock.ms(10))
+    else:
+        page.keyboard.press("Control+Shift+C")
+        page.wait_for_selector(".lm-CommandPalette-input", timeout=clock.ms(8))
+        page.fill(".lm-CommandPalette-input", "New Launcher")
+        page.wait_for_timeout(300)
+        page.keyboard.press("Enter")
+    with contextlib.suppress(Exception):
+        page.wait_for_selector(".jp-Launcher:visible", timeout=clock.ms(20))
+    return page.locator(".jp-Launcher:visible").count() > 0
+
+
 def _run_kernel(page, tile: dict, clock: Clock) -> dict:
     """Klik kafelka kernela → nowy notebook → `1+1` → Shift+Enter → wynik z UI."""
+    if not _show_launcher(page, clock):
+        return {"ok": False, "reason": "Launcher nie jest dostępny", "tile": tile["label"]}
     before = page.locator(".jp-Notebook:visible").count()
-    page.locator(f'.jp-LauncherCard[title="{tile["label"]}"]').first.click()
+    card = page.locator(f'.jp-LauncherCard[data-category="Notebook"][title="{tile["label"]}"]').first
+    card.click(timeout=clock.ms(15))
     end = time.monotonic() + min(clock.left(), 60)
     while time.monotonic() < end and page.locator(".jp-Notebook:visible").count() <= before:
         time.sleep(0.3)
@@ -285,13 +320,12 @@ def _run_kernel(page, tile: dict, clock: Clock) -> dict:
     idle = False
     end = time.monotonic() + min(clock.left(), 90)
     while time.monotonic() < end:
-        try:
-            status = page.evaluate(
-                "() => { const el = document.querySelector('.jp-Notebook-ExecutionIndicator');"
-                " return el ? el.getAttribute('data-status') : null; }"
+        status = None
+        with contextlib.suppress(Exception):
+            status = nb.evaluate(
+                "(el) => { const i = el.querySelector('.jp-Notebook-ExecutionIndicator');"
+                " return i ? i.getAttribute('data-status') : null; }"
             )
-        except Exception:
-            status = None
         if status == "idle":
             idle = True
             break
@@ -327,7 +361,7 @@ def _new_file_via_launcher(page, clock: Clock, name: str, text: str) -> None:
 
 def _close_active_tab(page, clock: Clock) -> dict:
     """Zamknij aktywną kartę; jeśli pojawi się dialog (niezapisane zmiany) — to błąd zapisu."""
-    tab = page.locator(".lm-TabBar-tab.lm-mod-current").first
+    tab = page.locator("#jp-main-dock-panel .lm-TabBar-tab.lm-mod-current").last
     tab.hover(timeout=clock.ms(5))
     close = tab.locator(".lm-TabBar-tabCloseIcon")
     if close.count() == 0:
@@ -344,7 +378,7 @@ def _file_row(page, name: str):
     return page.locator(".jp-FileBrowser .jp-DirListing-itemText", has_text=name).first
 
 
-def _file_scenario(page, clock: Clock, art: pathlib.Path) -> dict:
+def _file_scenario(page, clock: Clock) -> dict:
     """(d) file browser: utwórz → zapisz → otwórz → edytuj → zapisz; weryfikacja po ponownym otwarciu."""
     name = f"wlb-e2e-{int(time.time())}.txt"
     first = "wlb e2e pierwsza linia"
@@ -385,7 +419,8 @@ def _file_scenario(page, clock: Clock, art: pathlib.Path) -> dict:
     # (e) menu kontekstowe pliku: Download musi być nieobecny; przy okazji sprzątamy plik.
     items = _context_menu(page, row, clock)
     out["context_menu"] = [i["text"] for i in items if i["text"]]
-    out["context_download"] = any(i["text"].strip().lower() == "download" for i in items)
+    out["context_download_present"] = any(i["text"].strip().lower() == "download" for i in items)
+    out["context_download_enabled"] = any(i["text"].strip().lower() == "download" and not i["disabled"] for i in items)
     # Zamknij menu przed akcją Delete (klikamy pozycję z tego samego, widocznego menu).
     labels = page.evaluate(MENU_LABELS_JS) or []
     if "Delete" in labels:
@@ -418,26 +453,35 @@ def _admin_checks(page, hub: str, user: str, clock: Clock) -> dict:
     return out
 
 
-def _rstudio_check(context, page, tile: dict, clock: Clock) -> dict:
-    """RStudio (histologia): kafelek otwiera proxy, które realnie się ładuje (nie 502/blank)."""
+def _rstudio_check(page, tile: dict, clock: Clock) -> dict:
+    """RStudio (histologia): kafelek otwiera proxy, które realnie się ładuje (nie 502/blank).
+
+    jupyter-server-proxy montuje serwery w IFrame w głównym obszarze (.jp-ServerProxy) — w
+    przeciwieństwie do jrdp („Desktop”, new_browser_window=True) NIE otwiera nowej karty.
+    """
     out: dict = {"tile": tile["label"]}
-    try:
-        with context.expect_page(timeout=clock.ms(60)) as popup_info:
-            page.locator(f'.jp-LauncherCard[title="{tile["label"]}"]').first.click()
-        rs = popup_info.value
-        rs.wait_for_load_state("domcontentloaded", timeout=clock.ms(60))
-        end = time.monotonic() + min(clock.left(), 60)
-        title, body = "", ""
-        while time.monotonic() < end:
-            title = rs.title()
-            body = rs.inner_text("body", timeout=5000)[:500]
-            if re.search(r"rstudio", f"{title}\n{body}", re.IGNORECASE):
-                break
-            time.sleep(1)
-        out.update({"url": rs.url, "title": title, "loaded": bool(re.search(r"rstudio", title + body, re.I))})
-        rs.close()
-    except Exception as exc:  # raportujemy, nie wywalamy całego kroku
-        out.update({"loaded": False, "error": f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"})
+    errors = re.compile(r"bad gateway|internal server error|error 50[234]|traceback", re.IGNORECASE)
+    if not _show_launcher(page, clock):
+        out.update({"loaded": False, "error": "Launcher nie jest dostępny"})
+        return out
+    page.locator(f'.jp-LauncherCard[title="{tile["label"]}"]').first.click(timeout=clock.ms(15))
+    end = time.monotonic() + min(clock.left(), 150)
+    src = title = body = ""
+    loaded = False
+    while time.monotonic() < end:
+        iframe = page.locator(".jp-ServerProxy:visible iframe").last
+        with contextlib.suppress(Exception):
+            # iframe/rsession jeszcze się przeładowuje — próbujemy do końca deadline'u
+            if iframe.count():
+                src = iframe.get_attribute("src") or ""
+                frame = iframe.content_frame
+                title = frame.locator("title").text_content(timeout=5000) or ""
+                body = frame.locator("body").inner_text(timeout=5000)[:600]
+        if re.search(r"rstudio", f"{title}\n{body}", re.IGNORECASE) and not errors.search(body):
+            loaded = True
+            break
+        time.sleep(1.5)
+    out.update({"frame_src": src, "title": title.strip(), "body": body.strip(), "loaded": loaded})
     return out
 
 
@@ -577,6 +621,10 @@ def main() -> None:
             stage = "blokady Download/Export"
             checks["download"] = _download_export_blocked(page, clock)
             if not checks["download"]["blocked"]:
+                if not checks["download"].get("menu_opened"):
+                    raise AssertionError(
+                        f"menu File nie otworzyło się lub brak bazowych pozycji: {checks['download']['file_menu']}"
+                    )
                 raise AssertionError(
                     "blokady #284 nie działają: "
                     f"Download={checks['download']['download_present']}, "
@@ -587,12 +635,12 @@ def main() -> None:
             stage = "file browser"
             page.goto(f"{hub}/user/{user}/lab?reset", wait_until="domcontentloaded", timeout=clock.ms(90))
             page.wait_for_selector(".jp-LauncherCard", timeout=clock.ms(90))
-            checks["file"] = _file_scenario(page, clock, art)
+            checks["file"] = _file_scenario(page, clock)
             if not checks["file"].get("saved"):
                 raise AssertionError(
                     f"plik nie zapisał się poprawnie (content={checks['file'].get('final_content')!r})"
                 )
-            if checks["file"].get("context_download"):
+            if checks["file"].get("context_download_enabled"):
                 raise AssertionError("menu kontekstowe pliku oferuje Download (#284)")
             if not checks["file"].get("deleted"):
                 raise AssertionError("nie udało się posprzątać pliku testowego przez UI")
@@ -600,7 +648,7 @@ def main() -> None:
             # RStudio (histologia) — kafelek już sprawdzony; tu realne ładowanie proxy.
             if rstudio_tile and rstudio_load:
                 stage = "RStudio"
-                checks["rstudio"] = _rstudio_check(context, page, rstudio_tile, clock)
+                checks["rstudio"] = _rstudio_check(page, rstudio_tile, clock)
                 if not checks["rstudio"].get("loaded"):
                     raise AssertionError(f"RStudio nie załadowało się: {checks['rstudio']}")
 
