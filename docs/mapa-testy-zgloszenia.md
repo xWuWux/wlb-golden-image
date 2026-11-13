@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-12). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -232,6 +232,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-12). Odświ
 ### #251 — [P0] Firstboot udostępnia hub przed finalizacją kont i audytu, także po awarii  ·  _otwarte_
 - `tests/unit/wlb-firstboot.bats` — `awaria finalizacji audytu nie otwiera portu huba ani nie publikuje firstboot.done (#251)`, `awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)`, `awaria restartu nftables przy otwieraniu huba zamyka bramkę (trap, #251)`, `firstboot otwiera hub po gotowości kont i finalizacji audytu (#251)`
 
+### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
+- `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
+
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
 - `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
 
@@ -241,6 +244,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-12). Odświ
 
 ### #284 — JupyterLab: wyszarzyć „Save and Export Notebook As” (ścieżka eksportu obok śluzy, #7)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Menu eksportu notebooka wyszarzone w JupyterLab (#284)`, `Przyciski pobierania ukryte w JupyterLab`
+
+### #288 — Testy: domknięcie 5 klas — CIS, izolacja u01, idempotencja Ansible, macierz flavorów, UI JupyterLab  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Brak binariów SUID/SGID w /workspace (#288)`, `Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)`, `Capabilities: brak getcap (libcap2-bin) na obrazie (#288)`, `Egress ICMP do zewnętrznego IP odrzucony (#288)`, `Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)`, `Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)`, `Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)`, `Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)`, `Egress: researcher_egress kończy się reject — default-deny (#288)`, `Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)`, `Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)`, `Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)`, `Eskalacja: pkexec nie podnosi uprawnień badacza (#288)`, `Obejście pobierania metodą $w6b_m odrzucone 403 (#288)`, `Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)`, *6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2)*, `Żaden plik SUID nie jest zapisywalny przez badacza (#288)`
+- `tests/acceptance.d/80-dr-odtworzenie-bazy.sh` — `Administrator Klienta a01 loguje się starym hasłem po odtworzeniu (RB-07b, #288)`, `Badacz $R1 loguje się przed symulacją awarii (#288)`, `Badacz u01 loguje się starym hasłem po odtworzeniu (RB-07b, #288)`, `Baza huba uszkodzona przed procedurą DR (integrity_check, #288)`, `Hub działa i odpowiada na API po odtworzeniu (RB-07b, #288)`, `Hub nieaktywny po zatrzymaniu (#288)`, `Hub odpowiada przed symulacją awarii (#288)`, `Konta u01 i a01 obecne w odtworzonej bazie (#288)`, `Kopia bazy huba wykonana na żądanie przed symulacją awarii (#288)`, `Kopia bazy spójna przed symulacją awarii (PRAGMA integrity_check, #288)`, `Kopia bezpieczeństwa uszkodzonej bazy utworzona (RB-07b, #288)`, `Kopia zawiera konta (users > 0, #288)`, `Liczba kont w bazie zgodna z kopią (#288)`, `Odczyt tabeli użytkowników z uszkodzonej bazy niemożliwy (#288)`, `Odtworzona baza ma uprawnienia 0600 root:root (#288)`, `Odtworzona baza przeszła PRAGMA integrity_check (#288)`, `Potwierdzenie spójności wybranej kopii (PRAGMA integrity_check, #288)`, `Serwer notebooków badacza u01 startuje po odtworzeniu (#288)`, `Timer kopii bazy wlb-hub-db-backup aktywny po procedurze DR (#288)`, `Wybór najnowszej kopii do odtworzenia (#288)`, *Próba odtworzenia po awarii bazy huba (DR drill, RB-07b, #288)*, `Świeża kopia do odtworzenia istnieje (#288)`
+- `tests/unit/wlb-hub-db-backup.bats` — `odtworzenie bazy z najnowszej kopii przywraca spójność po uszkodzeniu (DR drill, RB-07b, #288)`
 
 ## Uwagi
 
