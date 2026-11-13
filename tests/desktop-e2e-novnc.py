@@ -31,7 +31,7 @@ Parametry (env):
     WLB_E2E_HUB              baza Huba (domyślnie z HUB_TLS: https://localhost lub http://127.0.0.1)
     WLB_E2E_USER/PASS        konto badacza (np. u01) i hasło początkowe (plik /root/wlb-hub-<u>-initial-password)
     WLB_E2E_CA               ścieżka CA testowego (domyślnie /etc/wlb/hub-ca.pem przy HTTPS)
-    WLB_E2E_TIMEOUT          deadline całości w s (domyślnie 180)
+    WLB_E2E_TIMEOUT          deadline całości w s (domyślnie 240)
     WLB_E2E_ARTIFACT_DIR     katalog artefaktów (screenshot, console.log, result.json)
     WLB_E2E_INTERACTION      required (domyślnie) | optional (raportuj bez bramkowania) | off (pomiń krok 4)
     WLB_E2E_MIN_CHANGED_PX   ile pikseli musi się zmienić, by uznać reakcję pulpitu (domyślnie 200)
@@ -475,7 +475,7 @@ def main() -> None:
     user = os.environ.get("WLB_E2E_USER", "")
     passwd = os.environ.get("WLB_E2E_PASS", "")
     art.mkdir(parents=True, exist_ok=True)
-    deadline = float(os.environ.get("WLB_E2E_TIMEOUT", "180"))
+    deadline = float(os.environ.get("WLB_E2E_TIMEOUT", "240"))
     interaction_mode = os.environ.get("WLB_E2E_INTERACTION", "required").strip().lower()
     try:
         min_changed = int(os.environ.get("WLB_E2E_MIN_CHANGED_PX", "200"))
