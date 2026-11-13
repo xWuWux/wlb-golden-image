@@ -1009,6 +1009,49 @@ EOF
   [[ $output == *"OIDC_CALLBACK_URL musi być https"* ]]
 }
 
+@test "AUTH_MODE oidc: discovery /.well-known/openid-configuration uzupełnia endpointy i generuje config (#288)" {
+  stub curl 0 '{"authorization_endpoint": "https://auth.example.com/oauth2/v2.0/auth", "token_endpoint": "https://auth.example.com/oauth2/v2.0/token", "userinfo_endpoint": "https://auth.example.com/oidc/userinfo"}'
+  cat >>"$SANDBOX/etc/wlb/lab.env" <<EOF
+AUTH_MODE=oidc
+OIDC_CLIENT_ID=klient-wlb
+OIDC_CLIENT_SECRET=sekret-123
+OIDC_DISCOVERY_URL=https://login.microsoftonline.com/tenant/v2.0/.well-known/openid-configuration
+OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  authconf | grep -qx "c.GenericOAuthenticator.authorize_url = 'https://auth.example.com/oauth2/v2.0/auth'"
+  authconf | grep -qx "c.GenericOAuthenticator.token_url = 'https://auth.example.com/oauth2/v2.0/token'"
+  authconf | grep -qx "c.GenericOAuthenticator.userdata_url = 'https://auth.example.com/oidc/userinfo'"
+}
+
+@test "AUTH_MODE oidc: discovery wymaga https (fail-secure, #288)" {
+  cat >>"$SANDBOX/etc/wlb/lab.env" <<EOF
+AUTH_MODE=oidc
+OIDC_CLIENT_ID=klient-wlb
+OIDC_CLIENT_SECRET=sekret-123
+OIDC_DISCOVERY_URL=http://insecure.example.com/.well-known/openid-configuration
+OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"OIDC_DISCOVERY_URL musi być https"* ]]
+}
+
+@test "AUTH_MODE oidc: błąd pobierania discovery przerywa konfigurację (fail-secure, #288)" {
+  stub curl 1 ""
+  cat >>"$SANDBOX/etc/wlb/lab.env" <<EOF
+AUTH_MODE=oidc
+OIDC_CLIENT_ID=klient-wlb
+OIDC_CLIENT_SECRET=sekret-123
+OIDC_DISCOVERY_URL=https://login.microsoftonline.com/tenant/v2.0/.well-known/openid-configuration
+OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+EOF
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"błąd pobierania OIDC discovery"* ]]
+}
+
 @test "AUTH_MODE: wartość inna niż native/oidc jest odrzucana" {
   echo "AUTH_MODE=ldap" >>"$SANDBOX/etc/wlb/lab.env"
   run "$FIRSTBOOT"

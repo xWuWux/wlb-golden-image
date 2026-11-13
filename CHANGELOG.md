@@ -31,6 +31,11 @@ pierwszym Laboratorium na klastrze).
   Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
   a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
   (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
+- **Macierz flavorów i integracja CI (#288):**
+  - Uruchomiono nocny harmonogram w `.github/workflows/ci.yml` ostrożnie raz w tygodniu (`0 3 * * 2`, wtorki 03:00 UTC) zsynchronizowany co do znaku z `NIGHTLY_CRON` w `ci/changes.sh`.
+  - Etap 5 rozdzielony na jednokrotną budowę bazy `build-base` (`ci/integration.sh build-base` z zapisem `output/` do cache `actions/cache/save`) oraz macierz `integration` (`strategy.matrix` po `flavor: [general, memory, histologia, radiologia]`, `fail-fast: false`, `max-parallel: 2`) odtwarzającą bazę z cache (`actions/cache/restore`).
+  - Dodano wariant akceptacji cloud-init dla instalacji pakietów z lokalnego mirrora (`RESEARCHER_PACKAGE_INSTALL=mirror`, `tests/cloud-init/user-data-mirror.yaml`) z asercjami proxy sink.
+  - Dodano obsługę i testy fail-secure firstboota dla `AUTH_MODE=oidc` z automatycznym pobieraniem konfiguracji z `/.well-known/openid-configuration` (`OIDC_DISCOVERY_URL`), zachowując blokadę runtime (#18, brak produkcyjnego IdP) w testach akceptacyjnych.
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
