@@ -11,6 +11,13 @@ DR_DB=/workspace/.wlb-hub/jupyterhub.sqlite
 DR_BK_DIR=/workspace/.wlb-hub/backup
 DR_ADMIN_PW=$(cat /root/wlb-hub-admin-initial-password)
 
+# 0. Kontrola pozytywna: hub i logowanie DZIAŁAJĄ przed symulacją awarii. Bez tego nie odróżnimy
+#    „DR nie działa” od „hub był zepsuty już wcześniej” (diagnostyka awarii vs. stanu wyjściowego).
+expect_ok "Hub odpowiada przed symulacją awarii (#288)" \
+  curl -sf -o /dev/null "$HUB/hub/api"
+expect_ok "Badacz $R1 loguje się przed symulacją awarii (#288)" \
+  test "$(hub_login "$R1" "${PW[$R1]}")" = 302
+
 # 1. Przygotowanie: upewnij się, że mamy aktualną i spójną kopię bazy przed symulacją awarii
 expect_ok "Kopia bazy huba wykonana na żądanie przed symulacją awarii (#288)" \
   systemctl start wlb-hub-db-backup.service
@@ -18,9 +25,12 @@ dr_latest=$(find "$DR_BK_DIR" -maxdepth 1 -type f -name 'jupyterhub-*.sqlite' | 
 expect_ok "Świeża kopia do odtworzenia istnieje (#288)" test -n "$dr_latest"
 expect_ok "Kopia bazy spójna przed symulacją awarii (PRAGMA integrity_check, #288)" \
   bash -c "[[ \$(sqlite3 '$dr_latest' 'PRAGMA integrity_check;') == ok ]]"
+dr_users_before=$(sqlite3 "$dr_latest" 'SELECT count(*) FROM users;')
+expect_ok "Kopia zawiera konta (users > 0, #288)" test "${dr_users_before:-0}" -gt 0
 
 # 2. Symulacja awarii: zatrzymanie huba i celowe uszkodzenie jupyterhub.sqlite
 systemctl stop jupyterhub
+expect_ok "Hub nieaktywny po zatrzymaniu (#288)" bash -c '! systemctl is-active --quiet jupyterhub'
 rm -f "$DR_DB-wal" "$DR_DB-shm"
 # Nadpisujemy nagłówek i losowe bloki bazy, niszcząc strukturę SQLite
 printf 'CORRUPTED_WLB_DR_DRILL_%s\n' "$(date +%s)" | dd of="$DR_DB" bs=64 count=1 conv=notrunc status=none
@@ -50,6 +60,8 @@ expect_ok "Odtworzona baza ma uprawnienia 0600 root:root (#288)" \
   bash -c "[[ \$(stat -c %a:%u:%g '$DR_DB') == '600:0:0' ]]"
 expect_ok "Odtworzona baza przeszła PRAGMA integrity_check (#288)" \
   bash -c "[[ \$(sqlite3 '$DR_DB' 'PRAGMA integrity_check;') == ok ]]"
+dr_users_after=$(sqlite3 "$DR_DB" 'SELECT count(*) FROM users;')
+expect_ok "Liczba kont w bazie zgodna z kopią (#288)" test "$dr_users_after" = "$dr_users_before"
 # shellcheck disable=SC2016
 expect_ok "Konta u01 i a01 obecne w odtworzonej bazie (#288)" \
   bash -c "sqlite3 '$DR_DB' \"SELECT name FROM users WHERE name IN ('$R1', 'a01');\" | grep -qx '$R1'"
