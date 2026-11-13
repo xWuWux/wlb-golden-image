@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Koniec konfliktów CHANGELOG przy równoległych PR-ach:** `.gitattributes` oznacza
+  `CHANGELOG.md merge=union` — git scala sekcję „Niewydane" zachowując wpisy z obu stron
+  zamiast zgłaszać konflikt. Automatyzuje dotychczasową ręczną regułę „zachowaj wszystkie wpisy",
+  także na przycisku merge w GitHub. Przy wydaniu warto sprawdzić kolejność wpisów (union może je poprzeplatać).
+
 - **Test dryfu wersji bez fałszywych alarmów (#277/#304):** `ci/lock_drift.py` porównuje wersje
   semantycznie (PEP 440), a nie znakowo. Lock (pip) zapisuje `soupsieve==4.0.0`, a `conda env export`
   w obrazie podaje `4.0` — to to samo wydanie, więc pin jest spełniony i pip nic nie doinstalowuje.
