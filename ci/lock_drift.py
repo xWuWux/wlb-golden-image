@@ -10,6 +10,9 @@ upstream, pip podnosi ją z PyPI i przy okazji usuwa record condy: pakiet zmieni
 pozostaje jedna i ta sama. To migracja menedżera, a nie dryf wersji — raportujemy ją jedną linią
 jako uwagę i nie failujemy. Failujemy, gdy wersja się nie zgadza albo gdy pakiet znika z obrazu
 lub się w nim pojawia.
+
+Wersje porównujemy semantycznie (PEP 440), nie znakowo: pip normalizuje `4.0.0`, a conda potrafi
+podać `4.0` — to to samo wydanie, więc pin `==4.0.0` jest spełniony i nie ma dryfu.
 """
 
 from __future__ import annotations
@@ -20,6 +23,11 @@ from pathlib import Path
 
 import yaml
 
+try:  # dostępne w narzędziach CI; systemowy python3 runnera też je ma (zależność pip)
+    from packaging.version import InvalidVersion, Version
+except ImportError:  # pragma: no cover - awaryjnie to, co i tak wiezie pip
+    from pip._vendor.packaging.version import InvalidVersion, Version
+
 # pip: "nazwa==wersja" (pomijamy znaczniki środowiska i zakresy); conda: "nazwa=wersja=budowanie"
 _PIP_ENTRY = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*==\s*(?P<version>[^,\s;]+)")
 
@@ -27,6 +35,20 @@ _PIP_ENTRY = re.compile(r"^(?P<name>[A-Za-z0-9._-]+)\s*==\s*(?P<version>[^,\s;]+
 def name_key(name: str) -> str:
     """Klucz porównania nazw: PEP 503 — `MarkupSafe`, `markupsafe` i `foo_bar` to ta sama nazwa."""
     return name.strip().lower().replace("_", "-")
+
+
+def same_version(want: str, got: str) -> bool:
+    """Czy wersje oznaczają TO SAMO wydanie wg PEP 440 (`4.0` == `4.0.0`, `1.0.post1` == `1.0-1`).
+
+    Lock (pip) i eksport obrazu (conda) zapisują wersję w innej notacji: pip normalizuje do
+    `4.0.0`, a conda potrafi podać `4.0`. To nie dryf — pip uznaje obie za spełniające pin
+    `==4.0.0`, więc nie instaluje niczego nowszego. Porównanie znakowe dawało fałszywy FAIL
+    etapu 5 (soupsieve po bumpie bezpieczeństwa). Wersje nieparsowalne porównujemy znakowo.
+    """
+    try:
+        return Version(want) == Version(got)
+    except InvalidVersion:
+        return want == got
 
 
 def sections(lock: dict) -> tuple[dict[str, tuple[str, str]], dict[str, tuple[str, str]]]:
@@ -82,9 +104,14 @@ def compare(repo: dict, image: dict) -> tuple[list[str], list[str]]:
             problems.append(f"Python: {name} — ten sam pakiet w działach {' i '.join(sorted(set(want) | set(got)))}")
         if not want_version or not got_version:
             notes.append(f"Python: {name} — wersja nieokreślona w locku albo w obrazie")
-        elif want_version != got_version:
+        elif not same_version(want_version, got_version):
             zmiana = "" if want_manager == got_manager else f" ({want_manager} → {got_manager})"
             problems.append(f"Python: {name} — lock {want_version}, obraz {got_version}{zmiana}")
+        elif want_version != got_version:
+            zmiana = "" if want_manager == got_manager else f", menedżer {want_manager} → {got_manager}"
+            notes.append(
+                f"Python: {name} — ta sama wersja w innej notacji (lock {want_version}, obraz {got_version}{zmiana})"
+            )
         elif want_manager != got_manager and len(want) == len(got) == 1:
             notes.append(
                 f"Python: {name} {got_version} — zmienił menedżera {want_manager} → {got_manager}, wersja bez zmian"
