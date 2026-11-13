@@ -168,6 +168,21 @@
     create: true
     mode: "0644"
 
+# --- Standard biurowy pulpitu (#269) ------------------------------------------------
+# Writer jest uniwersalny dla KAŻDEGO flavora z pulpitem (decyzja PO: Opcja A — biuro w roli
+# desktop, bez wyjątku dla radiologii). Sam Writer + libreoffice-core/common; bez Impress/Base,
+# żeby nie dublować metapakietu libreoffice. `libreoffice-gtk3` jest tu świadomie, mimo że Calc
+# w memory_apps/histo_apps już go wnosi: desktop ma być samowystarczalny, a *_apps mogą z czasem
+# odpaść przy deduplikacji. Pakiet MUSI być zainstalowany PRZED sweepem AppArmor na końcu roli —
+# libreoffice-common wnosi profil soffice w complain, a sweep (ostatni task) przełącza go na enforce.
+- name: Edytor tekstu — LibreOffice Writer (+ VCL GTK3 pod XFCE) (#269)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - libreoffice-writer
+      - libreoffice-gtk3
+    state: present
+
 # --- AppArmor w warstwie pulpitu (#65, CIS 1.6.3) ------------------------------------
 # Rola base wymusza enforce PRZED warstwą flavora — XFCE, TigerVNC, noVNC (i aplikacje GUI dołożone
 # w tej roli, np. przyszły LibreOffice Writer z #269) potrafią wnieść nowe profile w complain. Bez
