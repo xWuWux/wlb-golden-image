@@ -212,9 +212,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 - `tests/acceptance.d/55-python-prefiks.sh` — *Wersjonowany prefiks środowiska Pythona (#193, M0)*
 
 ### #199 — wlb-radiologia: wrappery neuro poza PATH sesji XFCE; fsl.sh powiela wpis w PATH  ·  _scalone_
+- `tests/acceptance.d/43-kafelki-exec.sh` — `PATH sesji nie zawiera /usr/local/bin (bramka nie używa PATH roota, #199/#202)`
 - `tests/acceptance.d/45-memory.sh` — `LibreOffice obecny (binarka)`
 - `tests/acceptance.d/47-histologia.sh` — `Kafelek jamovi wskazuje flatpak run absolutnie (Exec, #199)`, `jamovi zainstalowany w Flatpak (systemowo)`
 - `tests/acceptance.d/70-radiologia.sh` — `Kafelek 3DSlicer wskazuje Slicer (Exec)`, `Kafelek FSL wskazuje wrapper absolutnie (Exec, #199)`, `Kafelek FSLeyes wskazuje wrapper absolutnie (Exec, #199)`, `fsl.sh w pełni idempotentny: 2. źródłowanie nie zmienia PATH (#199)`, `Środowisko FSL (profile.d/fsl.sh)`
+- `tests/unit/kafelki-exec.bats` — `PATH sesji nie zawiera /usr/local/bin i zawiera /usr/bin (#199/#202)`
 
 ### #200 — wlb-radiologia: soft z pierwszego wdrożenia — MRtrix3 (dwidenoise/mp-pca) + czytnik PDF  ·  _scalone_
 - `tests/acceptance.d/70-radiologia.sh` — `3DSlicer na PATH (Slicer)`, `Czytnik PDF evince na PATH (#200)`, `Kafelek czytnika PDF w menu (#200)`, `MRtrix3 dwidenoise na PATH (#200)`, `MRtrix3 dwidenoise uruchamia się (-version, #200)`, *Dodatkowe narzędzia (MRtrix3, czytnik PDF, #200)*
@@ -253,6 +255,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 ### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
 - `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
 
+### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
+- `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
+
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
 - `tests/desktop-e2e-novnc.py` — *canvas: wspólne wykrycie elementu (jrdp/noVNC, także shadow DOM)*
 
@@ -272,6 +277,12 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 ### #318 — Sprzątanie scratch sesji w post_stop_hook (scratch-only, deny-lista /workspace+śluza) — z #97  ·  _otwarte_
 - `tests/acceptance.d/50-hooki-sesji.sh` — `Emiter sesji trafia do journala z tagiem wlb-session (#97)`, `Kolejka .wlb-export-queue nietknięta (deny-lista, #318)`, `Plik-świadek w /workspace przeżywa sprzatanie (deny-lista, #318)`, `Reaping display-scoped (#318): brak pulpitu/xauth — sprawdzone testami jednostkowymi`, `Reaping display: gniazdo X usunięte dla zwalnianego UID (#318)`, `Reaping display: lock X usunięty (#318)`, `Reaping display: plik .vnc spoza wzorca nietknięty (#318)`, `Reaping display: plik .vnc/*.pid usunięty (#318)`, `post_stop usuwa scratch w całości (katalog z podkatalogiem, #318)`, `pre_spawn tworzy scratch per-unit na tmpfs i ustawia TMPDIR sesji (#318)`, `scratch należy do UID badacza (10000-59999, #318)`, `xauth: wpis :77 usunięty, plik .Xauthority zachowany (#318)`, `Ścieżka spoza allowlisty nietknięta (test negatywny, #318)`
 - `tests/unit/test_wlb_session_hook.py` — `test_denylista_obejmuje_workspace_i_podsciezki`, `test_fail_secure_sprzatanie_nie_wywraca_stopu`, `test_post_stop_usuwa_scratch_rekurencyjnie`, `test_pre_spawn_tworzy_scratch_i_ustawia_TMPDIR`, `test_reap_display_usuwa_tylko_artefakty_wlasciciela`, `test_scratch_nie_powstaje_gdy_sciezka_jest_z_denylisty`, `test_sprzatanie_pomijane_dla_uid_spoza_zakresu`
+
+### #288 — Testy: domknięcie 5 klas — CIS, izolacja u01, idempotencja Ansible, macierz flavorów, UI JupyterLab  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Brak binariów SUID/SGID w /workspace (#288)`, `Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)`, `Capabilities: brak getcap (libcap2-bin) na obrazie (#288)`, `Egress ICMP do zewnętrznego IP odrzucony (#288)`, `Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)`, `Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)`, `Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)`, `Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)`, `Egress: researcher_egress kończy się reject — default-deny (#288)`, `Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)`, `Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)`, `Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)`, `Eskalacja: pkexec nie podnosi uprawnień badacza (#288)`, `Obejście pobierania metodą $w6b_m odrzucone 403 (#288)`, `Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)`, *6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2)*, `Żaden plik SUID nie jest zapisywalny przez badacza (#288)`
+
+### #314 — Testy: kafelek pulpitu ↔ Exec ↔ realne uruchomienie (2 warstwy)  ·  _otwarte_
+- `tests/acceptance.d/43-kafelki-exec.sh` — `Bramka wykrywa absolutny nieistniejący Exec (test negatywny, #314)`, `Bramka wykrywa względny/nieistniejący Exec (test negatywny, #314)`, `Kafelek $(basename `, `Kafelki wlb-*.desktop: brak na tym obrazie (#314)`, *Kafelki pulpitu: Exec → istniejący, wykonywalny cel (#314)*
 
 ## Uwagi
 

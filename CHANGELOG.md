@@ -131,6 +131,16 @@ pierwszym Laboratorium na klastrze).
   - Etap 5 rozdzielony na jednokrotną budowę bazy `build-base` (`ci/integration.sh build-base` z zapisem `output/` do cache `actions/cache/save`) oraz macierz `integration` (`strategy.matrix` po `flavor: [general, memory, histologia, radiologia]`, `fail-fast: false`, `max-parallel: 2`) odtwarzającą bazę z cache (`actions/cache/restore`).
   - Dodano wariant akceptacji cloud-init dla instalacji pakietów z lokalnego mirrora (`RESEARCHER_PACKAGE_INSTALL=mirror`, `tests/cloud-init/user-data-mirror.yaml`) z asercjami proxy sink.
   - Dodano obsługę i testy fail-secure firstboota dla `AUTH_MODE=oidc` z automatycznym pobieraniem konfiguracji z `/.well-known/openid-configuration` (`OIDC_DISCOVERY_URL`), zachowując blokadę runtime (#18, brak produkcyjnego IdP) w testach akceptacyjnych.
+- **Statyczna bramka kafelek → Exec (#314 część A):** nowy fragment akceptacji
+  `tests/acceptance.d/43-kafelki-exec.sh` sprawdza **każdy** `/usr/share/applications/wlb-*.desktop`:
+  parsuje `Exec=`, odcina field-codes (`%f %F %u %U %i %c %k`), bierze pierwszy token i wymaga
+  ścieżki absolutnej albo rozwiązania na **PATH sesji XFCE/jrdp** — nie roota (root ma
+  `/usr/local/bin`, sesja go nie ma, #199/#202; `command -v` roota dawał fałszywy zielony).
+  Cel musi istnieć i być wykonywalny, a wrapper WLB (`/usr/local/bin`, `/opt/wlb`) musi wskazywać
+  istniejący cel (m.in. `fsleyes`/`fsl` przez `FSLDIR`). Do tego **obowiązkowy test negatywny**:
+  kopia kafelka ze złym `Exec` musi dać FAIL. Headless i deterministyczna → bramkuje etap 5 (`ko`).
+  Parser w `tests/lib/kafelki-exec.sh`, testy jednostkowe `tests/unit/kafelki-exec.bats` (15).
+
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
