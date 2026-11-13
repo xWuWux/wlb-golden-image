@@ -11,7 +11,7 @@ require_vm
 # remote-common.sh). Dzięki temu nowy feature = nowy plik fragmentu, bez konfliktów na wspólnym pliku.
 shopt -s nullglob
 combined=$(mktemp)
-cat "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh >"$combined"
+cat "$ROOT/tests/lib/kafelki-exec.sh" "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh >"$combined"
 # #149: program testowy trafia do VM razem z akceptacją, nie do obrazu produkcyjnego.
 {
   printf "\nif python3 - \"\$R1\" <<'WLB_RESOURCE_TEST'\n"
