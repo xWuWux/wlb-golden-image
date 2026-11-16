@@ -275,8 +275,7 @@ class Vm:
 
 
 # --- canvas: jednoznaczny selektor #screen canvas (bez fallbacku na dowolny canvas) ---------------
-_CANVAS_PROBE_JS = (
-    r"""
+_CANVAS_PROBE_JS = r"""
 () => {
   const all = document.querySelectorAll('@SEL@');
   if (all.length !== 1) return {count: all.length, present: all.length > 0, found: false};
@@ -317,12 +316,9 @@ _CANVAS_PROBE_JS = (
     step, sampled: n,
   });
 }
-""".replace("@SEL@", CANVAS_SELECTOR)
-    .replace("@SAMPLES@", str(SAMPLE_POINTS))
-)
+""".replace("@SEL@", CANVAS_SELECTOR).replace("@SAMPLES@", str(SAMPLE_POINTS))
 
-_SNAPSHOT_JS = (
-    r"""
+_SNAPSHOT_JS = r"""
 () => {
   const canvas = document.querySelector('@SEL@');
   if (!canvas) return {ok: false, reason: 'brak @SEL@'};
@@ -340,10 +336,8 @@ _SNAPSHOT_JS = (
   return {ok: true, w, h};
 }
 """.replace("@SEL@", CANVAS_SELECTOR)
-)
 
-_DIFF_JS = (
-    r"""
+_DIFF_JS = r"""
 () => {
   const canvas = document.querySelector('@SEL@');
   if (!canvas) return {ok: false, reason: 'brak @SEL@'};
@@ -380,14 +374,11 @@ _DIFF_JS = (
     bbox: bx1 >= 0 ? {x: bx0, y: by0, w: bx1 - bx0 + 1, h: by1 - by0 + 1} : null,
   };
 }
-""".replace("@SEL@", CANVAS_SELECTOR)
-    .replace("@DELTA@", str(PIXEL_DELTA))
-)
+""".replace("@SEL@", CANVAS_SELECTOR).replace("@DELTA@", str(PIXEL_DELTA))
 
 # Diagnostyka RFB/DOM (NIGDY bramka): opakowany WebSocket.send liczy PointerEvent/KeyEvent,
 # a listenery na canvasie pokazują, czy zdarzenia przeglądarki w ogóle doszły do noVNC.
-_RFB_INSTALL_JS = (
-    r"""
+_RFB_INSTALL_JS = r"""
 () => {
   const canvas = document.querySelector('@SEL@');
   if (!canvas) return {installed: false, reason: 'brak @SEL@'};
@@ -429,12 +420,10 @@ _RFB_INSTALL_JS = (
   return Object.assign({installed: true, reused: false}, state());
 }
 """.replace("@SEL@", CANVAS_SELECTOR)
-)
 
 _RFB_STATE_JS = "() => window.__wlbProbe ? window.__wlbProbe.state() : {installed: false}"
 
-_FOCUS_JS = (
-    r"""
+_FOCUS_JS = r"""
 () => {
   const canvas = document.querySelector('@SEL@');
   if (!canvas) return {ok: false, reason: 'brak @SEL@'};
@@ -446,7 +435,6 @@ _FOCUS_JS = (
   return {ok: true, active: document.activeElement === canvas};
 }
 """.replace("@SEL@", CANVAS_SELECTOR)
-)
 
 
 def _show_launcher(page, clock: Deadline) -> bool:
@@ -526,9 +514,7 @@ class E2E:
         fails = [n for n in SCENARIO_ORDER if scenarios[n]["status"] == "fail" and scenarios[n]["gating"]]
         errors = [n for n in SCENARIO_ORDER if scenarios[n]["status"] == "error" and scenarios[n]["gating"]]
         advisory = [
-            n
-            for n in SCENARIO_ORDER
-            if scenarios[n]["status"] in ("fail", "error") and not scenarios[n]["gating"]
+            n for n in SCENARIO_ORDER if scenarios[n]["status"] in ("fail", "error") and not scenarios[n]["gating"]
         ]
         self.result["duration_s"] = round(time.monotonic() - self.started, 1)
         self.result["console_errors"] = self.console_errors[:40]
@@ -702,7 +688,7 @@ class E2E:
         return details
 
     def _click_pointer_marker(self, page, target: dict) -> dict:
-        nonce = target["session_id"]
+        session_id = target["session_id"]
         probe = page.evaluate(_CANVAS_PROBE_JS)
         if probe.get("count") != 1 or not probe.get("found"):
             raise ScenarioFailure(f"pointer: brak jednoznacznego canvasu {CANVAS_SELECTOR} (probe={probe})")
@@ -727,9 +713,13 @@ class E2E:
             )
         state_before = page.evaluate(_RFB_STATE_JS)
         page.evaluate(_SNAPSHOT_JS)
-        page.mouse.move(box["x"] + pos_x, box["y"] + pos_y)
-        page.mouse.down()
-        page.mouse.up()
+        try:
+            # `position` liczy punkt względem ELEMENTU canvasu — bez ręcznego offsetu paska noVNC.
+            canvas.click(position={"x": pos_x, "y": pos_y}, button="left", timeout=self.clock.ms(20))
+        except DeadlineExceeded:
+            raise
+        except Exception as exc:
+            raise ScenarioFailure(f"pointer: klik w canvas nie powiódł się: {str(exc).splitlines()[0][:160]}") from exc
         self.clock.sleep(1.0)
         diff = page.evaluate(_DIFF_JS)
         state_after = page.evaluate(_RFB_STATE_JS)
@@ -740,7 +730,7 @@ class E2E:
                 "canvas_css": {"x": round(pos_x, 1), "y": round(pos_y, 1)},
                 "canvas_buffer": {"w": probe["w"], "h": probe["h"]},
                 "canvas_box": {k: round(v, 1) for k, v in box.items()},
-                "session_id": nonce,
+                "session_id": session_id,
             },
             "diff": diff,
             "rfb": {
@@ -1069,9 +1059,7 @@ class E2E:
             try:
                 from playwright.sync_api import sync_playwright
             except ImportError as exc:
-                raise ConfigError(
-                    "brak Playwrighta w warstwie testowej (ci/install-tools.sh e2e; venv-e2e)"
-                ) from exc
+                raise ConfigError("brak Playwrighta w warstwie testowej (ci/install-tools.sh e2e; venv-e2e)") from exc
             browser_env = {**os.environ, **nss_env} if nss_env else None
             with sync_playwright() as pw:
                 launch_args = ["--disable-dev-shm-usage"]
