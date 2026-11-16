@@ -13,3 +13,9 @@
 # czyli automatyzuje regułę „zachowaj wszystkie wpisy" (także na przycisku merge w GitHub).
 # Przy wydaniu warto rzucić okiem: union może poprzeplatać kolejność wpisów pod nagłówkiem.
 CHANGELOG.md merge=union
+
+# docs/mapa-testy-zgloszenia.md jest GENEROWANY (ci/mapa-testy.py) i dotykany przez wiele
+# równoległych PR-ów (każdy dokłada wiersze „zgłoszenie → test"), więc konfliktuje N-stronnie
+# jak CHANGELOG. Union zachowuje wiersze z obu stron (bez markerów — przechodzi conflict_markers.py).
+# Docelowo: regeneracja w CI (`python3 ci/mapa-testy.py`) znormalizuje kolejność i duplikaty.
+docs/mapa-testy-zgloszenia.md merge=union
