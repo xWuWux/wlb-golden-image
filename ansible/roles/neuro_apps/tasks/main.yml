@@ -232,15 +232,10 @@
 
 # Narzędzia z pierwszego wdrożenia (#200). MRtrix3 — badacz potrzebuje dwidenoise (denoising mp-pca) w
 # pipeline dMRI; pakiet apt z noble daje CLI (dwidenoise, mrconvert, mrinfo…); licencja MPL-2.0
-# (permisywna). evince — czytnik PDF na pulpicie radiologii (GTK, lekki pod XFCE); stockowy kafelek
-# org.gnome.Evince.desktop pojawia się w menu sam, bez własnego wrappera.
-# Oba trzymamy w neuro_apps, żeby ograniczyć zakres do flavora wlb-radiologia (zgodnie z prośbą). evince
-# to narzędzie ogólnopulpitowe — można je później przenieść do roli desktop, gdyby czytnik PDF miał być
-# na wszystkich flavorach z pulpitem (memory też).
-- name: Narzędzia dMRI (MRtrix3) i czytnik PDF (evince) na pulpicie (#200)
+# (permisywna). Czytnik PDF (evince) przeniesiony do standardu biurowego w roli desktop (#270, dedup).
+- name: Narzędzia dMRI (MRtrix3) na pulpicie (#200)
   ansible.builtin.apt:
     update_cache: true
     name:
       - mrtrix3 # dwidenoise (mp-pca), mrconvert, mrinfo… — pipeline dMRI badacza
-      - evince # czytnik PDF na pulpicie
     state: present
