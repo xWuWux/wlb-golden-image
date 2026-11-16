@@ -116,6 +116,10 @@ install_e2e() {
   venv venv-e2e ci/requirements-e2e.txt
   # --with-deps instaluje biblioteki systemowe Chromium przez sudo (na runnerze GitHub bez hasła).
   "$TOOLS_DIR/venv-e2e/bin/python" -m playwright install --with-deps chromium
+  # #277: zaufanie do testowego CA Huba (WLB_E2E_CA) wpisujemy do tymczasowego NSS DB Chromium.
+  # Bez certutil (libnss3-tools) test pulpitu kończy się ERROR — świadomie, żeby nie maskować
+  # problemu TLS flagą --ignore-certificate-errors.
+  command -v certutil >/dev/null || sudo apt-get install -y --no-install-recommends libnss3-tools
 }
 
 groups=("$@")

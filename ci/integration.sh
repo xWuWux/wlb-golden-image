@@ -211,17 +211,25 @@ acceptance() {
     # #206: E2E renderu pulpitu z runnera. Playwright/Chromium są w warstwie testowej
     # (.tools/venv-e2e), nie w obrazie. Nie-bramkujący: rc zmienia tylko WLB_E2E_GATING=1.
     if [[ -f tests/desktop-e2e-novnc.py && -x $TOOLS_DIR/venv-e2e/bin/python ]]; then
-      local e2e_rc=0 e2e_hub e2e_pass
+      local e2e_rc=0 e2e_hub e2e_pass e2e_ssh e2e_ca e2e_desktop
       if "${SSH[@]}" "grep -qE '^[[:space:]]*HUB_TLS=0[[:space:]]*$' /etc/wlb/lab.env" 2>/dev/null; then
         e2e_hub="http://localhost:${HUB_PORT}"
       else
         e2e_hub="https://localhost:${HUB_TLS_PORT}"
       fi
       e2e_pass=$("${SSH[@]}" 'sudo cat /root/wlb-hub-u01-initial-password' 2>/dev/null || true)
+      # #277: markery /run/wlb/e2e czyta ROOT na VM — test dostaje to samo SSH co akceptacja,
+      # a CA testowego Huba (tests/lib/test-pki.sh) pozwala przeglądarce zaufać TLS bez -k.
+      e2e_ssh=$(printf '%q ' "${SSH[@]}")
+      e2e_ca="$REPO_ROOT/build/test/siem-ca.pem"
+      # Baza wlb-general jest bezpulpitująca; flavory z pulpitem wołają acceptance z WLB_E2E_DESKTOP=required.
+      e2e_desktop=${WLB_E2E_DESKTOP:-absent}
       if [[ -n $e2e_pass ]]; then
         mkdir -p "$LOGS/e2e-$logname"
         WLB_E2E_HUB=$e2e_hub WLB_E2E_USER=u01 WLB_E2E_PASS="$e2e_pass" \
           WLB_E2E_ARTIFACT_DIR="$LOGS/e2e-$logname" \
+          WLB_E2E_SSH="$e2e_ssh" WLB_E2E_CA="$e2e_ca" WLB_E2E_DESKTOP="$e2e_desktop" \
+          WLB_E2E_TIMEOUT="${WLB_E2E_TIMEOUT:-600}" \
           "$TOOLS_DIR/venv-e2e/bin/python" tests/desktop-e2e-novnc.py \
           >"$LOGS/e2e-$logname.log" 2>&1 || e2e_rc=$?
         if [[ $e2e_rc -eq 0 ]]; then
@@ -478,7 +486,7 @@ radiologia_flavor() {
   fi
   ci/image-size-report.sh "$rad_img" "$rad_full" || return 1
   echo "== Akceptacja wlb-radiologia =="
-  acceptance "$rad_img" acceptance-radiologia
+  WLB_E2E_DESKTOP=required acceptance "$rad_img" acceptance-radiologia
 }
 
 # Flavor wlb-memory (#105): opt-in (etykieta build-memory / zmiana plików flavora / nocny build —
@@ -503,7 +511,7 @@ memory_flavor() {
     return 1
   fi
   echo "== Akceptacja wlb-memory =="
-  acceptance "$mem_img" acceptance-memory
+  WLB_E2E_DESKTOP=required acceptance "$mem_img" acceptance-memory
 }
 
 # Flavor wlb-histologia (#108): opt-in (etykieta build-histologia / zmiana plików flavora / nocny build —
@@ -529,7 +537,7 @@ histologia_flavor() {
   fi
   ci/image-size-report.sh "$his_img" "$his_full" || return 1
   echo "== Akceptacja wlb-histologia =="
-  acceptance "$his_img" acceptance-histologia
+  WLB_E2E_DESKTOP=required acceptance "$his_img" acceptance-histologia
 }
 
 mkdir -p build/sca "$ARTIFACTS"
