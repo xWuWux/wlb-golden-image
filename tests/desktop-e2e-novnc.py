@@ -464,6 +464,7 @@ class E2E:
         self.vm = Vm(cfg["ssh"], self.clock)
         self.page = None
         self.desktop = None
+        self.tls_home: pathlib.Path | None = None
         self.console_errors: list[str] = []
         self.top_error = ""
         self.started = time.monotonic()
@@ -575,6 +576,7 @@ class E2E:
                 "bez niego nie da się zaufać WLB_E2E_CA bez --ignore-certificate-errors"
             )
         home = pathlib.Path(tempfile.mkdtemp(prefix="wlb-e2e-home-"))
+        self.tls_home = home
         db = home / ".pki" / "nssdb"
         db.mkdir(parents=True)
         done = subprocess.run(  # noqa: S603 - certutil z PATH, argv bez shell=True
@@ -1086,6 +1088,8 @@ class E2E:
                         context.close()
                     with contextlib.suppress(Exception):
                         browser.close()
+                    if self.tls_home is not None:
+                        shutil.rmtree(self.tls_home, ignore_errors=True)
         except DeadlineExceeded as exc:
             self.top_error = str(exc)
         except ConfigError as exc:
