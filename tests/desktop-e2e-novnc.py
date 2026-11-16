@@ -916,8 +916,43 @@ class E2E:
             return
         self.scenario("keyboard", "pass", "nonce wpisany klawiaturą + Enter → keyboard.txt zgodny", **details)
 
+    def _restore_viewport(self, page, viewport: dict | None, before: dict) -> bool:
+        """Przywraca viewport sprzed resize — inaczej framebuffer X zostaje w innym rozmiarze.
+
+        `jupyter-remote-desktop-proxy` ustawia `rfb.resizeSession = true`, więc ekran X zmienia
+        rozmiar razem z oknem przeglądarki. `target.json` (#277-A) opisuje geometrię z chwili
+        startu fixture, a scenariusz pointer klika według niej — resize nie może zostawić sesji
+        w innym rozmiarze, bo klik trafiłby w złe miejsce.
+        """
+        if not viewport:
+            return False
+        try:
+            if page.viewport_size != viewport:
+                page.set_viewport_size(viewport)
+            want = (before.get("w"), before.get("h"))
+            end = time.monotonic() + min(30.0, self.clock.left())
+            while time.monotonic() < end:
+                self.clock.check()
+                probe = page.evaluate(_CANVAS_PROBE_JS)
+                if probe.get("found") and (probe.get("w"), probe.get("h")) == want:
+                    return True
+                self.clock.sleep(0.5)
+        except DeadlineExceeded:
+            raise
+        except Exception:
+            return False
+        return False
+
     def _run_resize(self, page) -> None:
         before = page.evaluate(_CANVAS_PROBE_JS)
+        viewport = page.viewport_size
+        details: dict = {"before": before, "after": before, "post_resize_input": None, "viewport_restored": None}
+
+        def finish(status: str, reason: str, **extra: object) -> None:
+            # Przywracamy viewport PRZED zapisem wyniku, żeby trafił do result.json.
+            details["viewport_restored"] = self._restore_viewport(page, viewport, before)
+            self.scenario("resize", status, reason, **extra, **details)
+
         page.set_viewport_size({"width": 1024, "height": 768})
         end = time.monotonic() + min(30.0, self.clock.left())
         after = before
@@ -931,9 +966,9 @@ class E2E:
             if after.get("found") and after.get("colors", 0) > 2 and changed:
                 break
             self.clock.sleep(0.5)
-        details = {"before": before, "after": after, "post_resize_input": None}
+        details["after"] = after
         if not after.get("found") or after.get("colors", 0) <= 2:
-            self.scenario("resize", "fail", f"po zmianie viewportu canvas nie wrócił: {after}", **details)
+            finish("fail", f"po zmianie viewportu canvas nie wrócił: {after}")
             return
         if before.get("w") != after.get("w") or before.get("h") != after.get("h"):
             details["framebuffer_changed"] = {
@@ -941,23 +976,21 @@ class E2E:
                 "to": [after.get("w"), after.get("h")],
             }
         if self.cfg["interaction"] == "off":
-            self.scenario("resize", "pass", "canvas żyje po zmianie viewportu (interakcja off)", **details)
+            finish("pass", "canvas żyje po zmianie viewportu (interakcja off)")
             return
         try:
             details["post_resize_input"] = self._keyboard_marker(page, "resize")
         except ScenarioFailure as exc:
-            self.scenario(
-                "resize",
+            finish(
                 "fail",
                 f"wejście po resize: {exc.args[0]}",
                 gating=False if self.cfg["interaction"] == "optional" else None,
-                **details,
             )
             return
         except ConfigError as exc:
-            self.scenario("resize", "error", f"wejście po resize: {exc}", **details)
+            finish("error", f"wejście po resize: {exc}")
             return
-        self.scenario("resize", "pass", "canvas żyje i przyjmuje klawiaturę po zmianie viewportu", **details)
+        finish("pass", "canvas żyje i przyjmuje klawiaturę po zmianie viewportu")
 
     def _run_reconnect(self, page, target: dict | None) -> None:
         session_before = target["session_id"] if target else None

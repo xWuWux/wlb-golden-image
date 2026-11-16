@@ -55,6 +55,9 @@ pierwszym Laboratorium na klastrze).
   akcją) i root czyta `/run/wlb/e2e/mouse.txt` (`rc=0`). Katalog markerów czyści się przed każdą akcją.
   Scenariusze launcher/render/pointer/keyboard/resize/reconnect są rozstrzygane niezależnie (mysz OK
   nie zalicza klawiatury), a Launcher→Desktop to wymagany scenariusz bez fallbacku `goto /desktop/`.
+  Resize zmienia viewport tylko na czas scenariusza i przywraca go przed akcją myszy — przy
+  `rfb.resizeSession=true` framebuffer X idzie za oknem, więc target publikowany przy starcie
+  opisywałby nieaktualną geometrię.
   Wynik v3 (`status: pass|fail|error`, pole `gating`) powstaje na każdej ścieżce, także po deadline;
   test czyta markery jako root (lokalnie `sudo -n` albo `WLB_E2E_SSH`) i wymaga realnego zaufania do
   `WLB_E2E_CA` (tymczasowy NSS DB + `certutil`) — niezaufany certyfikat to ERROR, nie
