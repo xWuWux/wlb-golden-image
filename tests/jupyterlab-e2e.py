@@ -97,8 +97,10 @@ MENU_LABELS_JS = """
     .filter((m) => m.getClientRects().length > 0);
   const menu = visible[visible.length - 1];
   if (!menu) return [];
-  return Array.from(menu.querySelectorAll(':scope > .lm-Menu-item > .lm-Menu-itemLabel'))
-    .map((el) => (el.textContent || '').trim());
+  return Array.from(menu.querySelectorAll('.lm-Menu-item')).map((el) => {
+    const label = el.querySelector('.lm-Menu-itemLabel');
+    return (label ? label.textContent : '').trim();
+  });
 }
 """
 
@@ -152,8 +154,9 @@ def _kernel_tile(tiles: list[dict], pattern: str) -> dict | None:
 
 
 def _server_tile(tiles: list[dict], name: str) -> dict | None:
+    """Kafelek server-proxy (Desktop/RStudio); JSP dokleja „ [↗]” gdy otwiera nową kartę."""
     for tile in tiles:
-        if tile["label"].strip() == name:
+        if re.sub(r"\s*\[↗\]$", "", tile["label"].strip()) == name:
             return tile
     return None
 
@@ -316,13 +319,14 @@ def _run_kernel(page, tile: dict, clock: Clock) -> dict:
 
     nb = page.locator(".jp-Notebook:visible").last
     # Status „idle” z paska JupyterLaba jest dowodem, że kernel odpowiedział na połączenie,
-    # a nie tylko że karta notebooka powstała.
+    # a nie tylko że karta notebooka powstała. Wskaźnik siedzi w toolbarze PANELU, nie w .jp-Notebook.
     idle = False
+    panel = page.locator(".jp-NotebookPanel:visible").last
     end = time.monotonic() + min(clock.left(), 90)
     while time.monotonic() < end:
         status = None
         with contextlib.suppress(Exception):
-            status = nb.evaluate(
+            status = panel.evaluate(
                 "(el) => { const i = el.querySelector('.jp-Notebook-ExecutionIndicator');"
                 " return i ? i.getAttribute('data-status') : null; }"
             )
@@ -347,15 +351,18 @@ def _run_kernel(page, tile: dict, clock: Clock) -> dict:
 
 def _new_file_via_launcher(page, clock: Clock, name: str, text: str) -> None:
     """Utwórz plik tekstowy z Launchera i zapisz pod `name` (dialog Ctrl+S)."""
-    page.locator('.jp-LauncherCard[title="Text File"]').first.click(timeout=clock.ms(15))
+    # Etykieta kafelka to „Text File”; title (caption) to „Create a new text file” — klikamy widoczną etykietę.
+    page.locator(".jp-LauncherCard-label p", has_text=re.compile(r"^Text File$")).first.click(timeout=clock.ms(15))
     editor = page.locator(".jp-FileEditor:visible").last
     editor.wait_for(timeout=clock.ms(30))
     editor.locator(".cm-content").first.click(timeout=clock.ms(15))
     page.keyboard.insert_text(text)
     page.keyboard.press("Control+s")
     page.wait_for_selector(".jp-Dialog", state="visible", timeout=clock.ms(20))
-    page.locator(".jp-Dialog input").first.fill(name)
-    page.locator(".jp-Dialog .jp-Dialog-button", has_text=re.compile(r"^Save$")).first.click(timeout=clock.ms(10))
+    page.locator(".jp-Dialog input[type='text']").first.fill(name)
+    page.locator(".jp-Dialog .jp-Dialog-button", has_text=re.compile(r"^(Save|Rename and Save)$")).first.click(
+        timeout=clock.ms(10)
+    )
     page.wait_for_selector(".jp-Dialog", state="hidden", timeout=clock.ms(20))
 
 
@@ -394,7 +401,7 @@ def _file_scenario(page, clock: Clock) -> dict:
     out["close_after_create"] = _close_active_tab(page, clock)
     if not out["close_after_create"]["closed"]:
         return out
-    row.click(timeout=clock.ms(10))
+    row.dblclick(timeout=clock.ms(10))
     editor = page.locator(".jp-FileEditor:visible").last
     editor.wait_for(timeout=clock.ms(30))
     out["reopened_content"] = editor.locator(".cm-content").first.inner_text()[:400]
@@ -409,7 +416,7 @@ def _file_scenario(page, clock: Clock) -> dict:
     if not out["close_after_edit"]["closed"]:
         return out
 
-    row.click(timeout=clock.ms(10))
+    row.dblclick(timeout=clock.ms(10))
     editor = page.locator(".jp-FileEditor:visible").last
     editor.wait_for(timeout=clock.ms(30))
     content = editor.locator(".cm-content").first.inner_text()[:600]
@@ -421,17 +428,19 @@ def _file_scenario(page, clock: Clock) -> dict:
     out["context_menu"] = [i["text"] for i in items if i["text"]]
     out["context_download_present"] = any(i["text"].strip().lower() == "download" for i in items)
     out["context_download_enabled"] = any(i["text"].strip().lower() == "download" and not i["disabled"] for i in items)
-    # Zamknij menu przed akcją Delete (klikamy pozycję z tego samego, widocznego menu).
+    # Zamknij menu przed akcją usunięcia (klikamy pozycję z tego samego, widocznego menu).
+    # JupyterLab 4.6 nazywa pozycję „Move to Trash”; starsze wersje miały „Delete”.
     labels = page.evaluate(MENU_LABELS_JS) or []
-    if "Delete" in labels:
+    trash = next((lbl for lbl in ("Move to Trash", "Delete") if lbl in labels), None)
+    if trash:
         menu = page.locator(".lm-Menu:visible").last
-        menu.locator(".lm-Menu-item").nth(labels.index("Delete")).click(timeout=clock.ms(8))
+        menu.locator(".lm-Menu-item").nth(labels.index(trash)).click(timeout=clock.ms(8))
     else:
         _close_menu(page)
         out["deleted"] = False
         return out
     page.wait_for_selector(".jp-Dialog", state="visible", timeout=clock.ms(10))
-    page.locator(".jp-Dialog .jp-Dialog-button", has_text=re.compile(r"^(Delete|OK)$")).first.click(
+    page.locator(".jp-Dialog .jp-Dialog-button", has_text=re.compile(r"^(Move to Trash|Delete|OK)$")).first.click(
         timeout=clock.ms(10)
     )
     page.wait_for_timeout(800)
