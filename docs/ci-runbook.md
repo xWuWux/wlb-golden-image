@@ -150,6 +150,7 @@ Trzy wyniki są rozdzielone i każdy ma własne miejsce w podsumowaniu przebiegu
 | Co się stało | Gdzie widać | Stan |
 |---|---|---|
 | skan wykrył problem | job 3 czerwony, tabela „Raporty SARIF” | `findings` — raport i tak jest publikowany |
+| skan wykrył problem nieblokujący (np. semgrep `WARNING`, kod 0) | job 3 zielony, tabela „Raporty SARIF” | `findings` — tylko alert w Code scanning |
 | skaner nie wykonał analizy (awaria, timeout, brak/uszkodzony raport) | job 3 czerwony, tabela „Raporty SARIF” | `error` / `not_run` — **niczego nie publikujemy**; brak raportu nie zamyka starych alertów |
 | raport nie został dostarczony | job 3r czerwony, tabela „Publikacja Code scanning” | `failed` / `cancelled` |
 
@@ -171,7 +172,7 @@ kodzie. Ich liczbę podaje manifest (`suppressed_count`).
 | `pull_request` (także fork i Dependabot) | tak — ref `refs/pull/N/merge`; GitHub przyjmuje upload z `pull_request` mimo tokena tylko do odczytu |
 | `push` do `main`, `schedule`, `workflow_dispatch` | tak — ref gałęzi |
 | `merge_group` | `unsupported` — ref kolejki znika po scaleniu, a analiza kolejki nie może uchodzić za wynik `main` |
-| przebieg wyzwolony przez `dependabot[bot]` poza `pull_request` | `unsupported` — token tylko do odczytu |
+| przebieg `dependabot[bot]` poza `pull_request`, także `push` commitu jego autorstwa (squash-merge) | `unsupported` — token tylko do odczytu |
 
 W kontekście `unsupported` job kończy się sukcesem z jawnym powodem w podsumowaniu, a raporty
 zostają w artefakcie `code-scanning-sarif`. Nie obchodzimy odmowy tokena przez PAT,
@@ -179,15 +180,18 @@ zostają w artefakcie `code-scanning-sarif`. Nie obchodzimy odmowy tokena przez 
 
 **Uprawnienia.** `security-events: write` ma wyłącznie job 3r. Nie uruchamia on skryptów z repo,
 lokalnych actions ani instalacji: pobiera artefakt `code-scanning-sarif` z tego samego przebiegu,
-robi checkout bez zapisanych poświadczeń (tylko do mapowania ścieżek i fingerprintów) i wywołuje
-`upload-sarif`. Job skanujący zostaje tylko do odczytu. Pilnuje tego test
+sprawdza, że manifest wskazuje ten sam przebieg i SHA (`run_id`, `sha`), robi checkout bez zapisanych
+poświadczeń (tylko do mapowania ścieżek i fingerprintów) i wywołuje `upload-sarif`. Job skanujący zostaje tylko do odczytu. Pilnuje tego test
 `tests/unit/test_code_scanning_workflow.py`.
 
 **Prywatność raportu.** Semgrep wpisuje do SARIF dopasowaną linię kodu (`region.snippet`), więc przy
 `p/secrets` przenosiłby wykryty sekret do Code scanning; komunikaty o błędach parsowania zawierają
 całe fragmenty plików. Przed publikacją `ci/sarif_report.py` usuwa `snippet` i `contextRegion` oraz
-przycina komunikaty narzędzia do pierwszej linii (test z sekretem-canary). Surowe raporty zostają
-tylko w artefakcie `security-reports` (30 dni). Nie wypisujemy SARIF do logu. Do repozytorium nie
+zastępuje treść komunikatów narzędzia ich identyfikatorem (test z sekretem-canary). Surowe raporty zostają
+tylko w artefakcie `security-reports` (30 dni). Repozytorium jest publiczne, więc artefakty może pobrać
+każdy zalogowany użytkownik — tak samo jak kod, z którego pochodzą snippety; wykryty sekret trzeba
+unieważnić, a artefakt przebiegu można usunąć wcześniej (`gh api -X DELETE
+repos/{owner}/{repo}/actions/artifacts/<ID>`). Nie wypisujemy SARIF do logu. Do repozytorium nie
 wolno wkładać danych badaczy: usunięcie pliku nie usuwa go z historii Git, CI ani raportów.
 
 **Powtarzalność.** Manifest (`manifest.json` w artefakcie) wiąże raporty z `run_id`, `run_attempt`, SHA i

@@ -119,7 +119,7 @@ def test_reports_outcomes_i_limity():
     assert sr.OUTCOMES == ("clean", "findings", "error", "not_run")
     assert sr.MAX_GZIP_BYTES == 10 * 1024 * 1024
     assert sr.MAX_RAW_BYTES == 100 * 1024 * 1024
-    assert sr.MAX_RUNS == 20
+    assert sr.RUNS_PER_REPORT == 1
     assert sr.MAX_RESULTS_PER_RUN == 25_000
     assert sr.MAX_RULES_PER_RUN == 25_000
     assert make_info().suppressed_count == 0
@@ -239,12 +239,11 @@ def test_load_report_blad_json_nie_ujawnia_tresci(tmp_path):
 
 
 def test_load_report_limity(tmp_path, monkeypatch):
-    monkeypatch.setattr(sr, "MAX_RUNS", 1)
+    # GitHub odrzuca wiele przebiegów tej samej kategorii w jednym pliku (zmiana z 07.2025)
     dwa_runs = make_doc(runs=[make_run(), make_run()])
-    with pytest.raises(sr.ReportError, match="przebiegów"):
+    with pytest.raises(sr.ReportError, match="dokładnie jeden przebieg"):
         sr.load_report(write_json(tmp_path / "runs.sarif", dwa_runs), "semgrep")
 
-    monkeypatch.setattr(sr, "MAX_RUNS", sr.MAX_RUNS)
     monkeypatch.setattr(sr, "MAX_RESULTS_PER_RUN", 1)
     dwa_wyniki = make_doc(results=[make_result("a"), make_result("b")])
     with pytest.raises(sr.ReportError, match="wyników"):
@@ -353,8 +352,13 @@ def test_read_exit_code_przypadki(tmp_path):
 def test_sanitize_usuwa_fragmenty_kodu_i_czysci_notyfikacje():
     rules = [{"id": "wlb.rule", "shortDescription": {"text": "opis reguły"}}]
     notifications = [
-        {"message": {"text": "Syntax error at line 1:\n" + CANARY, "markdown": f"**{CANARY}**"}},
-        {"message": {"text": "x" * 300 + CANARY}},
+        {
+            "descriptor": {"id": "Syntax error"},
+            "level": "warning",
+            "message": {"text": "Syntax error at line 1:\n" + CANARY, "markdown": f"**{CANARY}**"},
+        },
+        # sekret już w pierwszej linii: przycinanie by nie wystarczyło
+        {"descriptor": "nie-obiekt", "message": {"text": "unexpected token " + CANARY}},
         {"message": "nie-obiekt"},
         {"message": {"text": 42, "markdown": "usunąć"}},
     ]
@@ -399,12 +403,11 @@ def test_sanitize_usuwa_fragmenty_kodu_i_czysci_notyfikacje():
     assert result["ruleId"] == "wlb.rule"
     assert clean["runs"][0]["tool"]["driver"]["rules"] == rules
 
-    first = clean["runs"][0]["invocations"][0]["toolExecutionNotifications"][0]["message"]
-    assert first["text"] == "Syntax error at line 1:…"
-    assert "markdown" not in first
-    long_message = clean["runs"][0]["invocations"][0]["toolExecutionNotifications"][1]["message"]
-    assert long_message["text"] == "x" * 200 + "…"
-    assert "markdown" not in clean["runs"][0]["invocations"][0]["toolExecutionNotifications"][3]["message"]
+    sanitized = clean["runs"][0]["invocations"][0]["toolExecutionNotifications"]
+    assert sanitized[0]["message"] == {"text": "Syntax error (treść w artefakcie security-reports)"}
+    assert sanitized[0]["level"] == "warning"
+    assert sanitized[1]["message"] == {"text": "komunikat narzędzia (treść w artefakcie security-reports)"}
+    assert all("markdown" not in item["message"] for item in sanitized)
 
 
 def test_sanitize_nie_zmienia_wejscia_bez_runs():
@@ -457,7 +460,9 @@ def test_sanitize_brzegowe_ksztalty_i_notyfikacje():
         ({"suppressions": [{"status": "rejected"}]}, False),
         ({"suppressions": [{"status": "underReview"}]}, False),
         ({"suppressions": [{"kind": "inSource"}, {"status": "rejected"}]}, False),
-        ({"suppressions": ["nie-obiekt"]}, True),
+        # uszkodzone wpisy nie wyciszają realnego wyniku
+        ({"suppressions": ["nie-obiekt"]}, False),
+        ({"suppressions": [{"kind": "inSource"}, None]}, False),
     ],
 )
 def test_is_suppressed(result, expected):
@@ -625,6 +630,16 @@ def test_prepare_niespojny_kod_wyjscia_nie_publikuje(tmp_path):
         assert "result_count" not in entry
         assert "suppressed_count" not in entry
         assert not (out / "semgrep.sarif").exists()
+
+
+def test_prepare_awaria_narzedzia_powod_z_kodu_wyjscia(tmp_path):
+    # semgrep 1.178.0 z nieistniejącym zestawem reguł: kod 7 i poprawny SARIF bez reguł (#257)
+    sca = tmp_path / "sca"
+    write_exit(sca, "semgrep", "7\n")
+    write_report(sca, "semgrep", make_doc(results=[], rules=[]))
+    entry = sr.prepare(sca, tmp_path / "out", summary_env(tmp_path))["reports"][0]
+    assert entry["outcome"] == "error"
+    assert entry["reason"] == "kod wyjścia skanera 7 oznacza błąd narzędzia"
 
 
 def test_prepare_brak_exit_nie_czyta_sarif(tmp_path, monkeypatch):
@@ -916,3 +931,58 @@ def test_prepare_wersja_semgrep_z_semantic_version(tmp_path):
     write_report(sca, "semgrep", doc)
     entry = sr.prepare(sca, out, summary_env(tmp_path))["reports"][0]
     assert entry["driver_version"] == "1.178.0"
+
+
+# --- walidacja elementów i oba narzędzia naraz (#257) ---
+
+
+@pytest.mark.parametrize(
+    ("doc", "match"),
+    [
+        (make_doc(results=[None]), "wynik nie jest obiektem"),
+        (make_doc(results=["tekst"]), "wynik nie jest obiektem"),
+        (make_doc(rules=["reguła"]), "reguła nie jest obiektem"),
+    ],
+)
+def test_load_report_odrzuca_nieobiekty(tmp_path, doc, match):
+    with pytest.raises(sr.ReportError, match=match):
+        sr.load_report(write_json(tmp_path / "semgrep.sarif", doc), "semgrep")
+
+
+def test_prepare_oba_narzedzia_checkov_clean_i_findings(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    write_exit(sca, "semgrep", "0\n")
+    write_report(sca, "semgrep", make_doc(results=[]))
+    write_exit(sca, "checkov", "1\n")
+    write_report(sca, "checkov", make_doc("checkov", results=[make_result()], version="3.4.0"))
+    env = summary_env(tmp_path)
+    manifest = sr.prepare(sca, out, env)
+    semgrep, checkov = manifest["reports"]
+    assert (semgrep["outcome"], checkov["outcome"]) == ("clean", "findings")
+    assert semgrep["publish"] and checkov["publish"]
+    assert checkov["category"] == "checkov"
+    assert checkov["driver_version"] == "3.4.0"
+    assert (out / "semgrep.sarif").is_file() and (out / "checkov.sarif").is_file()
+    published = json.loads((out / "checkov.sarif").read_text(encoding="utf-8"))
+    assert published["runs"][0]["tool"]["driver"]["name"] == "Checkov"
+    assert CANARY not in json.dumps(published)
+
+    write_exit(sca, "checkov", "0\n")
+    write_report(sca, "checkov", make_doc("checkov", results=[]))
+    assert sr.prepare(sca, out, env)["reports"][1]["outcome"] == "clean"
+
+
+def test_prepare_nieoczekiwany_blad_nie_zostawia_pliku(tmp_path, monkeypatch):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    out.mkdir()
+    write_report(sca, "semgrep", make_doc(results=[]))
+
+    def boom(*args, **kwargs):
+        raise TypeError("nieoczekiwany kształt")
+
+    monkeypatch.setattr(sr, "_report_info", boom)
+    with pytest.raises(TypeError):
+        sr._prepare_report(sr.REPORTS["semgrep"], sca / "semgrep.sarif", out / "semgrep.sarif")
+    assert not (out / "semgrep.sarif").exists()

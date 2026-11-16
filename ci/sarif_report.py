@@ -56,7 +56,8 @@ REPORTS: dict[str, Report] = {
 OUTCOMES = ("clean", "findings", "error", "not_run")
 MAX_GZIP_BYTES = 10 * 1024 * 1024  # limit GitHub dla uploadu (gzip)
 MAX_RAW_BYTES = 100 * 1024 * 1024  # zanim w ogóle parsujemy
-MAX_RUNS = 20
+# GitHub od 07.2025 odrzuca plik z wieloma przebiegami tej samej kategorii; kategoria jest per upload
+RUNS_PER_REPORT = 1
 MAX_RESULTS_PER_RUN = 25_000
 MAX_RULES_PER_RUN = 25_000
 
@@ -117,12 +118,16 @@ def _validate_run(run: object, expected: Report) -> None:
             raise ReportError(f"raport {expected.sarif}: results nie jest listą")
         if len(results) > MAX_RESULTS_PER_RUN:
             raise ReportError(f"raport {expected.sarif} ma zbyt wiele wyników")
+        if not all(isinstance(result, dict) for result in results):
+            raise ReportError(f"raport {expected.sarif}: wynik nie jest obiektem")
     rules = driver.get("rules")
     if rules is not None:
         if not isinstance(rules, list):
             raise ReportError(f"raport {expected.sarif}: rules nie jest listą")
         if len(rules) > MAX_RULES_PER_RUN:
             raise ReportError(f"raport {expected.sarif} ma zbyt wiele reguł")
+        if not all(isinstance(rule, dict) for rule in rules):
+            raise ReportError(f"raport {expected.sarif}: reguła nie jest obiektem")
 
 
 def load_report(path: Path, expected_tool: str) -> dict:
@@ -158,8 +163,8 @@ def load_report(path: Path, expected_tool: str) -> dict:
     runs = doc.get("runs")
     if not isinstance(runs, list) or not runs:
         raise ReportError(f"raport {expected.sarif} nie zawiera przebiegów")
-    if len(runs) > MAX_RUNS:
-        raise ReportError(f"raport {expected.sarif} ma zbyt wiele przebiegów")
+    if len(runs) != RUNS_PER_REPORT:
+        raise ReportError(f"raport {expected.sarif} musi mieć dokładnie jeden przebieg (jedna kategoria)")
     for run in runs:
         _validate_run(run, expected)
     if expected.requires_rules:
@@ -185,21 +190,16 @@ def _scrub_physical_locations(node: object) -> None:
             _scrub_physical_locations(item)
 
 
-def _sanitize_notification_message(message: object) -> None:
-    """Przycina treść notyfikacji do pierwszej linii i 200 znaków, usuwa markdown."""
-    if not isinstance(message, dict):
-        return
-    message.pop("markdown", None)
-    text = message.get("text")
-    if not isinstance(text, str):
-        return
-    lines = text.splitlines()
-    first = lines[0] if lines else ""
-    if len(first) > 200:
-        first = first[:200]
-    if first != text:
-        first += "…"
-    message["text"] = first
+def _sanitize_notification(notification: dict) -> None:
+    """Zastępuje treść notyfikacji jej identyfikatorem.
+
+    Semgrep wkleja do komunikatów błędów parsowania całe fragmenty plików, a sekret może stać już w
+    pierwszej linii, więc przycinanie nie wystarcza. Pełna treść zostaje w artefakcie security-reports.
+    """
+    descriptor = notification.get("descriptor")
+    ident = descriptor.get("id") if isinstance(descriptor, dict) else None
+    label = ident if isinstance(ident, str) and ident else "komunikat narzędzia"
+    notification["message"] = {"text": f"{label[:80]} (treść w artefakcie security-reports)"}
 
 
 def _sanitize_notifications(run: dict) -> None:
@@ -216,7 +216,7 @@ def _sanitize_notifications(run: dict) -> None:
                 continue
             for notification in notifications:
                 if isinstance(notification, dict):
-                    _sanitize_notification_message(notification.get("message"))
+                    _sanitize_notification(notification)
 
 
 def sanitize(doc: dict) -> dict:
@@ -224,8 +224,8 @@ def sanitize(doc: dict) -> dict:
 
     Snippet p/secrets może zawierać wykryty sekret, a code scanning i tak pokazuje kod
     z repozytorium. Reguły, komunikaty wyników, ruleId i odciski palców pozostają bez
-    zmian. Notyfikacje narzędzia bywają jednak nośnikiem długich fragmentów kodu, więc
-    ich treść jest przycinana, a markdown usuwany.
+    zmian. Notyfikacje narzędzia bywają nośnikiem fragmentów kodu, więc ich treść jest
+    zastępowana identyfikatorem notyfikacji.
     """
     clean = copy.deepcopy(doc)
     runs = clean.get("runs")
@@ -247,9 +247,10 @@ def _is_suppressed(result: object) -> bool:
     suppressions = result.get("suppressions")
     if not isinstance(suppressions, list) or not suppressions:
         return False
-    return not any(
-        isinstance(item, dict) and item.get("status") in ("rejected", "underReview") for item in suppressions
-    )
+    # uszkodzone wpisy (nie-obiekty) nie wyciszają — inaczej realny wynik zniknąłby jako „clean”
+    if not all(isinstance(item, dict) for item in suppressions):
+        return False
+    return not any(item.get("status") in ("rejected", "underReview") for item in suppressions)
 
 
 def classify(exit_code: int | None, info: ReportInfo | None) -> str:
@@ -339,13 +340,13 @@ def _prepare_report(report: Report, source: Path, target: Path) -> ReportInfo:
         target.write_bytes(payload)
         if len(gzip.compress(payload)) > MAX_GZIP_BYTES:
             raise ReportError(f"raport {report.sarif} przekracza limit rozmiaru gzip")
-    except ReportError:
-        target.unlink(missing_ok=True)
-        raise
+        return _report_info(report, clean, payload)
     except OSError as exc:
         target.unlink(missing_ok=True)
         raise ReportError(f"nie udało się zapisać raportu {report.sarif}") from exc
-    return _report_info(report, clean, payload)
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
 
 
 def _mismatch_reason(exit_code: int) -> str:
@@ -414,6 +415,11 @@ def prepare(sca_dir: Path, out_dir: Path, env: Mapping[str, str]) -> dict:
         reason: str | None = None
         if exit_code is None:
             outcome = "not_run"
+        elif exit_code not in (0, 1):
+            # awaria narzędzia (np. semgrep 7 = zła konfiguracja): powód z kodu wyjścia, nie ze struktury
+            # częściowego raportu — taki raport i tak nie jest publikowany
+            outcome = "error"
+            reason = _mismatch_reason(exit_code)
         else:
             try:
                 info = _prepare_report(report, sca_dir / report.sarif, target)

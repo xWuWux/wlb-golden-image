@@ -55,6 +55,7 @@ require() {
 scan_with_status() {
   local dir=$1 tool=$2 rc=0
   shift 2
+  mkdir -p "$dir"
   rm -f "$dir/$tool.sarif" "$dir/$tool.exit"
   "$@" || rc=$?
   echo "$rc" >"$dir/$tool.exit"
