@@ -3,10 +3,11 @@
 # jednostkowe (tests/unit/kafelki-exec.bats) i był używany przez tests/acceptance.d/43-kafelki-exec.sh.
 # Fragment akceptacji dostaje ten plik przez tests/acceptance.sh (sklejanie na hoście).
 
-# Kanoniczny PATH sesji pulpitu: jrdp/xstartup (ansible/roles/desktop/files/wlb-desktop-xstartup)
-# nie ustawia PATH — sesja dziedziczy PATH spawnera TLJH. Zweryfikowane w #199/#202 i opisane
-# w ansible/roles/neuro_apps/tasks/main.yml: to /opt/tljh/user/bin:/bin:/usr/bin, BEZ /usr/local/bin.
-# Dlatego bramka NIE może używać `command -v` roota (root ma /usr/local/bin) — fałszywy zielony.
+# PATH sesji pulpitu: jrdp/xstartup (ansible/roles/desktop/files/wlb-desktop-xstartup) nie ustawia
+# PATH — sesja dziedziczy PATH procesu serwera badacza. Fragment akceptacji wyprowadza go z REALNEGO
+# źródła (środowisko procesu w jednostce systemd, fallback: Environment= jednostki). Ta funkcja
+# zwraca wartość domyślną tylko jako ostatni fallback (i testy jednostkowe) — nie jest „odtworzeniem"
+# PATH; stała nie może udawać realnego środowiska (to założenie zabiło #199).
 w43_session_path() {
   printf '%s\n' "${W43_SESSION_PATH:-/opt/tljh/user/bin:/bin:/usr/bin}"
 }
