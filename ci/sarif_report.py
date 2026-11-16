@@ -290,7 +290,21 @@ def read_exit_code(path: Path) -> int | None:
         return -1
 
 
+def drop_suppressed(doc: dict) -> dict:
+    """Zwraca kopię raportu bez wyników wyciszonych w kodzie (``# nosemgrep``, ``checkov:skip``).
+
+    GitHub Code scanning ignoruje pole ``suppressions`` i pokazałby takie wyniki jako otwarte alerty,
+    choć bramka etapu 3 ich nie liczy, a uzasadnienie jest w kodzie. Liczbę wyciszeń zachowuje manifest.
+    """
+    kept = copy.deepcopy(doc)
+    for run in kept.get("runs") or []:
+        if isinstance(run, dict) and isinstance(run.get("results"), list):
+            run["results"] = [result for result in run["results"] if not _is_suppressed(result)]
+    return kept
+
+
 def _report_info(report: Report, clean: dict, payload: bytes) -> ReportInfo:
+    """Metadane liczone z raportu po sanityzacji, ale PRZED usunięciem wyciszeń (liczniki)."""
     runs = clean["runs"]
     results = [result for run in runs for result in (run.get("results") or [])]
     suppressed_count = sum(1 for result in results if _is_suppressed(result))
@@ -321,7 +335,7 @@ def _prepare_report(report: Report, source: Path, target: Path) -> ReportInfo:
     try:
         doc = load_report(source, report.tool)
         clean = sanitize(doc)
-        payload = json.dumps(clean, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        payload = json.dumps(drop_suppressed(clean), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         target.write_bytes(payload)
         if len(gzip.compress(payload)) > MAX_GZIP_BYTES:
             raise ReportError(f"raport {report.sarif} przekracza limit rozmiaru gzip")

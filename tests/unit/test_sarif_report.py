@@ -503,7 +503,24 @@ def test_prepare_wyciszone_i_aktywne_to_findings(tmp_path):
     assert entry["outcome"] == "findings"
     assert entry["result_count"] == 1
     assert entry["suppressed_count"] == 1
-    assert (out / "semgrep.sarif").is_file()
+    # GitHub ignoruje `suppressions` — wyciszony wynik nie może stać się otwartym alertem (PR #324)
+    published = json.loads((out / "semgrep.sarif").read_text(encoding="utf-8"))
+    (result,) = published["runs"][0]["results"]
+    assert result["suppressions"] == [{"status": "rejected"}]
+    assert "ukryty" not in json.dumps(published)
+
+
+def test_drop_suppressed_nie_zmienia_wejscia_i_pomija_nieliste():
+    doc = make_doc(results=[make_result(suppressions=[{"kind": "inSource"}]), make_result()])
+    doc["runs"].append({"tool": {"driver": {"name": "Semgrep OSS"}}, "results": "nie-lista"})
+    doc["runs"].append("nie-obiekt")
+    before = deepcopy(doc)
+    kept = sr.drop_suppressed(doc)
+    assert doc == before
+    assert len(kept["runs"][0]["results"]) == 1
+    assert "suppressions" not in kept["runs"][0]["results"][0]
+    assert kept["runs"][1]["results"] == "nie-lista"
+    assert sr.drop_suppressed({"version": "2.1.0"}) == {"version": "2.1.0"}
 
 
 # --- prepare: ścieżka szczęśliwa i publikacja (#257) ---

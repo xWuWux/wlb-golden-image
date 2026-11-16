@@ -159,8 +159,10 @@ wyniki), `error` (kod ≥ 2, niespójny kod wyjścia lub raport odrzucony przez 
 (upload z `wait-for-processing` przeszedł; odrzucenie SARIF przez GitHub kończy krok błędem, ale gdy
 przetwarzanie trwa dłużej niż limit akcji, ta loguje tylko ostrzeżenie „Timed out waiting for analysis” —
 wtedy sprawdź rekord analizy w API, niżej), `failed`, `cancelled`,
-`unsupported` (kontekst bez publikacji — niżej). Wyniki wyciszone `# nosemgrep` trafiają do raportu
-jako zamknięte (pole `suppressions`) i nie liczą się do `findings`.
+`unsupported` (kontekst bez publikacji — niżej). Wyniki wyciszone w kodzie (`# nosemgrep`,
+`checkov:skip`) nie liczą się do `findings` i **nie są publikowane**: GitHub ignoruje pole SARIF
+`suppressions` i pokazałby je jako otwarte alerty, choć bramka ich nie liczy, a uzasadnienie jest w
+kodzie. Ich liczbę podaje manifest (`suppressed_count`).
 
 **Konteksty zdarzeń.** SHA i ref analizy pochodzą z kontekstu przebiegu, nigdy z raportu.
 
