@@ -7,6 +7,9 @@ z niego fragmenty kodu (snippet/contextRegion), a wynik zapisujemy jako artefakt
 osobnego joba publikującego. Ten job czyta już tylko gotowe pliki i manifest — nie
 uruchamia żadnych skryptów z repozytorium.
 
+Walidacja obejmuje jawny podzbiór SARIF 2.1.0 używany przez te dwa narzędzia, nie pełną
+zgodność ze schematem.
+
 Brak raportu nie jest tym samym co raport czysty: wynik ``not_run``/``error`` nigdy nie
 jest publikowany, a plik wyjściowy przebiegu zakończonego błędem jest usuwany.
 """
@@ -14,7 +17,6 @@ jest publikowany, a plik wyjściowy przebiegu zakończonego błędem jest usuwan
 from __future__ import annotations
 
 import argparse
-import copy
 import gzip
 import hashlib
 import json
@@ -33,7 +35,7 @@ class Report:
     tool: str
     sarif: str
     category: str
-    driver: str
+    drivers: tuple[str, ...]
     requires_rules: bool = False
 
 
@@ -42,20 +44,21 @@ REPORTS: dict[str, Report] = {
         tool="semgrep",
         sarif="semgrep.sarif",
         category="semgrep",
-        driver="semgrep",
+        drivers=("Semgrep OSS", "Semgrep"),
         requires_rules=True,
     ),
     "checkov": Report(
         tool="checkov",
         sarif="checkov.sarif",
         category="checkov",
-        driver="checkov",
+        drivers=("Checkov",),
         requires_rules=False,
     ),
 }
 OUTCOMES = ("clean", "findings", "error", "not_run")
 MAX_GZIP_BYTES = 10 * 1024 * 1024  # limit GitHub dla uploadu (gzip)
-MAX_RAW_BYTES = 100 * 1024 * 1024  # zanim w ogóle parsujemy
+MAX_RAW_BYTES = 50 * 1024 * 1024  # limit surowego pliku przed parsowaniem (50 MiB)
+MAX_JSON_DEPTH = 64  # maksymalna dopuszczalna głębokość struktur JSON
 # GitHub od 07.2025 odrzuca plik z wieloma przebiegami tej samej kategorii; kategoria jest per upload
 RUNS_PER_REPORT = 1
 MAX_RESULTS_PER_RUN = 25_000
@@ -81,6 +84,8 @@ class ReportInfo:
 
     ``result_count`` to liczba aktywnych wyników (wyciszone ``# nosemgrep`` nie liczą się
     do klasyfikacji), a ``suppressed_count`` — liczba wyników wyciszonych.
+    ``sarif_rules_metadata_digest`` to skrót SHA-256 kanonicznego zapisu metadanych reguł
+    z raportu SARIF, nie dowód wersji rzeczywistej implementacji reguł w skanerze.
     """
 
     tool: str
@@ -88,7 +93,7 @@ class ReportInfo:
     sha256: str
     result_count: int
     driver_version: str
-    rules_digest: str
+    sarif_rules_metadata_digest: str
     suppressed_count: int = 0
 
 
@@ -105,7 +110,7 @@ def _validate_run(run: object, expected: Report) -> None:
     tool = run.get("tool")
     driver = tool.get("driver") if isinstance(tool, dict) else None
     name = driver.get("name") if isinstance(driver, dict) else None
-    if not isinstance(name, str) or expected.driver not in name.lower():
+    if not isinstance(name, str) or name not in expected.drivers:
         raise ReportError(f"raport {expected.sarif} nie pochodzi z narzędzia {expected.tool}")
     invocations = run.get("invocations")
     if invocations is not None:
@@ -146,6 +151,31 @@ def _validate_run(run: object, expected: Report) -> None:
             raise ReportError(f"raport {expected.sarif}: reguła nie jest obiektem")
 
 
+def _check_json_depth(text: str, max_depth: int) -> bool:
+    """Sprawdza maksymalną głębokość zagnieżdżenia struktur JSON ({}, []) bez pełnego parsowania."""
+    depth = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch in ("{", "["):
+                depth += 1
+                if depth > max_depth:
+                    return False
+            elif ch in ("}", "]"):
+                depth -= 1
+    return True
+
+
 def load_report(path: Path, expected_tool: str) -> dict:
     """Wczytuje i waliduje SARIF 2.1.0 wskazanego narzędzia; błąd -> ReportError."""
     path = Path(path)
@@ -168,10 +198,16 @@ def load_report(path: Path, expected_tool: str) -> dict:
         raise ReportError(f"raport {expected.sarif} nie jest poprawnym UTF-8") from exc
     except OSError as exc:
         raise ReportError(f"nie można odczytać raportu {expected.sarif}") from exc
+    if not _check_json_depth(text, MAX_JSON_DEPTH):
+        raise ReportError(f"raport {expected.sarif} przekracza limit zagnieżdżenia")
     try:
         doc = json.loads(text)
     except json.JSONDecodeError as exc:
         raise ReportError(f"raport {expected.sarif} nie jest poprawnym JSON") from exc
+    except RecursionError as exc:
+        raise ReportError(f"raport {expected.sarif} przekracza limit zagnieżdżenia") from exc
+    except MemoryError as exc:
+        raise ReportError(f"raport {expected.sarif} przekracza limit pamięci") from exc
     if not isinstance(doc, dict):
         raise ReportError(f"raport {expected.sarif} nie jest obiektem JSON")
     if doc.get("version") != "2.1.0":
@@ -514,12 +550,25 @@ def drop_suppressed(doc: dict) -> dict:
 
     GitHub Code scanning ignoruje pole ``suppressions`` i pokazałby takie wyniki jako otwarte alerty,
     choć bramka etapu 3 ich nie liczy, a uzasadnienie jest w kodzie. Liczbę wyciszeń zachowuje manifest.
+    Unikamy deepcopy na całym dokumencie (oszczędność pamięci i brak rekurencji); eksport SARIF
+    i tak buduje nowy dokument na podstawie allowlisty.
     """
-    kept = copy.deepcopy(doc)
-    for run in kept.get("runs") or []:
-        if isinstance(run, dict) and isinstance(run.get("results"), list):
-            run["results"] = [result for result in run["results"] if not _is_suppressed(result)]
-    return kept
+    if not isinstance(doc, dict):
+        return doc
+    runs = doc.get("runs")
+    if not isinstance(runs, list):
+        return dict(doc)
+    new_runs: list = []
+    for run in runs:
+        if isinstance(run, dict):
+            new_run = dict(run)
+            results = run.get("results")
+            if isinstance(results, list):
+                new_run["results"] = [result for result in results if not _is_suppressed(result)]
+            new_runs.append(new_run)
+        else:
+            new_runs.append(run)
+    return {**doc, "runs": new_runs}
 
 
 def _report_info(report: Report, doc: dict, payload: bytes) -> ReportInfo:
@@ -544,7 +593,7 @@ def _report_info(report: Report, doc: dict, payload: bytes) -> ReportInfo:
         sha256=hashlib.sha256(payload).hexdigest(),
         result_count=result_count,
         driver_version=driver_version,
-        rules_digest=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        sarif_rules_metadata_digest=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
         suppressed_count=suppressed_count,
     )
 
@@ -589,11 +638,11 @@ def _summary_table(entries: list[dict]) -> str:
     lines = [
         "### Raporty SARIF dla Code scanning (#257)",
         "",
-        "| Narzędzie | Kategoria | Wynik skanu | Wyników | Wersja | Reguły | Publikacja |",
+        "| Narzędzie | Kategoria | Wynik skanu | Wyników | Wersja | Metadane reguł | Publikacja |",
         "|---|---|---|---|---|---|---|",
     ]
     for entry in entries:
-        rules = entry.get("rules_digest")
+        rules = entry.get("sarif_rules_metadata_digest")
         lines.append(
             f"| {entry['tool']} | {entry['category']} | {entry['outcome']} | "
             f"{entry.get('result_count', '—')} | {entry.get('driver_version') or '—'} | "
@@ -665,7 +714,7 @@ def prepare(sca_dir: Path, out_dir: Path, env: Mapping[str, str]) -> dict:
             entry["result_count"] = info.result_count
             entry["suppressed_count"] = info.suppressed_count
             entry["driver_version"] = info.driver_version
-            entry["rules_digest"] = info.rules_digest
+            entry["sarif_rules_metadata_digest"] = info.sarif_rules_metadata_digest
         entries.append(entry)
 
     manifest = {"schema": 1, "run": _run_metadata(env), "reports": entries}

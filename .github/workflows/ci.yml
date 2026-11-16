@@ -138,7 +138,10 @@ jobs:
       - name: Raporty SARIF dla Code scanning (#257)
         id: sarif
         if: ${{ !cancelled() }}
-        run: python3 ci/sarif_report.py prepare --sca-dir build/sca --out-dir build/code-scanning
+        # pod strażnikiem (limit czasu i pamięci) jak skany — transformacja niezaufanego raportu z PR
+        run: >-
+          ci/guard.sh --name "3. Raporty SARIF" --timeout 5m --memory auto --
+          python3 ci/sarif_report.py prepare --sca-dir build/sca --out-dir build/code-scanning
       # Surowe SARIF (snippety, komunikaty narzędzia z fragmentami kodu, ew. wykryty sekret) nie opuszczają
       # runnera: repo jest publiczne, a artefakty może pobrać każdy zalogowany użytkownik. Publikowane są
       # tylko raporty po eksporcie z allowlisty pól (artefakt code-scanning-sarif), #257.
@@ -148,7 +151,7 @@ jobs:
           name: security-reports
           path: |
             build/sca/
-            !build/sca/*.sarif
+            !build/sca/**/*.sarif
           if-no-files-found: ignore
           retention-days: 30
       # Tylko dwa jawne raporty i manifest (nie całe build/sca) — wejście joba security-report.
@@ -213,18 +216,32 @@ jobs:
           name: code-scanning-sarif
           path: ${{ runner.temp }}/code-scanning
       # raporty muszą pochodzić z tego przebiegu i tej rewizji (manifest joba 3), nie z innego runu
+      # Spójność, nie dowód zaufania: raport wytworzył kod z PR. run_attempt nie jest porównywany, bo
+      # „Re-run failed jobs” poprawnie publikuje artefakt z wcześniejszej próby tego samego przebiegu.
       - name: Weryfikacja manifestu
         id: manifest
         if: steps.context.outputs.supported == 'true'
         env:
-          MANIFEST: ${{ runner.temp }}/code-scanning/manifest.json
+          DIR: ${{ runner.temp }}/code-scanning
         run: |
-          run_sha=$(jq -r '.run.sha // ""' "$MANIFEST" 2>/dev/null || true)
-          run_id=$(jq -r '.run.run_id // ""' "$MANIFEST" 2>/dev/null || true)
+          manifest=$DIR/manifest.json
+          run_sha=$(jq -r '.run.sha // ""' "$manifest" 2>/dev/null || true)
+          run_id=$(jq -r '.run.run_id // ""' "$manifest" 2>/dev/null || true)
           if [[ $run_sha != "$GITHUB_SHA" || $run_id != "$GITHUB_RUN_ID" ]]; then
             echo "::error::manifest raportów nie pasuje do przebiegu (sha=${run_sha:-brak}, run_id=${run_id:-brak})"
             exit 1
           fi
+          # każdy raport do publikacji ma dokładnie ten skrót, który zapisał job 3
+          for tool in semgrep checkov; do
+            publish=$(jq -r --arg t "$tool" '.reports[] | select(.tool == $t) | .publish' "$manifest")
+            [[ $publish == true ]] || continue
+            want=$(jq -r --arg t "$tool" '.reports[] | select(.tool == $t) | .sha256 // ""' "$manifest")
+            have=$(sha256sum "$DIR/$tool.sarif" 2>/dev/null) || have=""
+            if [[ -z $want || ${have%% *} != "$want" ]]; then
+              echo "::error::skrót raportu $tool nie zgadza się z manifestem"
+              exit 1
+            fi
+          done
       - name: Upload SARIF semgrep
         id: semgrep
         if: >-
@@ -262,6 +279,8 @@ jobs:
           CONFIRM_TIMEOUT: "300"
           CONFIRM_INTERVAL: "10"
         run: |
+          # status konkretnego sarif-id; kody HTTP rozdzielone: brak uprawnień (np. fork) nie jest complete
+          body=$(mktemp)
           for tool in semgrep checkov; do
             id_var=${tool^^}_ID
             id=${!id_var:-}
@@ -269,15 +288,24 @@ jobs:
             if [[ -n $id ]]; then
               deadline=$((SECONDS + CONFIRM_TIMEOUT))
               while :; do
-                # bez potoku: domyślny shell kroku ma tylko -e (bez pipefail), błąd curl zginąłby w potoku
-                body=$(curl -fsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+                http=$(curl -sS -o "$body" -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
                   -H "Accept: application/vnd.github+json" \
-                  "https://api.github.com/repos/$REPO/code-scanning/sarifs/$id") || body=""
-                status=$(jq -r '.processing_status // "unknown"' <<<"$body" 2>/dev/null) || status=unknown
-                [[ -n $status ]] || status=unknown
-                if [[ $status != pending && $status != unknown ]] || ((SECONDS >= deadline)); then
-                  break
-                fi
+                  "https://api.github.com/repos/$REPO/code-scanning/sarifs/$id") || http=000
+                case $http in
+                  200)
+                    status=$(jq -r '.processing_status // "unknown"' "$body" 2>/dev/null) || status=unknown
+                    [[ -n $status ]] || status=unknown
+                    ;;
+                  401 | 403) status=forbidden ;;
+                  404) status=not_found ;;
+                  429 | 5?? | 000) status=unavailable ;;
+                  *) status=http_$http ;;
+                esac
+                # do terminu ponawiamy tylko stany przejściowe; pozostałe są ostateczne
+                case $status in
+                  pending | unknown | not_found | unavailable) ((SECONDS < deadline)) || break ;;
+                  *) break ;;
+                esac
                 sleep "$CONFIRM_INTERVAL"
               done
             fi
@@ -320,6 +348,9 @@ jobs:
                   # processed = GitHub potwierdził terminalny status complete dla tego sarif-id
                   if [[ $confirm == complete ]]; then
                     state=processed
+                  elif [[ $confirm == pending ]]; then
+                    state="pending — brak terminalnego statusu przetwarzania w terminie"
+                    failed=1
                   else
                     state="failed — przetwarzanie niepotwierdzone (status: $confirm)"
                     failed=1

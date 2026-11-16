@@ -150,7 +150,7 @@ Trzy wyniki są rozdzielone i każdy ma własne miejsce w podsumowaniu przebiegu
 | Co się stało | Gdzie widać | Stan |
 |---|---|---|
 | skan wykrył problem | job 3 czerwony, tabela „Raporty SARIF” | `findings` — raport i tak jest publikowany |
-| skan wykrył problem nieblokujący (np. semgrep `WARNING`, kod 0) | job 3 zielony, tabela „Raporty SARIF” | `findings` — tylko alert w Code scanning |
+| skaner zwrócił kod 0, ale raport ma aktywne wyniki (np. soft-fail lub próg w konfiguracji narzędzia) | job 3 zielony, tabela „Raporty SARIF” | `findings` — tylko alert w Code scanning (semgrep z `--error` przy aktywnych wynikach zwraca 1, niezależnie od severity) |
 | skaner nie wykonał analizy (awaria, timeout, brak/uszkodzony raport) | job 3 czerwony, tabela „Raporty SARIF” | `error` / `not_run` — **niczego nie publikujemy**; brak raportu nie zamyka starych alertów |
 | raport nie został dostarczony | job 3r czerwony, tabela „Publikacja Code scanning” | `failed` / `cancelled` |
 
@@ -162,7 +162,7 @@ wyników nie publikujemy wtedy pustego zamiennika. Stany publikacji: `processed`
 przetworzenia” odczytał z API terminalny status `complete` dla konkretnego `sarif-id`; sam zielony
 `upload-sarif` nie wystarcza, bo po własnym limicie oczekiwania akcja tylko ostrzega), `failed`
 (upload nieudany albo status `failed`/`pending` po terminie 5 minut), `cancelled`,
-`unsupported` (kontekst bez publikacji — niżej). Wyniki wyciszone w kodzie (`# nosemgrep`,
+`pending` (brak terminalnego statusu w terminie — blokuje), `unsupported` (kontekst bez publikacji — niżej). Wyniki wyciszone w kodzie (`# nosemgrep`,
 `checkov:skip`) nie liczą się do `findings` i **nie są publikowane**: GitHub ignoruje pole SARIF
 `suppressions` i pokazałby je jako otwarte alerty, choć bramka ich nie liczy, a uzasadnienie jest w
 kodzie. Ich liczbę podaje manifest (`suppressed_count`).
@@ -205,17 +205,34 @@ lokalnie: `make security` albo w kodzie pod wskazaną linią. Wykryty sekret trz
 usunięcie pliku nie usuwa go z historii Git. Do repozytorium nie wolno wkładać danych badaczy.
 
 **Powtarzalność.** Manifest (`manifest.json` w artefakcie) wiąże raporty z `run_id`, `run_attempt`, SHA i
-refem oraz zapisuje wersję skanera i skrót zestawu reguł (`rules_digest`). Semgrep pobiera zestawy
-`p/*` z rejestru, więc te same wersje narzędzia mogą mieć inne reguły; zmiana `rules_digest` między
-przebiegami odróżnia zmianę reguł od zmiany kodu.
+refem oraz zapisuje wersję skanera, skrót każdego publikowanego pliku (`sha256`, sprawdzany w jobie 3r)
+i `sarif_rules_metadata_digest` — skrót **metadanych** reguł z SARIF. To nie jest dowód wersji
+implementacji reguł: semgrep pobiera zestawy `p/*` z rejestru, więc ten sam SHA repo może po czasie dać
+inny wynik, a zmiana wzorca przy tych samych metadanych nie zmieni skrótu; zestaw deskryptorów checkova
+zależy od zgłoszonych wyników. Ponowienie joba 3r publikuje ten sam raport; nowy skan (z bieżącymi
+regułami) to nowy przebieg etapu 3.
+
+**Ograniczenia skanu.** Liczba reguł nie mówi, ile plików zbadano. Semgrep pomija domyślnie m.in. katalogi
+`tests/` i `build/` oraz pliki, których nie sparsuje (notyfikacje `warning` w raporcie: np. szablony
+Jinja/Ansible, część skryptów powłoki). Checkov `--framework secrets` w używanej wersji nie zgłasza
+checków — sekrety pokrywają gitleaks (etap 1) i semgrep `p/secrets`. Dlatego etap 3 ma sprawdzenie
+**„Kontrakt SARIF na przypiętych skanerach”**: te same wersje semgrep i checkov skanują
+`tests/fixtures/sarif-contract/` (celowy sekret-canary i workflow z `write-all`), a `prepare` musi dać
+`findings` z oczekiwanymi regułami, bez canary w publikowanym SARIF, manifeście i logu. Po aktualizacji
+narzędzia czerwony kontrakt oznacza zmianę formatu wyjścia albo pokrycia — zbadaj przed podbiciem.
+Walidator przyjmuje jawny podzbiór SARIF 2.1.0 używany przez te dwa narzędzia (dokładne nazwy
+narzędzi, jeden przebieg, limity rozmiaru i zagnieżdżenia), nie deklaruje pełnej zgodności ze schematem.
 
 ### Co zrobić
 
 1. **Job 3 czerwony, w tabeli `findings`.** Zwykła ścieżka [test](#test): popraw kod albo uzasadnij
    wyjątek. Alert w Code scanning jest tym samym znaleziskiem z historią.
-2. **`error` / `not_run`.** Skaner nie dał wiarygodnego wyniku. Sprawdź log kroku skanera
+2. **`error` / `not_run`.** Skaner nie dał wiarygodnego wyniku (także: notyfikacja `level: error`, czyli
+   analiza niekompletna). Sprawdź log kroku skanera
    (`build/sca/<narzędzie>.exit`, `reason` w manifeście). Nie podkładaj pustego raportu.
-3. **Job 3r `failed`.** Etap 3 nie jest powtarzany: „Re-run failed jobs” uruchamia tylko job 3r, który
+3. **Job 3r `failed` / `pending`.** Status `forbidden` (401/403) przy odczycie statusu przetwarzania to brak
+   uprawnień, nie sukces; `unavailable` (429/5xx) i `pending` — usługa GitHuba nie potwierdziła w terminie.
+   Etap 3 nie jest powtarzany: „Re-run failed jobs” uruchamia tylko job 3r, który
    publikuje **ten sam** artefakt z tego przebiegu (nie skanuje od nowa). Powtarzający się błąd
    uprawnień (403) albo odrzucenie SARIF zgłoś jako issue; nie dopisuj `continue-on-error`.
 4. **Brak adnotacji w PR.** Adnotacja pojawia się tylko dla wyniku w zmienionych liniach i gdy

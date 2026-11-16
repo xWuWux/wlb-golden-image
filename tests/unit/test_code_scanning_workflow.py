@@ -7,6 +7,7 @@ do bramki "Gotowe do code review".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -179,16 +180,45 @@ def test_publication_context_per_event_257(
 # jq jest na runnerze GitHub i w kontenerze etapu 4; lokalnie bez jq test jest pomijany, w CI nigdy
 @pytest.mark.skipif(shutil.which("jq") is None and not os.environ.get("CI"), reason="brak jq (lokalnie)")
 def test_manifest_must_match_run_257(tmp_path: Path) -> None:
-    manifest = tmp_path / "manifest.json"
-    env = {"MANIFEST": str(manifest), "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ID": "77"}
-    manifest.write_text(json.dumps({"run": {"sha": "a" * 40, "run_id": "77"}}), encoding="utf-8")
+    directory = tmp_path / "code-scanning"
+    directory.mkdir()
+    manifest = directory / "manifest.json"
+    env = {"DIR": str(directory), "GITHUB_SHA": "a" * 40, "GITHUB_RUN_ID": "77"}
+    sarif = directory / "semgrep.sarif"
+    sarif.write_bytes(b'{"version":"2.1.0"}')
+    digest = hashlib.sha256(sarif.read_bytes()).hexdigest()
+
+    def write(run: dict, reports: list[dict]) -> None:
+        manifest.write_text(json.dumps({"run": run, "reports": reports}), encoding="utf-8")
+
+    ok_run = {"sha": "a" * 40, "run_id": "77", "run_attempt": "1"}
+    reports = [
+        {"tool": "semgrep", "publish": True, "sha256": digest},
+        {"tool": "checkov", "publish": False},
+    ]
+    write(ok_run, reports)
     assert _run_step("manifest", tmp_path, env)[0] == 0
-    manifest.write_text(json.dumps({"run": {"sha": "b" * 40, "run_id": "77"}}), encoding="utf-8")
+    # inna próba tego samego przebiegu (Re-run failed jobs) jest poprawna
+    write({**ok_run, "run_attempt": "2"}, reports)
+    assert _run_step("manifest", tmp_path, env)[0] == 0
+
+    write({**ok_run, "sha": "b" * 40}, reports)
     code, log, _, _ = _run_step("manifest", tmp_path, env)
     assert code == 1
     assert "nie pasuje do przebiegu" in log
-    manifest.write_text(json.dumps({"run": {"sha": "a" * 40, "run_id": "76"}}), encoding="utf-8")
+    write({**ok_run, "run_id": "76"}, reports)
     assert _run_step("manifest", tmp_path, env)[0] == 1
+
+    # podmieniony plik raportu, brak skrótu albo brak pliku do publikacji
+    write(ok_run, [{"tool": "semgrep", "publish": True, "sha256": "0" * 64}, reports[1]])
+    code, log, _, _ = _run_step("manifest", tmp_path, env)
+    assert code == 1
+    assert "skrót raportu semgrep" in log
+    write(ok_run, [{"tool": "semgrep", "publish": True}, reports[1]])
+    assert _run_step("manifest", tmp_path, env)[0] == 1
+    write(ok_run, [reports[0], {"tool": "checkov", "publish": True, "sha256": digest}])
+    assert _run_step("manifest", tmp_path, env)[0] == 1
+
     manifest.unlink()
     assert _run_step("manifest", tmp_path, env)[0] == 1
 
@@ -208,7 +238,7 @@ def test_manifest_must_match_run_257(tmp_path: Path) -> None:
                 "CHECKOV_CONFIRM": "complete",
             },
             1,
-            ["| semgrep | clean | failed — przetwarzanie niepotwierdzone (status: pending) |"],
+            ["| semgrep | clean | pending — brak terminalnego statusu przetwarzania w terminie |"],
         ),
         (
             {
@@ -307,14 +337,16 @@ def _fake_api(tmp_path: Path, statuses: dict[str, list[str]]) -> dict[str, str]:
     for sarif_id, sequence in statuses.items():
         (tmp_path / f"seq-{sarif_id}").write_text("\n".join(sequence) + "\n", encoding="utf-8")
     curl = stubs / "curl"
+    # atrapa rozumie -o PLIK i -w '%{http_code}': wpis "complete" = 200 z tym statusem, "http403" = kod 403
     curl.write_text(
         "#!/usr/bin/env bash\n"
-        'url=${*: -1}; id=${url##*/}; seq="$SEQ_DIR/seq-$id"\n'
-        'echo "$*" >>"$SEQ_DIR/calls"\n'
-        "[[ -s $seq ]] || exit 22\n"
-        'status=$(head -n1 "$seq"); [[ $(wc -l <"$seq") -gt 1 ]] && sed -i 1d "$seq"\n'
-        "[[ $status == http500 ]] && exit 22\n"
-        'printf \'{"processing_status": "%s"}\\n\' "$status"\n',
+        "out=/dev/null; while (($#)); do case $1 in -o) out=$2; shift 2 ;; *) url=$1; shift ;; esac; done\n"
+        'id=${url##*/}; seq="$SEQ_DIR/seq-$id"\n'
+        'echo "$url" >>"$SEQ_DIR/calls"\n'
+        "[[ -s $seq ]] || { printf 000; exit 7; }\n"
+        'entry=$(head -n1 "$seq"); [[ $(wc -l <"$seq") -gt 1 ]] && sed -i 1d "$seq"\n'
+        'if [[ $entry == http* ]]; then printf "%s" "${entry#http}"; exit 0; fi\n'
+        'printf \'{"processing_status": "%s"}\\n\' "$entry" >"$out"; printf 200\n',
         encoding="utf-8",
     )
     curl.chmod(0o755)
@@ -336,8 +368,14 @@ def _fake_api(tmp_path: Path, statuses: dict[str, list[str]]) -> dict[str, str]:
         (["failed"], "30", "failed"),
         # pending po terminie zostaje pending (Stan publikacji zrobi z tego błąd)
         (["pending"], "0", "pending"),
-        # chwilowy błąd API, potem wynik
-        (["http500", "complete"], "30", "complete"),
+        # chwilowe błędy API i opóźniona widoczność uploadu, potem wynik
+        (["http500", "http429", "http404", "complete"], "30", "complete"),
+        # brak uprawnień do odczytu (np. fork) nie jest complete i nie jest ponawiany
+        (["http403", "complete"], "30", "forbidden"),
+        (["http401"], "30", "forbidden"),
+        (["http418"], "30", "http_418"),
+        # usługa niedostępna do końca terminu
+        (["http503"], "0", "unavailable"),
     ],
 )
 def test_confirm_processing_status_257(tmp_path: Path, sequence: list[str], timeout: str, expected: str) -> None:
@@ -354,7 +392,7 @@ def test_confirm_processing_status_257(tmp_path: Path, sequence: list[str], time
 def test_raw_sarif_never_leaves_runner_257() -> None:
     (reports,) = [s for s in _steps(SCAN, "actions/upload-artifact@") if s["with"]["name"] == "security-reports"]
     paths = reports["with"]["path"].split()
-    assert "!build/sca/*.sarif" in paths
+    assert "!build/sca/**/*.sarif" in paths  # także raporty kontraktu w podkatalogach
     for job_name, job in JOBS.items():
         for step in _steps(job, "actions/upload-artifact@"):
             if step["with"]["name"] == "code-scanning-sarif":
@@ -371,3 +409,14 @@ def test_scanner_logs_without_code_fragments_257() -> None:
     assert '--msg-template "{relpath}:{line} {test_id} {severity}/{confidence}"' in script
     # checkov: tryb bez bloków kodu
     assert "--compact" in script
+
+
+def test_contract_fixture_excluded_from_main_scans_257() -> None:
+    script = (ROOT / "ci" / "security.sh").read_text(encoding="utf-8")
+    assert "CONTRACT=tests/fixtures/sarif-contract" in script
+    assert '--exclude "$CONTRACT"' in script
+    assert '--skip-path "$CONTRACT"' in script
+    assert 'run_check "Kontrakt SARIF na przypiętych skanerach (#257)" sarif_contract' in script
+    fixture = ROOT / "tests" / "fixtures" / "sarif-contract"
+    assert (fixture / "leak.py").is_file()
+    assert (fixture / ".github" / "workflows" / "w.yml").is_file()

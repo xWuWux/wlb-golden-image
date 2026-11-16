@@ -103,7 +103,7 @@ def make_info(count: int = 0, *, suppressed: int = 0, tool: str = "semgrep") -> 
         sha256="0" * 64,
         result_count=count,
         driver_version="",
-        rules_digest="0" * 64,
+        sarif_rules_metadata_digest="0" * 64,
         suppressed_count=suppressed,
     )
 
@@ -114,12 +114,13 @@ def make_info(count: int = 0, *, suppressed: int = 0, tool: str = "semgrep") -> 
 def test_reports_outcomes_i_limity():
     assert list(sr.REPORTS) == ["semgrep", "checkov"]
     assert [report.category for report in sr.REPORTS.values()] == ["semgrep", "checkov"]
-    assert [report.driver for report in sr.REPORTS.values()] == ["semgrep", "checkov"]
+    assert [report.drivers for report in sr.REPORTS.values()] == [("Semgrep OSS", "Semgrep"), ("Checkov",)]
     assert sr.REPORTS["semgrep"].requires_rules is True
     assert sr.REPORTS["checkov"].requires_rules is False
     assert sr.OUTCOMES == ("clean", "findings", "error", "not_run")
     assert sr.MAX_GZIP_BYTES == 10 * 1024 * 1024
-    assert sr.MAX_RAW_BYTES == 100 * 1024 * 1024
+    assert sr.MAX_RAW_BYTES == 50 * 1024 * 1024
+    assert sr.MAX_JSON_DEPTH == 64
     assert sr.RUNS_PER_REPORT == 1
     assert sr.MAX_RESULTS_PER_RUN == 25_000
     assert sr.MAX_RULES_PER_RUN == 25_000
@@ -133,7 +134,7 @@ def test_load_report_przyjmuje_semgrep_i_checkov(tmp_path):
     sem = write_report(tmp_path, "semgrep", make_doc(results=[], rules=[{"id": "r"}]))
     assert sr.load_report(sem, "semgrep")["version"] == "2.1.0"
 
-    bez_wynikow = make_doc(driver_name="SEMGREP OSS")
+    bez_wynikow = make_doc(driver_name="Semgrep")
     assert "results" not in bez_wynikow["runs"][0]
     assert sr.load_report(write_json(tmp_path / "semgrep.sarif", bez_wynikow), "semgrep")["runs"]
 
@@ -163,21 +164,21 @@ def test_load_report_odrzuca_zla_strukture(tmp_path):
         (
             {
                 "version": "2.1.0",
-                "runs": [{"tool": {"driver": {"name": "semgrep", "rules": [{"id": "r"}]}}, "results": {}}],
+                "runs": [{"tool": {"driver": {"name": "Semgrep OSS", "rules": [{"id": "r"}]}}, "results": {}}],
             },
             "results",
         ),
         (
             {
                 "version": "2.1.0",
-                "runs": [{"tool": {"driver": {"name": "semgrep", "rules": {"id": "r"}}}, "results": []}],
+                "runs": [{"tool": {"driver": {"name": "Semgrep OSS", "rules": {"id": "r"}}}, "results": []}],
             },
             "rules",
         ),
         (
             {
                 "version": "2.1.0",
-                "runs": [{"tool": {"driver": {"name": "semgrep", "rules": [{"id": "r"}]}}, "results": None}],
+                "runs": [{"tool": {"driver": {"name": "Semgrep OSS", "rules": [{"id": "r"}]}}, "results": None}],
             },
             "results",
         ),
@@ -716,6 +717,7 @@ def test_drop_suppressed_nie_zmienia_wejscia_i_pomija_nieliste():
     assert "suppressions" not in kept["runs"][0]["results"][0]
     assert kept["runs"][1]["results"] == "nie-lista"
     assert sr.drop_suppressed({"version": "2.1.0"}) == {"version": "2.1.0"}
+    assert sr.drop_suppressed("nie-obiekt") == "nie-obiekt"
 
 
 # --- prepare: ścieżka szczęśliwa i publikacja (#257) ---
@@ -739,7 +741,7 @@ def test_prepare_czysty_semgrep_i_manifest(tmp_path):
     expected_digest = hashlib.sha256(
         json.dumps([rules], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     ).hexdigest()
-    assert semgrep["rules_digest"] == expected_digest
+    assert semgrep["sarif_rules_metadata_digest"] == expected_digest
 
     payload = (out / "semgrep.sarif").read_bytes()
     assert semgrep["sha256"] == hashlib.sha256(payload).hexdigest()
@@ -1012,8 +1014,8 @@ def test_prepare_github_output_i_summary_oraz_metadane(tmp_path, capsys):
 
     text = summary.read_text(encoding="utf-8")
     assert "## poprzedni" in text
-    assert "| Narzędzie | Kategoria | Wynik skanu | Wyników | Wersja | Reguły | Publikacja |" in text
-    digest = manifest["reports"][0]["rules_digest"][:12]
+    assert "| Narzędzie | Kategoria | Wynik skanu | Wyników | Wersja | Metadane reguł | Publikacja |" in text
+    digest = manifest["reports"][0]["sarif_rules_metadata_digest"][:12]
     assert f"| semgrep | semgrep | clean | 0 | 9.9.9 | {digest} | tak |" in text
     assert "| checkov | checkov | not_run | — | — | — | nie |" in text
     assert capsys.readouterr().out == ""
@@ -1031,7 +1033,7 @@ def test_prepare_bez_summary_pisze_tabele_na_stdout(tmp_path, capsys):
     assert "| checkov | checkov | not_run |" in stdout
 
 
-def test_rules_digest_jest_stabilny_i_zalezy_od_regul(tmp_path):
+def test_sarif_rules_metadata_digest_jest_stabilny_i_zalezy_od_regul(tmp_path):
     rules_a = [{"id": "r", "help": {"text": "x", "uri": "u"}}]
     rules_b = [{"help": {"uri": "u", "text": "x"}, "id": "r"}]
     rules_c = [{"id": "inna"}]
@@ -1041,7 +1043,7 @@ def test_rules_digest_jest_stabilny_i_zalezy_od_regul(tmp_path):
         out = tmp_path / name / "out"
         write_exit(sca, "semgrep", "0\n")
         write_report(sca, "semgrep", make_doc(results=[], rules=rules))
-        return sr.prepare(sca, out, summary_env(tmp_path / name))["reports"][0]["rules_digest"]
+        return sr.prepare(sca, out, summary_env(tmp_path / name))["reports"][0]["sarif_rules_metadata_digest"]
 
     assert digest("a", rules_a) == digest("b", rules_b)  # sort_keys ujednolica kolejność pól
     assert digest("c", rules_a) != digest("d", rules_c)
@@ -1563,3 +1565,110 @@ def test_hermetyczny_fixture_semgrep_i_checkov(tmp_path):
     assert chk_res["ruleId"] == "CKV_AWS_20"
     assert chk_res["message"]["text"] == "CKV_AWS_20"  # fallback do ruleId przy pustych rules
     assert chk_res["partialFingerprints"] == {"primaryLocationLineHash": "hash123"}
+
+
+# --- limity zasobów, dokładne nazwy driverów i weryfikacja sha256 (#257) ---
+
+
+@pytest.mark.parametrize(
+    "driver_name",
+    [
+        "semgrep",
+        "SEMGREP OSS",
+        "semgrep-fork",
+        "Semgrep-Pro",
+        "checkov",
+        "Checkov2",
+    ],
+)
+def test_load_report_odrzuca_niezgodne_nazwy_drivera(tmp_path, driver_name):
+    doc = make_doc(tool="semgrep", driver_name=driver_name)
+    path = write_json(tmp_path / "driver.sarif", doc)
+    with pytest.raises(sr.ReportError, match="nie pochodzi z narzędzia"):
+        sr.load_report(path, "semgrep")
+
+
+def test_load_report_przyjmuje_dokladne_nazwy_driverow(tmp_path):
+    sem1 = write_json(tmp_path / "sem1.sarif", make_doc(tool="semgrep", driver_name="Semgrep OSS"))
+    assert sr.load_report(sem1, "semgrep")["runs"]
+    sem2 = write_json(tmp_path / "sem2.sarif", make_doc(tool="semgrep", driver_name="Semgrep"))
+    assert sr.load_report(sem2, "semgrep")["runs"]
+    chk = write_json(tmp_path / "chk.sarif", make_doc(tool="checkov", driver_name="Checkov"))
+    assert sr.load_report(chk, "checkov")["runs"]
+
+
+def test_check_json_depth_galezie():
+    assert sr._check_json_depth('{"str": "quote \\" and backslash \\\\"}', 64) is True
+    assert sr._check_json_depth("[" * 64 + "]" * 64, 64) is True
+    assert sr._check_json_depth("[" * 65 + "]" * 65, 64) is False
+
+
+def test_prepare_zagniezdzenie_100k_zglasza_error_i_nie_ujawnia_tresci(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    write_exit(sca, "semgrep", "0\n")
+    # Zagnieżdżenie 100 000 nawiasów z tokenem CANARY w środku
+    payload = (
+        f'{{"version": "2.1.0", "runs": [{{"tool": {{"driver": {{"name": "Semgrep"}}}}, "extra": {CANARY!r}, "nested": '
+        + ("[" * 100_000)
+        + ("0" * 1)
+        + ("]" * 100_000)
+        + "}]}"
+    )
+    (sca / "semgrep.sarif").write_text(payload, encoding="utf-8")
+    env = summary_env(tmp_path)
+    manifest = sr.prepare(sca, out, env)
+    entry = manifest["reports"][0]
+    assert entry["outcome"] == "error"
+    assert entry["publish"] is False
+    assert "limit zagnieżdżenia" in entry["reason"]
+    assert CANARY not in entry["reason"]
+    assert CANARY not in json.dumps(manifest, ensure_ascii=False)
+    assert CANARY not in (tmp_path / "summary.md").read_text(encoding="utf-8")
+    assert not (out / "semgrep.sarif").exists()
+
+
+def test_prepare_normalna_glebokosc_semgrepa_przechodzi(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    write_exit(sca, "semgrep", "0\n")
+    write_report(sca, "semgrep", make_doc(tool="semgrep", driver_name="Semgrep OSS"))
+    manifest = sr.prepare(sca, out, summary_env(tmp_path))
+    assert manifest["reports"][0]["outcome"] == "clean"
+    assert (out / "semgrep.sarif").is_file()
+
+
+def test_load_report_obsluga_recursion_i_memory_error(tmp_path, monkeypatch):
+    path = write_report(tmp_path, "semgrep")
+
+    def raise_recursion(*args, **kwargs):
+        raise RecursionError("stos")
+
+    monkeypatch.setattr(sr.json, "loads", raise_recursion)
+    with pytest.raises(sr.ReportError, match="limit zagnieżdżenia") as exc:
+        sr.load_report(path, "semgrep")
+    assert "stos" not in str(exc.value)
+
+    def raise_memory(*args, **kwargs):
+        raise MemoryError("brak ram")
+
+    monkeypatch.setattr(sr.json, "loads", raise_memory)
+    with pytest.raises(sr.ReportError, match="limit pamięci") as exc:
+        sr.load_report(path, "semgrep")
+    assert "brak ram" not in str(exc.value)
+
+
+def test_manifest_sha256_jest_dokladnym_hashem_pliku_na_dysku(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    write_exit(sca, "semgrep", "0\n")
+    write_report(sca, "semgrep", make_doc(tool="semgrep", driver_name="Semgrep OSS"))
+    write_exit(sca, "checkov", "0\n")
+    write_report(sca, "checkov", make_doc(tool="checkov", driver_name="Checkov"))
+    manifest = sr.prepare(sca, out, summary_env(tmp_path))
+    for rep in manifest["reports"]:
+        if rep["publish"]:
+            file_path = out / sr.REPORTS[rep["tool"]].sarif
+            assert file_path.is_file()
+            expected_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
+            assert rep["sha256"] == expected_hash

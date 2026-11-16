@@ -25,7 +25,9 @@ pierwszym Laboratorium na klastrze).
   waliduje SARIF (także notyfikacje `level: error` = analiza niekompletna), eksportuje go z jawnej allowlisty
   pól (sekret z `p/secrets` nie trafia do GitHuba ani do treści wyniku) i zapisuje manifest z wersją skanera
   i skrótem reguł. Surowe SARIF nie trafiają do artefaktów, a log semgrepa/bandita nie zawiera kodu.
-  Job 3r potwierdza w API terminalny status przetworzenia (`complete`) każdego `sarif-id`. Publikuje osobny job „3r” — jedyny z `security-events: write`,
+  Job 3r potwierdza w API terminalny status przetworzenia (`complete`) każdego `sarif-id` i skrót każdego
+  raportu z manifestem. Nowe sprawdzenie etapu 3 „Kontrakt SARIF” uruchamia przypięte semgrep/checkov na
+  fixture `tests/fixtures/sarif-contract/` (celowe znaleziska i canary) i sprawdza cały łańcuch eksportu. Publikuje osobny job „3r” — jedyny z `security-events: write`,
   bez wykonywania kodu z repo. Polityka: raport, nie druga bramka; brak publikacji blokuje „Gotowe do
   code review” jako błąd infrastruktury. Runbook: `docs/ci-runbook.md#code-scanning`.
 
