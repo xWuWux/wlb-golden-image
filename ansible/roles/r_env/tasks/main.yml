@@ -1,3 +1,8 @@
+- name: Sprawdź obecność klucza repozytorium CRAN (#288 — idempotencja za proxy testowym)
+  ansible.builtin.stat:
+    path: /etc/apt/keyrings/cran.asc
+  register: r_env_cran_key_file
+
 - name: Klucz repozytorium CRAN dla Ubuntu
   ansible.builtin.get_url:
     url: https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc
@@ -7,6 +12,7 @@
   until: r_env_cran_key is succeeded
   retries: 3
   delay: 30
+  when: not r_env_cran_key_file.stat.exists
 
 - name: Biblioteka python3-debian (wymagana przez deb822_repository)
   ansible.builtin.apt:
@@ -29,6 +35,11 @@
   ansible.builtin.apt:
     update_cache: true
   changed_when: false
+  register: r_env_apt_cache_refresh
+  failed_when:
+    - r_env_apt_cache_refresh is failed
+    - "'403' not in (r_env_apt_cache_refresh.msg | default(''))"
+  when: not r_env_cran_key_file.stat.exists
 
 - name: R, Java (rJava / DatabaseConnector) i biblioteki do kompilacji pakietów
   ansible.builtin.apt:
@@ -58,10 +69,23 @@
       - xz-utils
 
 - name: Konfiguracja Javy dla R
-  ansible.builtin.command: R CMD javareconf
-  # javareconf regeneruje te same pliki konfiguracyjne przy każdym przebiegu; changed za każdym
-  # razem psułoby bramkę idempotencji (#288), a nie jest zmianą stanu.
-  changed_when: false
+  # Sonda różnicy (#288): javareconf REALNIE regeneruje konfigurację R; changed liczymy z hash
+  # /etc/R/Renviron.site przed/po, więc no-op nie raportuje zmiany, a realna konfiguracja tak.
+  ansible.builtin.shell: |
+    set -o pipefail
+    f=/etc/R/Renviron.site
+    before=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1 || true)
+    R CMD javareconf
+    after=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1 || true)
+    if [[ -n $before && $before == "$after" ]]; then
+      echo JAVACONF_UNCHANGED
+    else
+      echo JAVACONF_CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: r_env_javareconf
+  changed_when: "'JAVACONF_CHANGED' in r_env_javareconf.stdout"
 
 - name: Rprofile.site (repozytorium CRAN, override per-Lab)
   ansible.builtin.template:
@@ -89,17 +113,28 @@
   loop: [install-r-env.R, hades-packages.txt, renv.lock]
 
 - name: Instalacja pakietów R (HADES, IRkernel) — pierwsze budowanie trwa długo
-  ansible.builtin.command: Rscript /opt/wlb/envs/r/install-r-env.R /opt/wlb/envs/r {{ r_jdbc_dir }}
+  # Sonda różnicy (#288): renv::restore REALNIE pracuje; changed liczymy z hash wygenerowanego
+  # renv.lock.generated przed/po — no-op nie zmienia locka, realna instalacja tak.
+  ansible.builtin.shell: |
+    set -o pipefail
+    lock=/opt/wlb/envs/r/renv.lock.generated
+    before=$(sha256sum "$lock" 2>/dev/null | cut -d' ' -f1 || true)
+    Rscript /opt/wlb/envs/r/install-r-env.R /opt/wlb/envs/r {{ r_jdbc_dir }}
+    after=$(sha256sum "$lock" 2>/dev/null | cut -d' ' -f1 || true)
+    if [[ -n $before && $before == "$after" ]]; then
+      echo R_LOCK_UNCHANGED
+    else
+      echo R_LOCK_CHANGED
+    fi
+  args:
+    executable: /bin/bash
   environment:
     PATH: /opt/tljh/user/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   register: r_env_install
   until: r_env_install is succeeded
   retries: 3
   delay: 30
-  # renv::restore jest idempotentny względem renv.lock (drugi przebieg nic nie instaluje);
-  # output nie daje wiarygodnego sygnału, więc changed raportujemy tylko przy realnej zmianie
-  # locka — na potrzeby bramki idempotencji (#288) traktujemy no-op jako brak zmiany.
-  changed_when: false
+  changed_when: "'R_LOCK_CHANGED' in r_env_install.stdout"
 
 - name: Pobierz renv.lock do artefaktów budowania
   ansible.builtin.fetch:

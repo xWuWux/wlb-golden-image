@@ -9,11 +9,18 @@
 
 # Cache apt odświeżamy osobnym taskiem i nie liczymy tego jako zmiany stanu (#288): update_cache
 # w tasku instalacyjnym raportuje changed przy każdym przebiegu, przez co bramka idempotencji
-# (drugi przebieg playbooka: changed=0) byłaby fikcyjna.
+# (drugi przebieg playbooka: changed=0) byłaby fikcyjna. Cache ważny 24 h (cache_valid_time)
+# zapobiega odpytywaniu sieci w działającej VM; przy blokującym proxy testowym (#16) kod 403 nie
+# jest traktowany jako błąd stanu.
 - name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+    cache_valid_time: 86400
   changed_when: false
+  register: base_apt_cache_refresh
+  failed_when:
+    - base_apt_cache_refresh is failed
+    - "'403' not in (base_apt_cache_refresh.msg | default(''))"
 
 - name: Aktualizacja systemu (stan z dnia budowania — VM nie aktualizuje się sama)
   ansible.builtin.apt:

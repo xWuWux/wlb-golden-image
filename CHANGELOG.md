@@ -167,10 +167,19 @@ pierwszym Laboratorium na klastrze).
   `ansible/site.yml` jest uruchamiany na tej samej maszynie, a PLAY RECAP musi dać **changed=0**
   (bramka `ci/idempotency.py`, testy `tests/unit/test_idempotency.py`). Żeby bramka była realna,
   przejrzano taski raportujące zmianę przy każdym przebiegu: cache apt wydzielony do osobnego
-  tasku z `changed_when: false` (9 miejsc), `pip`/`conda`/`R`/`Julia` raportują changed tylko przy
-  realnej instalacji (lub są no-op), `fetch` artefaktów nie jest zmianą stanu, a strefa czasowa
-  używa modułu `timezone`. Blok wersjonowanego prefiksu Pythona (#193) jest pomijany, gdy prefiks
-  jest już dowiązaniem — inaczej drugi przebieg przełączałby hub.
+  tasku z `changed_when: false` (9 miejsc — bezsporny no-op cache'a), a taski, które **realnie
+  pracują**, raportują changed przez **sondę różnicy** (hash pliku przed/po), nie przez maskowanie:
+  Julia (`Manifest.toml.generated`), pakiety R (`renv.lock.generated`), `R CMD javareconf`
+  (`/etc/R/Renviron.site`), `flatpak override` (plik overrides/<app>), `pip` („Successfully
+  installed”), `conda env update` („All requested packages already installed”). Eksport locka
+  condy zapisuje plik tylko przy `cmp` różnicy, a `fetch`/log diagnostyczny condy to kopie
+  artefaktów, nie stan VM. Strefa czasowa używa modułu `timezone`. Blok wersjonowanego prefiksu
+  Pythona (#193) jest pomijany, gdy prefiks jest już dowiązaniem — inaczej drugi przebieg
+  przełączałby hub.
+  **Koszt obserwowalności (znana granica):** sonda widzi tylko zmiany plików, które hashuje —
+  np. samo precompile Julii bez zmiany Manifestu albo zmiana cache'ów w `JULIA_DEPOT_PATH` nie
+  zostanie zaraportowana jako `changed`; bramka pilnuje no-opu playbooka, nie pełnego stanu
+  wewnętrznego narzędzi.
 
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje

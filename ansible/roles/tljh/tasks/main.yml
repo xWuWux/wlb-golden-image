@@ -1,3 +1,8 @@
+- name: Sprawdź obecność instalatora TLJH (#288 — idempotencja za proxy testowym)
+  ansible.builtin.stat:
+    path: /opt/wlb/tljh-bootstrap.py
+  register: tljh_bootstrap_stat
+
 - name: Pobierz instalator TLJH (przypięta wersja)
   ansible.builtin.get_url:
     url: "https://raw.githubusercontent.com/jupyterhub/the-littlest-jupyterhub/{{ tljh_version }}/bootstrap/bootstrap.py"
@@ -7,6 +12,7 @@
   until: tljh_bootstrap_download is succeeded
   retries: 3
   delay: 30
+  when: not tljh_bootstrap_stat.stat.exists
 
 - name: Instalacja TLJH
   ansible.builtin.command: python3 /opt/wlb/tljh-bootstrap.py --version {{ tljh_version }}
