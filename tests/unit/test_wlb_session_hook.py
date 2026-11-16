@@ -172,8 +172,12 @@ def test_reap_display_usuwa_tylko_artefakty_wlasciciela(tmp_path, monkeypatch):
     (tmp_root / "random-file").write_text("", encoding="utf-8")
     home = tmp_path / "home"
     (home / ".vnc").mkdir(parents=True)
+    # TigerVNC: tylko <host>:<d>.pid/.log skorelowane z DISPLAY są reapowane.
+    (home / ".vnc" / "lab-test01:77.pid").write_text("", encoding="utf-8")
+    (home / ".vnc" / "lab-test01:77.log").write_text("", encoding="utf-8")
+    # Dane badacza: blanket *.pid/*.log NIE może ginąć (deny-lista /workspace).
     (home / ".vnc" / "a.pid").write_text("", encoding="utf-8")
-    (home / ".vnc" / "a.log").write_text("", encoding="utf-8")
+    (home / ".vnc" / "keepme.log").write_text("", encoding="utf-8")
     (home / ".vnc" / "other.txt").write_text("", encoding="utf-8")
     xauth = tmp_path / "Xauthority"
     xauth.write_text("", encoding="utf-8")
@@ -188,8 +192,10 @@ def test_reap_display_usuwa_tylko_artefakty_wlasciciela(tmp_path, monkeypatch):
     assert not (tmp_root / ".X11-unix" / "X77").exists()
     assert not (tmp_root / ".X77-lock").exists()
     assert (tmp_root / "random-file").exists()
-    assert not (home / ".vnc" / "a.pid").exists()
-    assert not (home / ".vnc" / "a.log").exists()
+    assert not (home / ".vnc" / "lab-test01:77.pid").exists()
+    assert not (home / ".vnc" / "lab-test01:77.log").exists()
+    assert (home / ".vnc" / "a.pid").exists(), "blanket *.pid nie może być usuwany"
+    assert (home / ".vnc" / "keepme.log").exists(), "dane badacza w ~/.vnc muszą przeżyć"
     assert (home / ".vnc" / "other.txt").exists()
     assert xauth.exists(), ".Xauthority (trwały) nie może zniknąć"
     assert ["xauth", "-f", str(xauth), "remove", ":77"] in calls

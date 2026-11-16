@@ -79,15 +79,18 @@ expect_ok "Kolejka .wlb-export-queue nietknięta (deny-lista, #318)" \
 expect_ok "Ścieżka spoza allowlisty nietknięta (test negatywny, #318)" \
   test -f /tmp/wlb-318-poza-allowlista/marker
 
-# Reaping artefaktów display-scoped — tylko na pulpicie (xauth z roli desktop) i dla UID badacza.
+# Reaping artefaktów X/VNC UID-scoped — tylko na pulpicie (xauth z roli desktop) i dla UID badacza.
+# TigerVNC: usuwamy wyłącznie <host>:<d>.pid/.log skorelowane z DISPLAY; dane badacza w ~/.vnc zostają.
 if [ -x /opt/wlb/desktop/wlb-desktop-xstartup ] && command -v xauth >/dev/null 2>&1; then
   mkdir -p /tmp/.X11-unix "$W50_HOME/.vnc"
   : >/tmp/.X11-unix/X77
   : >/tmp/.X77-lock
-  : >"$W50_HOME/.vnc/wlb-318.pid"
+  : >"$W50_HOME/.vnc/lab-test01:77.pid"
+  : >"$W50_HOME/.vnc/lab-test01:77.log"
+  : >"$W50_HOME/.vnc/keepme.log"
   : >"$W50_HOME/.vnc/wlb-318-other.txt"
-  chown "jupyter-$R2" /tmp/.X11-unix/X77 /tmp/.X77-lock "$W50_HOME/.vnc/wlb-318.pid" \
-    "$W50_HOME/.vnc/wlb-318-other.txt"
+  chown "jupyter-$R2" /tmp/.X11-unix/X77 /tmp/.X77-lock "$W50_HOME/.vnc/lab-test01:77.pid" \
+    "$W50_HOME/.vnc/lab-test01:77.log" "$W50_HOME/.vnc/keepme.log" "$W50_HOME/.vnc/wlb-318-other.txt"
   xauth -f /workspace/.Xauthority add :77 MIT-MAGIC-COOKIE-1 0123456789abcdef0123456789abcdef
   /opt/tljh/user/bin/python - "$R2" "$W50_UNIT" <<'PY'
 import subprocess as real_subprocess
@@ -119,12 +122,15 @@ ns["wlb_post_stop_hook"](spawner)
 PY
   expect_ok "Reaping display: gniazdo X usunięte dla zwalnianego UID (#318)" test ! -e /tmp/.X11-unix/X77
   expect_ok "Reaping display: lock X usunięty (#318)" test ! -e /tmp/.X77-lock
-  expect_ok "Reaping display: plik .vnc/*.pid usunięty (#318)" test ! -e "$W50_HOME/.vnc/wlb-318.pid"
-  expect_ok "Reaping display: plik .vnc spoza wzorca nietknięty (#318)" \
+  expect_ok "Reaping UID-scoped: <host>:77.pid/.log usunięte dla DISPLAY 77 (#318)" \
+    test ! -e "$W50_HOME/.vnc/lab-test01:77.pid" -a ! -e "$W50_HOME/.vnc/lab-test01:77.log"
+  expect_ok "Reaping UID-scoped: plik badacza keepme.log przeżył (nie blanket *.log, #318)" \
+    test -f "$W50_HOME/.vnc/keepme.log"
+  expect_ok "Reaping UID-scoped: plik .vnc spoza wzorca DISPLAY nietknięty (#318)" \
     test -f "$W50_HOME/.vnc/wlb-318-other.txt"
   expect_ok "xauth: wpis :77 usunięty, plik .Xauthority zachowany (#318)" \
     bash -c 'test -f /workspace/.Xauthority && ! xauth -f /workspace/.Xauthority list :77 | grep -q .'
-  rm -f /workspace/.Xauthority "$W50_HOME/.vnc/wlb-318-other.txt"
+  rm -f /workspace/.Xauthority "$W50_HOME/.vnc/keepme.log" "$W50_HOME/.vnc/wlb-318-other.txt"
 else
   skip "Reaping display-scoped (#318): brak pulpitu/xauth — sprawdzone testami jednostkowymi"
 fi

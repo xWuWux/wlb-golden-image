@@ -30,7 +30,10 @@ _WLB_TIMEOUT_S = 2  # tylko lokalny zapis — dluzszy czas oznacza awarie, nie p
 
 # Sprzatanie scratcha sesji (#318). HOME badacza to /workspace na TRWALYM dysku roboczym,
 # wiec nie wolno tam niczego czyscic rekurencyjnie. Scratch zyje na tmpfs (/run) i jest
-# usuwany w calosci po stopie; artefakty display-scoped tylko dla zwalnianego uid/DISPLAY.
+# usuwany w calosci po stopie. Artefakty X/VNC reapujemy UID-scoped (hook nie zna zwalnianego
+# DISPLAY — spawner go nie niesie w post_stop); przy wspolbieznych sesjach tego samego uid
+# reapujemy wszystkie artefakty tego uid. Jedyny wyjatek pod /workspace to waskie, skorelowane
+# z DISPLAY pliki TigerVNC w ~/.vnc (<host>:<d>.pid/.log) — nigdy blanket *.pid/*.log.
 _WLB_SCRATCH_ROOT = os.environ.get("WLB_SCRATCH_ROOT", "/run/wlb/scratch")
 _WLB_TMP_ROOT = os.environ.get("WLB_TMP_ROOT", "/tmp")
 _WLB_XAUTHORITY = os.environ.get("WLB_XAUTHORITY", "/workspace/.Xauthority")
@@ -142,9 +145,13 @@ def _wlb_prepare_scratch(spawner, user, unit, uid):
     return path
 
 
-def _wlb_unlink_owned(spawner, path, uid):
+def _wlb_unlink_owned(spawner, path, uid, deny_workspace=True):
     # Tylko JAWNE artefakty (nie katalogi), tylko właściciel = badacz, nigdy kolejka eksportu.
+    # deny_workspace=False jest zarezerwowane dla wąskiego wyjątku ~/.vnc (<host>:<d>.pid/.log),
+    # gdzie wywołujący sprawdził już korelację z DISPLAY tego uid.
     if "/.wlb-export-queue/" in path:
+        return False
+    if deny_workspace and _wlb_denied(path):
         return False
     try:
         st = os.lstat(path)
@@ -177,9 +184,11 @@ def _wlb_remove_scratch(spawner, path, uid):
 
 
 def _wlb_reap_display(spawner, user, uid):
-    # Artefakty display-scoped TYLKO dla zwalnianego konta (właściciel = uid badacza):
-    # gniazda/locki X, pliki .vnc (pid/log) oraz wpis xauth dla tego DISPLAY. Nie ruszamy
-    # całego .Xauthority (trwały, współdzielony) ani katalogów.
+    # UID-scoped reaping artefaktów X/VNC tego konta: gniazda/locki X, pliki TigerVNC
+    # <host>:<d>.pid/.log skorelowane z DISPLAY oraz wpis xauth dla tych DISPLAY. Hook nie zna
+    # realnie zwalnianego DISPLAY (spawner go nie niesie w post_stop) — przy współbieżnych
+    # sesjach tego samego uid reapujemy wszystkie artefakty tego uid (znana granica).
+    # Nie ruszamy całego .Xauthority (trwały, współdzielony) ani katalogów.
     if not _wlb_uid_in_range(uid):
         return
     displays = set()
@@ -212,8 +221,13 @@ def _wlb_reap_display(spawner, user, uid):
         except OSError:
             names = []
         for name in names:
-            if name.endswith(".pid") or name.endswith(".log"):
-                _wlb_unlink_owned(spawner, os.path.join(vnc, name), uid)
+            # TigerVNC: <host>:<d>.pid / <host>:<d>.log. Usuwamy TYLKO pliki skorelowane
+            # z DISPLAY z reapowanych gniazd/locków; blanket *.pid/*.log kasowałby dane badacza.
+            m = re.fullmatch(r".+:(\d+)\.(pid|log)", name)
+            if not m or m.group(1) not in displays:
+                continue
+            # Wąski, udokumentowany wyjątek pod /workspace (defense-in-depth: deny_workspace=False).
+            _wlb_unlink_owned(spawner, os.path.join(vnc, name), uid, deny_workspace=False)
     for d in sorted(displays):
         try:
             subprocess.run(["xauth", "-f", _WLB_XAUTHORITY, "remove", ":" + d],
