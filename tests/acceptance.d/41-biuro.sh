@@ -32,9 +32,12 @@ if grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia|histologia)' /etc/wlb/image-
     test -f /usr/share/applications/org.gnome.Evince.desktop
 
   if command -v evince-thumbnailer >/dev/null; then
+    # Profil AppArmor evince-thumbnailer (enforce, CIS 1.6.3) pozwala pisać tylko do
+    # /tmp/evince-thumbnailer* i ~/.cache/thumbnails — zwykły mktemp -d kończy się
+    # odmową mknod na out.png. Prefiks katalogu jest częścią kontraktu profilu.
     # shellcheck disable=SC2016  # $d celowo rozwijane w wewnętrznym bash -c, nie tu
     expect_ok "evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)" bash -c '
-      d=$(mktemp -d) || exit 1
+      d=$(mktemp -d /tmp/evince-thumbnailer.XXXXXX) || exit 1
       trap "rm -rf \"$d\"" EXIT
       python3 -c "
 import sys
