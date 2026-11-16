@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Koniec konfliktów mapy testów przy równoległych PR-ach:** `.gitattributes` oznacza
+  `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany
+  przez wiele PR-ów scala się zachowując wiersze z obu stron, zamiast konfliktować N-stronnie.
+  Docelowo regeneracja w CI znormalizuje kolejność.
+
 - **Koniec konfliktów CHANGELOG przy równoległych PR-ach:** `.gitattributes` oznacza
   `CHANGELOG.md merge=union` — git scala sekcję „Niewydane" zachowując wpisy z obu stron
   zamiast zgłaszać konflikt. Automatyzuje dotychczasową ręczną regułę „zachowaj wszystkie wpisy",
