@@ -481,9 +481,14 @@ class E2E:
             "artifacts": [],
         }
         for name in SCENARIO_ORDER:
-            gating = cfg["desktop"] == "required" and (
-                name in ("launcher", "render", "resize", "reconnect")
-                or (name in ("pointer", "keyboard") and cfg["interaction"] == "required")
+            # „launcher” bramkuje w OBIE strony: flavor z pulpitem musi mieć kafelek Desktop,
+            # a baza bez pulpitu (WLB_E2E_DESKTOP=absent) nie może go wystawiać (regresja lekkości, #105).
+            gating = name == "launcher" or (
+                cfg["desktop"] == "required"
+                and (
+                    name in ("render", "resize", "reconnect")
+                    or (name in ("pointer", "keyboard") and cfg["interaction"] == "required")
+                )
             )
             self.result["scenarios"][name] = {
                 "status": "not_run",
