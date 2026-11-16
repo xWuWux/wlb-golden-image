@@ -41,6 +41,22 @@ pierwszym Laboratorium na klastrze).
   niego linku. Krok canvasu/wejścia pulpitu zostaje w `tests/desktop-e2e-novnc.py` (#206/#277) — ten
   test tylko pilnuje kafelka. Wpięty w etap 5 obok E2E pulpitu, za bramką `WLB_JLAB_GATING=1`
   (lub `WLB_E2E_GATING=1`); flavor z nazwy logu akceptacji.
+- **Sprzatanie scratcha sesji w post_stop_hook (#318):** `pre_spawn` tworzy dedykowany scratch
+  per-unit na tmpfs (`/run/wlb/scratch/<unit>`, właściciel = UID badacza) i wstawia go do środowiska
+  sesji jako `TMPDIR`; `post_stop` usuwa go w całości. Artefakty X/VNC są reapowane **UID-scoped**
+  (właściciel = UID 10000–59999): gniazda/locki X w `/tmp`, pliki TigerVNC `<host>:<d>.pid/.log`
+  w `~/.vnc` skorelowane z reapowanym DISPLAY oraz wpis `xauth` dla tych DISPLAY; cały `.Xauthority`
+  nie jest usuwany. **Znana granica:** hook nie zna realnie zwalnianego DISPLAY (spawner go nie
+  niesie w `post_stop`), więc przy współbieżnych sesjach tego samego UID reapuje artefakty wszystkich
+  sesji tego UID. **Deny-lista:** `/workspace` i wszystko pod nim (zwłaszcza `.wlb-export-queue` —
+  kolejka eksportu #20) nigdy nie jest czyszczone rekurencyjnie; jedyny, wąski wyjątek to pliki
+  TigerVNC w `~/.vnc` skorelowane z DISPLAY — blanket `*.pid`/`*.log` nie jest usuwany (dane badacza
+  zostają). Sprzatanie jest fail-secure (awaria = warning, nie blokuje stopu), idempotentne
+  i name-agnostic. Testy: jednostkowe w `tests/unit/test_wlb_session_hook.py` (scratch/TMPDIR,
+  deny-lista, reaping tylko skorelowanych plików, fail-secure, zakres UID) oraz akceptacyjne w
+  `tests/acceptance.d/50-hooki-sesji.sh` (scratch znika, plik-świadek w `/workspace`, w kolejce
+  i `~/.vnc/keepme.log` zostaje, ścieżka spoza allowlisty nietknięta).
+
 - **Test dryfu wersji bez fałszywych alarmów (#277/#304):** `ci/lock_drift.py` porównuje wersje
   semantycznie (PEP 440), a nie znakowo. Lock (pip) zapisuje `soupsieve==4.0.0`, a `conda env export`
   w obrazie podaje `4.0` — to to samo wydanie, więc pin jest spełniony i pip nic nie doinstalowuje.
@@ -86,6 +102,12 @@ pierwszym Laboratorium na klastrze).
   Kafelek stockowy `/usr/share/applications/org.gnome.Evince.desktop`. Akceptacja w `41-biuro.sh`:
   weryfikacja binarki, kafelka w menu XFCE oraz headless smoke renderowania PDF bez środowiska
   graficznego (`evince-thumbnailer`).
+
+- **Standard biurowy pulpitu — edytor tekstu Mousepad (#272):** lekki graficzny edytor tekstu
+  i kodu (GTK3, podświetlanie składni, numeracja linii) w roli `desktop` na **każdym** flavorze
+  z pulpitem (memory, histologia, radiologia) jako linuksowy odpowiednik Notepad++ dla badacza.
+  Instalowany pakiet `mousepad` przed końcowym sweepem AppArmor (CIS 1.6.3). Kafelek stockowy
+  `/usr/share/applications/org.xfce.mousepad.desktop`. Akceptacja w `41-biuro.sh`.
 
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
