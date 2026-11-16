@@ -6,7 +6,7 @@ coverage==7.17.0
 # mutmut — testy mutacyjne w stage 4b; mutuje walidator wydania platformy
 mutmut==3.8.1
 # Pin pośredni: bez niego re-resolve locka podbija tornado do 6.6.1 (poza zakresem zmian mutacji).
-tornado==6.6
+tornado==6.6.1
 PyYAML==6.0.3
 # testy perceptualne (#138): SSIM na zrzutach PNG
 Pillow==13.0.0
