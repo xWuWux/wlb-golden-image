@@ -787,7 +787,8 @@ class E2E:
         except DeadlineExceeded:
             raise
         except Exception as exc:
-            raise ConfigError(f"logowanie u01 nie przekierowało do JupyterLaba: {str(exc).splitlines()[0][:160]}") from exc
+            head = str(exc).splitlines()[0][:160]
+            raise ConfigError(f"logowanie u01 nie przekierowało do JupyterLaba: {head}") from exc
 
     def _open_desktop(self, context, page):
         """Launcher → kafelek Desktop. Osobny, wymagany scenariusz — bez `goto` na /desktop/."""
@@ -933,7 +934,10 @@ class E2E:
             self.scenario("resize", "fail", f"po zmianie viewportu canvas nie wrócił: {after}", **details)
             return
         if before.get("w") != after.get("w") or before.get("h") != after.get("h"):
-            details["framebuffer_changed"] = {"from": [before.get("w"), before.get("h")], "to": [after.get("w"), after.get("h")]}
+            details["framebuffer_changed"] = {
+                "from": [before.get("w"), before.get("h")],
+                "to": [after.get("w"), after.get("h")],
+            }
         if self.cfg["interaction"] == "off":
             self.scenario("resize", "pass", "canvas żyje po zmianie viewportu (interakcja off)", **details)
             return
@@ -985,7 +989,7 @@ class E2E:
             fresh = self.vm.target(20)
         except ConfigError as exc:
             if self.cfg["interaction"] == "off":
-                self.scenario("reconnect", "pass", "canvas wrócił po reloadzie (interakcja off, bez targetu)", **details)
+                self.scenario("reconnect", "pass", "canvas wrócił po reloadzie (interakcja off)", **details)
                 return
             self.scenario("reconnect", "error", str(exc), **details)
             return
