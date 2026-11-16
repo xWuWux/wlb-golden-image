@@ -187,6 +187,79 @@
       - mousepad
     state: present
 
+# --- Target in-session dla testów E2E (#277-A) ---------------------------------------
+# Target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Instalowany WYŁĄCZNIE dla
+# buildów testowych / E2E (wlb_enable_e2e_target: true), NIE w obrazie produkcyjnym badacza.
+# Zawiera katalog markerów /run/wlb/e2e (tmpfs 0777), skrypty /opt/wlb/e2e/mouse-target.sh,
+# keyboard-target.sh i target-runner.sh oraz kafelek i autostart sesji XFCE.
+# Pakiety (zenity, xfce4-terminal) instalowane PRZED sweepem AppArmor.
+- name: Pakiety dla targetu E2E (zenity, xfce4-terminal) (#277)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - zenity
+      - xfce4-terminal
+    state: present
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Katalog skryptów targetu E2E (#277)
+  ansible.builtin.file:
+    path: /opt/wlb/e2e
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Skrypty targetu E2E w /opt/wlb/e2e (#277)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/opt/wlb/e2e/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - mouse-target.sh
+    - keyboard-target.sh
+    - target-runner.sh
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Kafelek launchera targetu myszy E2E (menu XFCE) (#277)
+  ansible.builtin.copy:
+    src: wlb-e2e-mouse.desktop
+    dest: /usr/share/applications/wlb-e2e-mouse.desktop
+    owner: root
+    group: root
+    mode: "0644"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Autostart targetu E2E dla sesji XFCE (#277)
+  ansible.builtin.copy:
+    src: wlb-e2e-target.desktop
+    dest: /etc/xdg/autostart/wlb-e2e-target.desktop
+    owner: root
+    group: root
+    mode: "0644"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Konfiguracja tmpfiles dla markerów E2E /run/wlb/e2e (#277)
+  ansible.builtin.copy:
+    src: wlb-e2e-tmpfiles.conf
+    dest: /etc/tmpfiles.d/wlb-e2e.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Utworzenie katalogu markerów E2E /run/wlb/e2e natychmiast (#277)
+  ansible.builtin.file:
+    path: /run/wlb/e2e
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"
+  when: wlb_enable_e2e_target | default(false) | bool
+
 # --- AppArmor w warstwie pulpitu (#65, CIS 1.6.3) ------------------------------------
 # Rola base wymusza enforce PRZED warstwą flavora — XFCE, TigerVNC, noVNC (i aplikacje GUI dołożone
 # w tej roli, np. przyszły LibreOffice Writer z #269) potrafią wnieść nowe profile w complain. Bez

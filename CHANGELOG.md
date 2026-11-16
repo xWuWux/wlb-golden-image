@@ -19,6 +19,21 @@ pierwszym Laboratorium na klastrze).
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
 
+- **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
+  target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
+  `/run/wlb/e2e` (tmpfs 0777, root) z deskryptorem `/run/wlb/e2e/target.json`
+  (schema `wlb.e2e-target/v1`, trwały `session_id`, `screen.w/h`, współrzędne przycisku
+  `button.x/y/w/h` w pikselach ekranu oraz tytuł okna `keyboard.title`).
+  Target myszy `/opt/wlb/e2e/mouse-target.sh` uruchamia `zenity --question`,
+  pozycjonuje okno deterministycznie przez `wmctrl`, oblicza współrzędne przycisku OK
+  i zapisuje `rc=0` do `/run/wlb/e2e/mouse.txt`. Target klawiatury
+  `/opt/wlb/e2e/keyboard-target.sh` w `xfce4-terminal` z fokusem X zapisuje odebrany
+  nonce do `/run/wlb/e2e/keyboard.txt`. Skrypt `/opt/wlb/e2e/target-runner.sh`
+  zapewnia autostart w sesji XFCE (`/etc/xdg/autostart/wlb-e2e-target.desktop`)
+  oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
+  WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
+  (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
+
 - **Koniec konfliktów mapy testów przy równoległych PR-ach:** `.gitattributes` oznacza
   `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany
   przez wiele PR-ów scala się zachowując wiersze z obu stron, zamiast konfliktować N-stronnie.
