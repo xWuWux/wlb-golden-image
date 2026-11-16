@@ -19,6 +19,14 @@ pierwszym Laboratorium na klastrze).
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
 
+- **Koniec losowych czerwonych bramki SIEM w etapie 5:** forwarding VM→testowy SIEM (rsyslog/TLS)
+  jest asynchroniczny — zdarzenie śluzy `sluza_out.export_request` potrafiło dotrzeć sekundy po tym,
+  jak akceptacja w VM już przeszła, a `siem_delivery`/`siem_wazuh` sprawdzały log jednorazowo (wyścig;
+  pod obciążeniem/OOM bramka czerwieniła się losowo, mimo że dekoder/reguła w etapie 3.5 były OK).
+  Dodano polling na dotarcie realnego + podrobionego wpisu (≥2 wystąpienia) z deadline'em
+  (`WLB_SIEM_WAIT`, domyślnie 60 s) przed weryfikacją — `verify-log`/Wazuh pozostają jedynym wyrokiem,
+  to tylko cierpliwość, bez zmiany semantyki bramki.
+
 - **Koniec konfliktów mapy testów przy równoległych PR-ach:** `.gitattributes` oznacza
   `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany
   przez wiele PR-ów scala się zachowując wiersze z obu stron, zamiast konfliktować N-stronnie.
