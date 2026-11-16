@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -223,7 +223,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odświ
 - `tests/acceptance.d/42-pulpit-wartosci.sh` — `Geometria sesji X = $W204_GEO wg kontraktu (xdpyinfo, #204)`, `Kafelek $W204_REQ.desktop obecny na wlb-radiologia (#204)`, `Klawiatura X: ${W204_K%%:*} = ${W204_K#*:} wg kontraktu (setxkbmap, #204)`, `Kontrakt ma znacznik wersji contract|version (#204)`, `Kontrakt xfconf: profil ze /etc/skel = wartości kontraktu (#204)`, `Kontrakt xfconf: scope systemowy = wartości efektywne świeżego konta (#204)`, `Locale $W204_LOCALE działa (locale charmap = UTF-8) (#204)`, `Locale domyślna (LANG) zgodna z kontraktem: $W204_LOCALE (#204)`, `Nadpisane /Xft/DPI=120 NIE przechodzi kontraktu (test negatywny, #204)`, `Nadpisanie badacza (DPI=120) jest respektowane przez xfconf (#204)`, `Nierozwiązywalna nazwa ikony jest odrzucana (test negatywny, #204)`, `Odczyt brakującej właściwości kończy się błędem (#204)`, `Regresja: Xtigervnc nieobecny na flavorze z pulpitem (#204)`, `Serwer X wystartował na $W204_DISP (#204)`, `Zmieniona wartość motywu NIE przechodzi kontraktu (test negatywny, #204)`, `fc-match Monospace = $W204_MONO wg kontraktu (#204)`, `fc-match Sans = $W204_SANS wg kontraktu (#204)`, *Pulpit: kontrakt wizualny XFCE (#204)*, `Żywa sesja XFCE: Xcursor=$W204_CURSOR, Xft.dpi=$W204_DPIVAL (xrdb), ikony=$W204_ICONS, tapeta SOLID pod monitorVNC-0, panel przy dolnej krawędzi (#204)`
 
 ### #206 — E2E renderu pulpitu: Hub → server-proxy → noVNC (kafelek, canvas, wejście, reconnect)  ·  _otwarte_
-- `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
+- `tests/desktop-e2e-novnc.py` — *canvas: wspólne wykrycie elementu (jrdp/noVNC, także shadow DOM)*
 
 ### #208 — Śluza wyjściowa: pozytywne potwierdzenie przyjęcia do kolejki (receipt dla badacza)  ·  _scalone_
 - `tests/acceptance-remote.sh` — `Badacz widzi katalog /sluza-potwierdzenia (#208)`, `Katalog potwierdzen ma tryb 0750 root:jupyterhub-users (#208)`, `Po przyjeciu pojawia się potwierdzenie (*potwierdzenie.*) (#208)`, `Potwierdzenie czytelne dla badacza i ze zgodnymi etykietami/rozmiarem kontraktu (#208)`, `Potwierdzenie nie zawiera treści pliku — tylko metadane (§14.7, #208)`, `Potwierdzenie własnością badacza, tryb 0640 (#208)`, `Powód odrzucenia dowiązania czytelny dla badacza (#162)`, `Wpis odrzucony (dowiązanie) NIE ma potwierdzenia — tylko powód (#208)`
@@ -237,6 +237,17 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odświ
 
 ### #270 — Standard pulpitu: przeglądarka PDF (evince) we wspólnej roli desktop  ·  _otwarte_
 - `tests/acceptance.d/41-biuro.sh` — `Czytnik PDF evince obecny (binarka, #270)`, `Kafelek czytnika PDF w menu XFCE (org.gnome.Evince.desktop, #270)`, `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272)*
+### #257 — [P0][ci] Code scanning nieaktywny, mimo że CI produkuje SARIF (semgrep/checkov)  ·  _otwarte_
+- `tests/unit/scan-status.bats` — `czysty skan: kod 0 zapisany (#257)`, `katalog raportów tworzony, gdy go nie ma (#257)`, `kod wyjścia skanera zapisany i przekazany dalej, także znaleziska (#257)`, `skaner zabity przed zakończeniem: brak pliku .exit, czyli not_run, nie clean (#257)`, `stary raport i status usunięte przed skanem — awaria nie zostawia poprzedniego wyniku (#257)`
+- `tests/unit/test_code_scanning_workflow.py` — *dwa raporty, stałe kategorie, publikacja także po znaleziskach (#257)*, *job publikujący nie wykonuje kodu z repozytorium (#257)*, *konteksty zdarzeń i stan publikacji: wykonanie kroków run: joba 3r (#257)*, *uprawnienia: zapis security-events wyłącznie w jobie publikującym (#257)*
+- `tests/unit/test_ready.py` — *publikacja Code scanning wymagana, gdy etap 3 wykonał skan (#257)*
+- `tests/unit/test_sarif_report.py` — `test_prepare_awaria_narzedzia_powod_z_kodu_wyjscia`, `test_prepare_wersja_semgrep_z_semantic_version`, *CLI (#257)*, *classify (#257)*, *kontrakt modułu (#257)*, *load_report (#257)*, *prepare: porządki i artefakty CI (#257)*, *prepare: ścieżka szczęśliwa i publikacja (#257)*, *read_exit_code (#257)*, *sanitize (#257)*, *walidacja elementów i oba narzędzia naraz (#257)*, *wyciszone wyniki (#257)*
+
+### #269 — Standard biurowy pulpitu: LibreOffice Writer (edytor tekstu + OpenDocument)  ·  _scalone_
+- `tests/acceptance.d/41-biuro.sh` — `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, *Standard biurowy pulpitu: LibreOffice Writer (#269) i czytnik PDF (#270)*
+
+### #270 — Standard pulpitu: przeglądarka PDF (evince) we wspólnej roli desktop  ·  _scalone_
+- `tests/acceptance.d/41-biuro.sh` — `Czytnik PDF evince obecny (binarka, #270)`, `Kafelek czytnika PDF w menu XFCE (org.gnome.Evince.desktop, #270)`, `Writer konwertuje .txt->.odt i .odt->.docx (silnik dokumentów, #269)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269) i czytnik PDF (#270)*
 
 ### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
 - `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
@@ -245,7 +256,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odświ
 - `tests/acceptance.d/41-biuro.sh` — `Edytor tekstu mousepad obecny (binarka, #272)`, `Kafelek edytora tekstu w menu XFCE (org.xfce.mousepad.desktop, #272)`, `evince-thumbnailer renderuje PDF bez X (smoke silnika PDF, #270)`, *Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272)*
 
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
-- `tests/desktop-e2e-novnc.py` — *nie-pusty canvas: próbkuj piksele w przeglądarce (odrzuć czarny/jednolity ekran)*
+- `tests/desktop-e2e-novnc.py` — *canvas: wspólne wykrycie elementu (jrdp/noVNC, także shadow DOM)*
 
 ### #278 — Sesja pulpitu nie eksportuje XAUTHORITY — natywne apki GUI (LibreOffice) nie startują  ·  _scalone_
 - `tests/acceptance.d/46-gui-launch.sh` — `GUI-launch #278: brak konta jupyter-$R1 (test adaptacyjny)`, `GUI-launch #278: brak vncserver/Xtigervnc/xauth/xdpyinfo/xwininfo — test pominięty`, `GUI-launch #278: nie można utworzyć katalogu tymczasowego`, `GUI-launch #278: nie udało się pobrać komendy startowej jrdp`, `GUI-launch #278: okno LibreOffice nie zmapowało się w czasie (wynik niejednoznaczny, nie bramkuje)`, `GUI-launch #278: sesja VNC przez proxy nie wystartowała: $(tail -n1 `, *Asercja 1 (rdzeń #278): sesja wyeksportowała niepuste XAUTHORITY do potomka*, *Asercja 2: natywna apka GUI realnie mapuje okno (nie tylko headless)*, *GUI-launch natywnej apki w sesji pulpitu (#278 — NIE-bramkujący)*
@@ -255,7 +266,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-13). Odświ
 - `tests/acceptance-remote.sh` — `Menu eksportu notebooka wyszarzone w JupyterLab (#284)`, `Przyciski pobierania ukryte w JupyterLab`
 
 ### #288 — Testy: domknięcie 5 klas — CIS, izolacja u01, idempotencja Ansible, macierz flavorów, UI JupyterLab  ·  _otwarte_
-- `tests/acceptance-remote.sh` — `Brak binariów SUID/SGID w /workspace (#288)`, `Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)`, `Capabilities: brak getcap (libcap2-bin) na obrazie (#288)`, `Egress ICMP do zewnętrznego IP odrzucony (#288)`, `Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)`, `Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)`, `Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)`, `Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)`, `Egress: researcher_egress kończy się reject — default-deny (#288)`, `Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)`, `Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)`, `Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)`, `Eskalacja: pkexec nie podnosi uprawnień badacza (#288)`, `Obejście pobierania metodą $w6b_m odrzucone 403 (#288)`, `Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)`, *6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2)*, `Żaden plik SUID nie jest zapisywalny przez badacza (#288)`
+- `tests/acceptance-remote.sh` — `Brak binariów SUID/SGID w /workspace (#288)`, `Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace/sys_module) (#288)`, `Capabilities: brak getcap (libcap2-bin) na obrazie (#288)`, `Egress ICMP do zewnętrznego IP odrzucony (#288)`, `Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)`, `Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)`, `Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)`, `Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)`, `Egress: researcher_egress kończy się reject — default-deny (#288)`, `Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)`, `Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)`, `Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)`, `Eskalacja: pkexec nie podnosi uprawnień badacza (#288)`, `Obejście pobierania metodą $w6b_m odrzucone 403 (#288)`, `Odczyt $target zablokowany dla badacza (Ring3->Ring0, #288)`, `Odczyt $target: urządzenie nie występuje na obrazie (#288)`, `Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)`, `Zbiór capabilities procesu badacza jest pusty/minimalny (CapBnd/CapEff w /proc/self/status, #288)`, *6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2)*, *Izolacja pamięci jądra z Ring 3: siłowa próba odczytu struktur Ring 0 -> odmowa (EACCES/EPERM) (#288)*, `Żaden plik SUID nie jest zapisywalny przez badacza (#288)`
 
 ## Uwagi
 
