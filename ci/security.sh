@@ -7,7 +7,7 @@ mkdir -p build/sca
 
 sast_semgrep() {
   # tylko pliki śledzone przez git; reguły społecznościowe, bez telemetrii
-  semgrep scan --metrics=off --error --quiet \
+  scan_with_status build/sca semgrep semgrep scan --metrics=off --error --quiet \
     --config p/default --config p/python --config p/github-actions --config p/secrets \
     --sarif-output=build/sca/semgrep.sarif .
 }
@@ -17,7 +17,7 @@ sast_bandit() {
 }
 
 iac_checkov() {
-  checkov -d . --framework ansible github_actions secrets --compact --quiet \
+  scan_with_status build/sca checkov checkov -d . --framework ansible github_actions secrets --compact --quiet \
     --skip-path .tools --skip-path build --skip-path output \
     --output cli --output sarif --output-file-path console,build/sca/checkov.sarif
 }

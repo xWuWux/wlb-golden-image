@@ -132,6 +132,85 @@ który sam ponawia pobieranie (`curl --retry-all-errors`) i sprawdza sumy SHA-25
 anulował go ręcznie. Nic nie trzeba robić, liczy się najnowszy przebieg.
 Jeśli nie chcesz przerywać długiego etapu 5, wypychaj zmiany dopiero po jego zakończeniu.
 
+## code-scanning
+
+**Publikacja SARIF w GitHub Code scanning (job „3r. Publikacja Code scanning”, #257).**
+Etap 3 zapisuje raporty `semgrep` i `checkov`, a osobny job wysyła je do zakładki *Security → Code
+scanning* (kategorie `semgrep` i `checkov`). PR-y dostają adnotacje w diffie, a alerty mają historię
+i triage.
+
+**Polityka: raport, nie druga bramka.** Znaleziska blokuje wyłącznie `ci/security.sh` (job
+„3. Security & compliance”), z tymi samymi regułami co dotąd. Code scanning nie dodaje drugiego progu
+podatności i nie jest wymaganym sprawdzeniem reguł ochrony gałęzi. Job publikacji jest za to
+**kontrolą infrastrukturalną**: jeśli raport nie dotarł (brak, niepoprawny albo odrzucony), „Gotowe do
+code review” jest czerwone, bo zielony wynik bez publikacji byłby fałszywym „czysto”.
+
+Trzy wyniki są rozdzielone i każdy ma własne miejsce w podsumowaniu przebiegu:
+
+| Co się stało | Gdzie widać | Stan |
+|---|---|---|
+| skan wykrył problem | job 3 czerwony, tabela „Raporty SARIF” | `findings` — raport i tak jest publikowany |
+| skaner nie wykonał analizy (awaria, timeout, brak/uszkodzony raport) | job 3 czerwony, tabela „Raporty SARIF” | `error` / `not_run` — **niczego nie publikujemy**; brak raportu nie zamyka starych alertów |
+| raport nie został dostarczony | job 3r czerwony, tabela „Publikacja Code scanning” | `failed` / `cancelled` |
+
+Stany skanera (`ci/sarif_report.py`): `clean` (kod 0, brak aktywnych wyników), `findings` (aktywne
+wyniki), `error` (kod ≥ 2, niespójny kod wyjścia lub raport odrzucony przez walidator), `not_run`
+(brak `build/sca/<narzędzie>.exit`, np. skaner zabity przez strażnika). Stany publikacji: `processed`
+(upload z `wait-for-processing` przeszedł; odrzucenie SARIF przez GitHub kończy krok błędem, ale gdy
+przetwarzanie trwa dłużej niż limit akcji, ta loguje tylko ostrzeżenie „Timed out waiting for analysis” —
+wtedy sprawdź rekord analizy w API, niżej), `failed`, `cancelled`,
+`unsupported` (kontekst bez publikacji — niżej). Wyniki wyciszone `# nosemgrep` trafiają do raportu
+jako zamknięte (pole `suppressions`) i nie liczą się do `findings`.
+
+**Konteksty zdarzeń.** SHA i ref analizy pochodzą z kontekstu przebiegu, nigdy z raportu.
+
+| Zdarzenie | Publikacja |
+|---|---|
+| `pull_request` (także fork i Dependabot) | tak — ref `refs/pull/N/merge`; GitHub przyjmuje upload z `pull_request` mimo tokena tylko do odczytu |
+| `push` do `main`, `schedule`, `workflow_dispatch` | tak — ref gałęzi |
+| `merge_group` | `unsupported` — ref kolejki znika po scaleniu, a analiza kolejki nie może uchodzić za wynik `main` |
+| przebieg wyzwolony przez `dependabot[bot]` poza `pull_request` | `unsupported` — token tylko do odczytu |
+
+W kontekście `unsupported` job kończy się sukcesem z jawnym powodem w podsumowaniu, a raporty
+zostają w artefakcie `code-scanning-sarif`. Nie obchodzimy odmowy tokena przez PAT,
+`pull_request_target` ani `workflow_run`.
+
+**Uprawnienia.** `security-events: write` ma wyłącznie job 3r. Nie uruchamia on skryptów z repo,
+lokalnych actions ani instalacji: pobiera artefakt `code-scanning-sarif` z tego samego przebiegu,
+robi checkout bez zapisanych poświadczeń (tylko do mapowania ścieżek i fingerprintów) i wywołuje
+`upload-sarif`. Job skanujący zostaje tylko do odczytu. Pilnuje tego test
+`tests/unit/test_code_scanning_workflow.py`.
+
+**Prywatność raportu.** Semgrep wpisuje do SARIF dopasowaną linię kodu (`region.snippet`), więc przy
+`p/secrets` przenosiłby wykryty sekret do Code scanning; komunikaty o błędach parsowania zawierają
+całe fragmenty plików. Przed publikacją `ci/sarif_report.py` usuwa `snippet` i `contextRegion` oraz
+przycina komunikaty narzędzia do pierwszej linii (test z sekretem-canary). Surowe raporty zostają
+tylko w artefakcie `security-reports` (30 dni). Nie wypisujemy SARIF do logu. Do repozytorium nie
+wolno wkładać danych badaczy: usunięcie pliku nie usuwa go z historii Git, CI ani raportów.
+
+**Powtarzalność.** Manifest (`manifest.json` w artefakcie) wiąże raporty z `run_id`, `run_attempt`, SHA i
+refem oraz zapisuje wersję skanera i skrót zestawu reguł (`rules_digest`). Semgrep pobiera zestawy
+`p/*` z rejestru, więc te same wersje narzędzia mogą mieć inne reguły; zmiana `rules_digest` między
+przebiegami odróżnia zmianę reguł od zmiany kodu.
+
+### Co zrobić
+
+1. **Job 3 czerwony, w tabeli `findings`.** Zwykła ścieżka [test](#test): popraw kod albo uzasadnij
+   wyjątek. Alert w Code scanning jest tym samym znaleziskiem z historią.
+2. **`error` / `not_run`.** Skaner nie dał wiarygodnego wyniku. Sprawdź log kroku skanera
+   (`build/sca/<narzędzie>.exit`, `reason` w manifeście). Nie podkładaj pustego raportu.
+3. **Job 3r `failed`.** Etap 3 nie jest powtarzany: „Re-run failed jobs” uruchamia tylko job 3r, który
+   publikuje **ten sam** artefakt z tego przebiegu (nie skanuje od nowa). Powtarzający się błąd
+   uprawnień (403) albo odrzucenie SARIF zgłoś jako issue; nie dopisuj `continue-on-error`.
+4. **Brak adnotacji w PR.** Adnotacja pojawia się tylko dla wyniku w zmienionych liniach i gdy
+   gałąź bazowa ma analizę tej samej kategorii. Wynik poza diffem sprawdzaj w rekordzie analizy:
+   `gh api repos/{owner}/{repo}/code-scanning/analyses --jq '.[] | {category, ref, commit_sha, results_count}'`.
+
+**Triage.** Alerty przegląda właściciel repozytorium (tymczasowo; docelowo zespół bezpieczeństwa).
+Zamknięcie alertu jako *false positive* / *won't fix* wymaga komentarza z uzasadnieniem; wyciszenie w
+kodzie (`# nosemgrep: <reguła>`, `# checkov:skip=<id>: <powód>`) zawsze z powodem. Termin reakcji
+na nowy alert ustala właściciel projektu (do potwierdzenia w #257).
+
 ## dependabot-sca
 
 **Stage 3 SCA rzuca CVE, którego łata jest już na `main`.** PR Dependabota (lub dowolny inny bot)

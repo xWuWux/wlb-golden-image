@@ -2,6 +2,8 @@
 #   1. Lint, format i skan sekretów       ci/lint.sh
 #   2. Build test                          ci/build-check.sh
 #   3. Security & compliance               ci/security.sh
+#   3r. Publikacja Code scanning           SARIF semgrep/checkov z etapu 3 -> GitHub (raport, nie bramka
+#                                          podatności; jedyny job z security-events: write, #257)
 #   3.5 Kontrakty obrazu                  ci/observability.sh  (zdarzenia VM i zmienne wdrożenia
 #                                          zgodne z kodem)
 #   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
@@ -115,6 +117,11 @@ jobs:
     needs: build-check
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # Job wykonuje kod z PR i instaluje narzędzia — zostaje tylko do odczytu (dziedziczy contents: read).
+    # Publikację SARIF robi osobny job security-report (#257).
+    outputs:
+      semgrep: ${{ steps.sarif.outputs.semgrep }}
+      checkov: ${{ steps.sarif.outputs.checkov }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -126,6 +133,12 @@ jobs:
           key: tools-security-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-security.txt') }}
       - run: ci/install-tools.sh security
       - run: ci/guard.sh --name "3. Security" --timeout 25m --memory auto -- ci/security.sh
+      # Także po znaleziskach (krok wyżej czerwony): wynik skanera (clean/findings/error/not_run),
+      # walidacja SARIF i usunięcie fragmentów kodu (snippetów), które mogłyby przenieść sekret.
+      - name: Raporty SARIF dla Code scanning (#257)
+        id: sarif
+        if: ${{ !cancelled() }}
+        run: python3 ci/sarif_report.py prepare --sca-dir build/sca --out-dir build/code-scanning
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -133,6 +146,126 @@ jobs:
           path: build/sca/
           if-no-files-found: ignore
           retention-days: 30
+      # Tylko dwa jawne raporty i manifest (nie całe build/sca) — wejście joba security-report.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() && steps.sarif.outcome == 'success' }}
+        with:
+          name: code-scanning-sarif
+          path: |
+            build/code-scanning/semgrep.sarif
+            build/code-scanning/checkov.sarif
+            build/code-scanning/manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # Publikacja wyników etapu 3 w GitHub Code scanning (#257). Polityka: RAPORT, nie druga bramka —
+  # znaleziska blokuje wyłącznie ci/security.sh (job security). Ten job odpowiada tylko za dostarczenie
+  # raportów; jego niepowodzenie (brak/niepoprawny raport, błąd uploadu) blokuje "Gotowe do code review"
+  # jako kontrola infrastrukturalna. Konteksty bez publikacji (merge queue, Dependabot poza PR) są nazwane w kroku
+  # "Kontekst publikacji" i kończą się stanem unsupported. Szczegóły: docs/ci-runbook.md#code-scanning.
+  # Uprawnienie zapisu jest TYLKO tutaj: job nie uruchamia skryptów z repo, lokalnych actions ani
+  # instalacji; checkout służy wyłącznie mapowaniu ścieżek i fingerprintów.
+  security-report:
+    name: "3r. Publikacja Code scanning"
+    needs: security
+    # także po znaleziskach (security = failure); anulowanie i pominięcie etapu 3 to osobne stany
+    if: ${{ !cancelled() && (needs.security.result == 'success' || needs.security.result == 'failure') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read # pobranie artefaktu i metadane przebiegu dla upload-sarif
+      contents: read
+      security-events: write # upload-sarif — wyłącznie w tym jobie
+    steps:
+      - name: Kontekst publikacji
+        id: context
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          # SHA/ref analizy pochodzą z kontekstu przebiegu (domyślne wejścia upload-sarif), nigdy z raportu.
+          # pull_request (także fork i Dependabot): code scanning przyjmuje upload mimo tokena tylko do
+          # odczytu — docs.github.com: troubleshoot-analysis-errors/resource-not-accessible.
+          supported=true reason=""
+          if [[ $EVENT == merge_group ]]; then
+            supported=false
+            reason="merge queue: ref kolejki znika, a analiza nie jest wynikiem main (publikują PR i push do main)"
+          elif [[ $EVENT != pull_request && $ACTOR == "dependabot[bot]" ]]; then
+            supported=false
+            reason="przebieg wyzwolony przez Dependabota poza pull_request: token tylko do odczytu"
+          fi
+          echo "supported=$supported" >>"$GITHUB_OUTPUT"
+          echo "reason=$reason" >>"$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.context.outputs.supported == 'true'
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.context.outputs.supported == 'true'
+        with:
+          name: code-scanning-sarif
+          path: ${{ runner.temp }}/code-scanning
+      - name: Upload SARIF semgrep
+        id: semgrep
+        if: >-
+          ${{ !cancelled() && steps.context.outputs.supported == 'true' &&
+          (needs.security.outputs.semgrep == 'clean' || needs.security.outputs.semgrep == 'findings') }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ runner.temp }}/code-scanning/semgrep.sarif
+          category: semgrep
+          checkout_path: ${{ github.workspace }}
+          wait-for-processing: true
+      # !cancelled(): próba publikacji checkov także po nieudanym uploadzie semgrep
+      - name: Upload SARIF checkov
+        id: checkov
+        if: >-
+          ${{ !cancelled() && steps.context.outputs.supported == 'true' &&
+          (needs.security.outputs.checkov == 'clean' || needs.security.outputs.checkov == 'findings') }}
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: ${{ runner.temp }}/code-scanning/checkov.sarif
+          category: checkov
+          checkout_path: ${{ github.workspace }}
+          wait-for-processing: true
+      - name: Stan publikacji
+        if: always()
+        env:
+          SUPPORTED: ${{ steps.context.outputs.supported }}
+          REASON: ${{ steps.context.outputs.reason }}
+          SEMGREP_SCAN: ${{ needs.security.outputs.semgrep }}
+          SEMGREP_UPLOAD: ${{ steps.semgrep.outcome }}
+          CHECKOV_SCAN: ${{ needs.security.outputs.checkov }}
+          CHECKOV_UPLOAD: ${{ steps.checkov.outcome }}
+        run: |
+          # PublicationState: processed / failed / unsupported / cancelled (docs/ci-runbook.md#code-scanning)
+          failed=0
+          {
+            echo "### Publikacja Code scanning (#257)"
+            echo
+            echo "| Narzędzie | Wynik skanu | Publikacja |"
+            echo "|---|---|---|"
+          } >>"$GITHUB_STEP_SUMMARY"
+          for tool in semgrep checkov; do
+            scan_var=${tool^^}_SCAN upload_var=${tool^^}_UPLOAD
+            scan=${!scan_var:-not_run} upload=${!upload_var:-skipped}
+            if [[ $SUPPORTED != true ]]; then
+              state="unsupported — ${REASON:-nieznany kontekst}"
+              [[ -n $REASON ]] || failed=1
+            elif [[ $scan != clean && $scan != findings ]]; then
+              state="failed — brak poprawnego raportu ($scan); to błąd analizy, nie czysty wynik"
+              failed=1
+            else
+              case $upload in
+                success) state=processed ;;
+                cancelled) state=cancelled; failed=1 ;;
+                *) state="failed — upload/przetwarzanie: $upload"; failed=1 ;;
+              esac
+            fi
+            echo "| $tool | $scan | $state |" >>"$GITHUB_STEP_SUMMARY"
+            echo "$tool: skan=$scan publikacja=$state"
+          done
+          exit "$failed"
 
   observability:
     name: "3.5. Kontrakty obrazu"
@@ -349,7 +482,7 @@ jobs:
 
   ready:
     name: "Gotowe do code review"
-    needs: [lint, build-check, security, observability, unit, mutation, integration, perf, ephemeral]
+    needs: [lint, build-check, security, security-report, observability, unit, mutation, integration, perf, ephemeral]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

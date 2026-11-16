@@ -13,7 +13,7 @@ setup() {
 }
 
 needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
-  printf '{"lint":{"result":"%s","outputs":{"image":"false"}},"build-check":{"result":"success"},"security":{"result":"success"},"observability":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"%s"},"integration":{"result":"%s"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}' \
+  printf '{"lint":{"result":"%s","outputs":{"image":"false"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"%s"},"integration":{"result":"%s"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}' \
     "$1" "$2" "${3:-skipped}"
 }
 

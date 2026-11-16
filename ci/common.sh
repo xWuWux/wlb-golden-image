@@ -48,6 +48,19 @@ require() {
   done
 }
 
+# scan_with_status KATALOG NARZĘDZIE POLECENIE… — uruchamia skaner piszący KATALOG/NARZĘDZIE.sarif i zapisuje
+# jego kod wyjścia do KATALOG/NARZĘDZIE.exit (#257). Stary raport i status są usuwane PRZED skanem, więc
+# raport z poprzedniego przebiegu nie może udawać bieżącego; brak pliku .exit (np. zabicie przez
+# strażnika) oznacza „not_run”, nigdy „clean”. Klasyfikację i walidację robi ci/sarif_report.py.
+scan_with_status() {
+  local dir=$1 tool=$2 rc=0
+  shift 2
+  rm -f "$dir/$tool.sarif" "$dir/$tool.exit"
+  "$@" || rc=$?
+  echo "$rc" >"$dir/$tool.exit"
+  return "$rc"
+}
+
 # Uruchamia wszystkie sprawdzenia i raportuje wszystkie błędy naraz (nie kończy na pierwszym)
 FAILED=()
 run_check() {
