@@ -798,7 +798,12 @@ class E2E:
             raise ScenarioFailure(f"JupyterLab nie wczytał się po logowaniu: {str(exc).splitlines()[0][:160]}") from exc
         if not _show_launcher(page, self.clock):
             raise ScenarioFailure("Launcher JupyterLaba nie jest dostępny")
-        tile = page.get_by_role("link", name=DESKTOP_TILE_RE)
+        # Kafelki Launchera to karty DOM (nie linki): tytuł „Desktop” z ikoną nowej karty
+        # renderuje się jako etykieta w `.jp-LauncherCard-label` („Desktop [↗]”), więc szukamy
+        # po tekście etykiety, nie po roli ARIA.
+        tile = page.locator(".jp-LauncherCard").filter(
+            has=page.locator(".jp-LauncherCard-label", has_text=DESKTOP_TILE_RE)
+        )
         count = tile.count()
         visible = False
         if count:
