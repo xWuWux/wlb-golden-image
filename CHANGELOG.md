@@ -22,8 +22,10 @@ pierwszym Laboratorium na klastrze).
   trafiają do zakładki Security (kategorie `semgrep`/`checkov`), z adnotacjami w PR, także gdy etap 3
   jest czerwony od znalezisk. `ci/security.sh` zapisuje kod wyjścia każdego skanera i usuwa stary
   raport przed skanem; `ci/sarif_report.py` klasyfikuje wynik (`clean`/`findings`/`error`/`not_run`),
-  waliduje SARIF, usuwa fragmenty kodu (sekret z `p/secrets` nie trafia do GitHuba) i zapisuje manifest
-  z wersją skanera i skrótem reguł. Publikuje osobny job „3r” — jedyny z `security-events: write`,
+  waliduje SARIF (także notyfikacje `level: error` = analiza niekompletna), eksportuje go z jawnej allowlisty
+  pól (sekret z `p/secrets` nie trafia do GitHuba ani do treści wyniku) i zapisuje manifest z wersją skanera
+  i skrótem reguł. Surowe SARIF nie trafiają do artefaktów, a log semgrepa/bandita nie zawiera kodu.
+  Job 3r potwierdza w API terminalny status przetworzenia (`complete`) każdego `sarif-id`. Publikuje osobny job „3r” — jedyny z `security-events: write`,
   bez wykonywania kodu z repo. Polityka: raport, nie druga bramka; brak publikacji blokuje „Gotowe do
   code review” jako błąd infrastruktury. Runbook: `docs/ci-runbook.md#code-scanning`.
 

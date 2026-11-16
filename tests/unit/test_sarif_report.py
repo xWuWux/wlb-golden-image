@@ -92,6 +92,7 @@ def write_exit(sca_dir: Path, tool: str, text: str) -> Path:
 
 
 def summary_env(tmp_path: Path) -> dict[str, str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     return {"GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")}
 
 
@@ -267,8 +268,46 @@ def test_load_report_wykrywa_nieudane_wykonanie(tmp_path):
         sr.load_report(write_json(tmp_path / "semgrep.sarif", doc), "semgrep")
     assert str(exc.value) == "skaner zgłosił nieudane wykonanie"
 
-    ok = make_doc(invocations=[{"executionSuccessful": True}, "nie-obiekt"])
-    assert sr.load_report(write_json(tmp_path / "ok.sarif", ok), "semgrep")["version"] == "2.1.0"
+    bad = make_doc(invocations=[{"executionSuccessful": True}, "nie-obiekt"])
+    with pytest.raises(sr.ReportError, match="element invocations nie jest obiektem"):
+        sr.load_report(write_json(tmp_path / "bad.sarif", bad), "semgrep")
+
+
+def test_load_report_walidacja_invocations_i_notyfikacji(tmp_path):
+    bad_inv = make_doc(invocations="nie-lista")
+    with pytest.raises(sr.ReportError, match="invocations nie jest listą"):
+        sr.load_report(write_json(tmp_path / "bad_inv.sarif", bad_inv), "semgrep")
+
+    bad_exec_notifs = make_doc(invocations=[{"toolExecutionNotifications": "nie-lista"}])
+    with pytest.raises(sr.ReportError, match="toolExecutionNotifications nie jest listą"):
+        sr.load_report(write_json(tmp_path / "bad_exec_notifs.sarif", bad_exec_notifs), "semgrep")
+
+    bad_cfg_notifs = make_doc(invocations=[{"toolConfigurationNotifications": "nie-lista"}])
+    with pytest.raises(sr.ReportError, match="toolConfigurationNotifications nie jest listą"):
+        sr.load_report(write_json(tmp_path / "bad_cfg_notifs.sarif", bad_cfg_notifs), "semgrep")
+
+    bad_notif = make_doc(invocations=[{"toolExecutionNotifications": ["nie-obiekt"]}])
+    with pytest.raises(sr.ReportError, match="notyfikacja nie jest obiektem"):
+        sr.load_report(write_json(tmp_path / "bad_notif.sarif", bad_notif), "semgrep")
+
+    error_exec_notif = make_doc(invocations=[{"toolExecutionNotifications": [{"level": "error"}]}])
+    with pytest.raises(sr.ReportError, match="notyfikacja level=error"):
+        sr.load_report(write_json(tmp_path / "error_exec.sarif", error_exec_notif), "semgrep")
+
+    error_cfg_notif = make_doc(invocations=[{"toolConfigurationNotifications": [{"level": "error"}]}])
+    with pytest.raises(sr.ReportError, match="notyfikacja level=error"):
+        sr.load_report(write_json(tmp_path / "error_cfg.sarif", error_cfg_notif), "semgrep")
+
+    ok_notifs = make_doc(
+        invocations=[
+            {
+                "executionSuccessful": True,
+                "toolExecutionNotifications": [{"level": "warning"}, {"level": "note"}, {}],
+                "toolConfigurationNotifications": [{"level": "warning"}],
+            }
+        ]
+    )
+    assert sr.load_report(write_json(tmp_path / "ok_notifs.sarif", ok_notifs), "semgrep")["version"] == "2.1.0"
 
 
 def test_load_report_semgrep_wymaga_regul(tmp_path):
@@ -346,30 +385,62 @@ def test_read_exit_code_przypadki(tmp_path):
     assert sr.read_exit_code(bad_utf8) == -1
 
 
-# --- sanitize (#257) ---
+# --- export_sarif (#257) ---
 
 
-def test_sanitize_usuwa_fragmenty_kodu_i_czysci_notyfikacje():
-    rules = [{"id": "wlb.rule", "shortDescription": {"text": "opis reguły"}}]
+def test_export_sarif_usuwa_fragmenty_kodu_i_czysci_notyfikacje():
+    rules = [
+        {
+            "id": "wlb.rule",
+            "name": "wlb-name",
+            "shortDescription": {"text": "opis reguły"},
+            "fullDescription": {"text": "pełny opis reguły"},
+            "help": {"text": "pomoc", "markdown": "**pomoc**"},
+            "helpUri": "https://example.com/rule",
+            "defaultConfiguration": {"level": "warning"},
+            "properties": {
+                "tags": ["security", "cwe-798"],
+                "precision": "high",
+                "security-severity": "8.0",
+                "problem.severity": "warning",
+            },
+        }
+    ]
     notifications = [
         {
             "descriptor": {"id": "Syntax error"},
             "level": "warning",
             "message": {"text": "Syntax error at line 1:\n" + CANARY, "markdown": f"**{CANARY}**"},
         },
-        # sekret już w pierwszej linii: przycinanie by nie wystarczyło
         {"descriptor": "nie-obiekt", "message": {"text": "unexpected token " + CANARY}},
         {"message": "nie-obiekt"},
-        {"message": {"text": 42, "markdown": "usunąć"}},
     ]
     doc = make_doc(
         results=[
             {
                 "ruleId": "wlb.rule",
-                "message": {"text": "znalezisko"},
+                "ruleIndex": 0,
+                "level": "warning",
+                "message": {"text": "znalezisko z kodem " + CANARY, "markdown": f"**{CANARY}**", "arguments": [CANARY]},
                 "fingerprints": {"matchBasedId/v1": "abc"},
-                "suppressions": [{"kind": "inSource"}],
-                "locations": [physical(CANARY + "-loc")],
+                "partialFingerprints": {"primaryLocationLineHash": "hash123"},
+                "properties": {"tag": CANARY},
+                "suppressions": [{"kind": "weird"}],
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": "a.py", "uriBaseId": "%SRCROOT%"},
+                            "region": {
+                                "startLine": 1,
+                                "startColumn": 5,
+                                "endLine": 1,
+                                "endColumn": 10,
+                                "snippet": {"text": CANARY},
+                            },
+                            "contextRegion": {"snippet": {"text": CANARY}},
+                        }
+                    }
+                ],
                 "relatedLocations": [physical(CANARY + "-rel")],
                 "codeFlows": [{"threadFlows": [{"locations": [{"location": physical(CANARY + "-flow")}]}]}],
                 "stacks": [{"frames": [{"location": physical(CANARY + "-stack")}]}],
@@ -379,69 +450,162 @@ def test_sanitize_usuwa_fragmenty_kodu_i_czysci_notyfikacje():
         rules=rules,
         invocations=[
             {
+                "executionSuccessful": True,
                 "toolExecutionNotifications": notifications,
-                "toolConfigurationNotifications": notifications,
             },
             "nie-obiekt",
-            {"toolExecutionNotifications": {"zły": "typ"}},
+            {"toolExecutionNotifications": "nie-lista"},
         ],
     )
+    doc["runs"][0]["automationDetails"] = {"id": "run-id-1"}
+    doc["runs"][0]["tool"]["driver"]["informationUri"] = "https://semgrep.dev"
+    doc["runs"][0]["artifacts"] = [{"location": {"uri": "a.py"}, "contents": {"text": CANARY}}]
+    doc["runs"][0]["originalUriBaseIds"] = {"%SRCROOT%": {"uri": f"file:///{CANARY}"}}
+
     original = deepcopy(doc)
-    clean = sr.sanitize(doc)
+    clean = sr.export_sarif(doc)
 
     assert doc == original
-    assert clean is not doc
     serialized = json.dumps(clean, ensure_ascii=False)
     assert CANARY not in serialized
+    assert clean["$schema"] == "https://json.schemastore.org/sarif-2.1.0.json"
+    assert clean["version"] == "2.1.0"
 
-    result = clean["runs"][0]["results"][0]
-    location = result["locations"][0]["physicalLocation"]
-    assert location["region"] == {"startLine": 1}
-    assert "contextRegion" not in location
-    assert result["fingerprints"] == {"matchBasedId/v1": "abc"}
-    assert result["message"] == {"text": "znalezisko"}
+    run = clean["runs"][0]
+    # kategorię ustala workflow, nie raport
+    assert "automationDetails" not in run
+    driver = run["tool"]["driver"]
+    assert driver["informationUri"] == "https://semgrep.dev"
+    assert driver["rules"][0]["id"] == "wlb.rule"
+    assert driver["rules"][0]["properties"]["tags"] == ["security", "cwe-798"]
+    assert driver["rules"][0]["properties"]["security-severity"] == "8.0"
+
+    result = run["results"][0]
     assert result["ruleId"] == "wlb.rule"
-    assert clean["runs"][0]["tool"]["driver"]["rules"] == rules
+    # indeks reguły nie jest przenoszony (eksport może pominąć reguły bez id)
+    assert "ruleIndex" not in result
+    assert result["level"] == "warning"
+    assert result["message"] == {"text": "opis reguły"}
+    assert result["partialFingerprints"] == {"primaryLocationLineHash": "hash123"}
+    assert "fingerprints" not in result
+    assert "properties" not in result
+    assert "suppressions" not in result
+    assert "relatedLocations" not in result
+    assert "codeFlows" not in result
 
-    sanitized = clean["runs"][0]["invocations"][0]["toolExecutionNotifications"]
-    assert sanitized[0]["message"] == {"text": "Syntax error (treść w artefakcie security-reports)"}
-    assert sanitized[0]["level"] == "warning"
-    assert sanitized[1]["message"] == {"text": "komunikat narzędzia (treść w artefakcie security-reports)"}
-    assert all("markdown" not in item["message"] for item in sanitized)
+    location = result["locations"][0]["physicalLocation"]
+    assert location["artifactLocation"] == {"uri": "a.py", "uriBaseId": "%SRCROOT%"}
+    assert location["region"] == {"startLine": 1, "startColumn": 5, "endLine": 1, "endColumn": 10}
+    assert "snippet" not in location["region"]
+    assert "contextRegion" not in location
+
+    notifs = run["invocations"][0]["toolExecutionNotifications"]
+    assert notifs[0]["descriptor"] == {"id": "Syntax error"}
+    assert notifs[0]["message"] == {"text": "Syntax error (szczegóły: skan lokalny, make security)"}
+    assert notifs[0]["level"] == "warning"
+    assert notifs[1]["message"] == {"text": "komunikat narzędzia (szczegóły: skan lokalny, make security)"}
+    assert "descriptor" not in notifs[1]
 
 
-def test_sanitize_nie_zmienia_wejscia_bez_runs():
-    doc = {"version": "2.1.0", "runs": "nie-lista"}
-    clean = sr.sanitize(doc)
-    assert clean == doc
-    assert clean is not doc
-
-
-def test_sanitize_brzegowe_ksztalty_i_notyfikacje():
+def test_export_sarif_puste_runs_i_brzegowe_ksztalty():
+    assert sr.export_sarif({"runs": []}) == {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [],
+    }
+    assert sr.export_sarif({}) == {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [],
+    }
     doc = {
         "runs": [
             "nie-obiekt",
             {
-                "results": "nie-lista",
-                "invocations": [
-                    {"toolExecutionNotifications": ["nie-obiekt", {"message": {"text": "ok"}}]},
-                ],
-            },
-            {
-                "results": [
-                    {
-                        "physicalLocation": {
-                            "region": "nie-obiekt",
-                            "contextRegion": {"snippet": {"text": CANARY}},
-                        }
-                    }
-                ]
+                "tool": "nie-obiekt",
+                "results": [],
             },
         ]
     }
-    clean = sr.sanitize(doc)
-    assert CANARY not in json.dumps(clean, ensure_ascii=False)
-    assert "contextRegion" not in clean["runs"][2]["results"][0]["physicalLocation"]
+    exported = sr.export_sarif(doc)
+    assert len(exported["runs"]) == 1
+    assert exported["runs"][0]["tool"]["driver"]["name"] == ""
+
+
+def test_export_sarif_odrzuca_brak_reguly_lub_lokalizacji():
+    cases = [
+        "nie-obiekt",
+        {},
+        {"ruleId": ""},
+        {"ruleId": "r", "locations": []},
+        {"ruleId": "r", "locations": "nie-lista"},
+        {"ruleId": "r", "locations": ["nie-obiekt"]},
+        {"ruleId": "r", "locations": [{"physicalLocation": {}}]},
+        {"ruleId": "r", "locations": [{"physicalLocation": {"artifactLocation": {}}}]},
+        {"ruleId": "r", "locations": [{"physicalLocation": {"artifactLocation": {"uri": ""}}}]},
+        {"ruleId": "r", "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}}}]},
+        {"ruleId": "r", "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}, "region": {}}}]},
+        {
+            "ruleId": "r",
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}, "region": {"startLine": 0}}}],
+        },
+        {
+            "ruleId": "r",
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}, "region": {"startLine": "1"}}}],
+        },
+        {
+            "ruleId": "r",
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a.py"}, "region": {"startLine": True}}}],
+        },
+    ]
+    for result in cases:
+        doc = make_doc(results=[result])
+        with pytest.raises(sr.ReportError, match="wynik"):
+            sr.export_sarif(doc)
+
+
+def test_prepare_notyfikacja_error_nie_publikuje_a_warning_daje_clean(tmp_path):
+    sca_err = tmp_path / "sca_err"
+    out_err = tmp_path / "out_err"
+    write_exit(sca_err, "semgrep", "0\n")
+    write_report(
+        sca_err,
+        "semgrep",
+        make_doc(
+            results=[],
+            invocations=[{"executionSuccessful": True, "toolExecutionNotifications": [{"level": "error"}]}],
+        ),
+    )
+    manifest_err = sr.prepare(sca_err, out_err, summary_env(tmp_path / "err"))
+    entry_err = manifest_err["reports"][0]
+    assert entry_err["outcome"] == "error"
+    assert entry_err["publish"] is False
+    assert "notyfikacja level=error" in entry_err["reason"]
+    assert not (out_err / "semgrep.sarif").exists()
+
+    sca_warn = tmp_path / "sca_warn"
+    out_warn = tmp_path / "out_warn"
+    write_exit(sca_warn, "semgrep", "0\n")
+    write_report(
+        sca_warn,
+        "semgrep",
+        make_doc(
+            results=[],
+            invocations=[
+                {
+                    "executionSuccessful": True,
+                    "toolExecutionNotifications": [
+                        {"descriptor": {"id": "Syntax error"}, "level": "warning", "message": {"text": "błąd pliku"}}
+                    ],
+                }
+            ],
+        ),
+    )
+    manifest_warn = sr.prepare(sca_warn, out_warn, summary_env(tmp_path / "warn"))
+    entry_warn = manifest_warn["reports"][0]
+    assert entry_warn["outcome"] == "clean"
+    assert entry_warn["publish"] is True
+    assert (out_warn / "semgrep.sarif").is_file()
 
 
 # --- wyciszone wyniki (#257) ---
@@ -455,12 +619,15 @@ def test_sanitize_brzegowe_ksztalty_i_notyfikacje():
         ({"suppressions": None}, False),
         ({"suppressions": {}}, False),
         ({"suppressions": []}, False),
+        ({"suppressions": [{}]}, False),
+        ({"suppressions": [{"status": "accepted"}]}, False),
+        ({"suppressions": [{"kind": "weird"}]}, False),
+        ({"suppressions": [{"kind": "inSource", "status": "rejected"}]}, False),
+        ({"suppressions": [{"kind": "inSource", "status": "underReview"}]}, False),
+        ({"suppressions": [{"kind": "inSource", "status": "bogus"}]}, False),
+        ({"suppressions": [{"kind": "inSource"}, {}]}, False),
         ({"suppressions": [{"kind": "inSource"}]}, True),
-        ({"suppressions": [{"status": "accepted"}]}, True),
-        ({"suppressions": [{"status": "rejected"}]}, False),
-        ({"suppressions": [{"status": "underReview"}]}, False),
-        ({"suppressions": [{"kind": "inSource"}, {"status": "rejected"}]}, False),
-        # uszkodzone wpisy nie wyciszają realnego wyniku
+        ({"suppressions": [{"kind": "external", "status": "accepted"}]}, True),
         ({"suppressions": ["nie-obiekt"]}, False),
         ({"suppressions": [{"kind": "inSource"}, None]}, False),
     ],
@@ -479,7 +646,7 @@ def test_prepare_same_wyciszone_wyniki_to_clean(tmp_path):
         make_doc(
             results=[
                 make_result(suppressions=[{"kind": "inSource"}]),
-                make_result(suppressions=[{"status": "accepted"}]),
+                make_result(suppressions=[{"kind": "external", "status": "accepted"}]),
             ]
         ),
     )
@@ -488,6 +655,29 @@ def test_prepare_same_wyciszone_wyniki_to_clean(tmp_path):
     assert entry["publish"] is True
     assert entry["result_count"] == 0
     assert entry["suppressed_count"] == 2
+
+
+def test_prepare_puste_suppressions_to_findings_i_jest_w_pliku(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    write_exit(sca, "semgrep", "1\n")
+    write_report(
+        sca,
+        "semgrep",
+        make_doc(
+            results=[
+                make_result(suppressions=[{}]),
+            ]
+        ),
+    )
+    entry = sr.prepare(sca, out, summary_env(tmp_path))["reports"][0]
+    assert entry["outcome"] == "findings"
+    assert entry["publish"] is True
+    assert entry["result_count"] == 1
+    assert entry["suppressed_count"] == 0
+    published = json.loads((out / "semgrep.sarif").read_text(encoding="utf-8"))
+    assert len(published["runs"][0]["results"]) == 1
+    assert published["runs"][0]["results"][0]["ruleId"] == "wlb.rule"
 
 
 def test_prepare_wyciszone_i_aktywne_to_findings(tmp_path):
@@ -500,7 +690,7 @@ def test_prepare_wyciszone_i_aktywne_to_findings(tmp_path):
         make_doc(
             results=[
                 make_result("ukryty", suppressions=[{"kind": "inSource"}]),
-                make_result("aktywny", suppressions=[{"status": "rejected"}]),
+                make_result("aktywny", suppressions=[{"kind": "inSource", "status": "rejected"}]),
             ]
         ),
     )
@@ -511,7 +701,7 @@ def test_prepare_wyciszone_i_aktywne_to_findings(tmp_path):
     # GitHub ignoruje `suppressions` — wyciszony wynik nie może stać się otwartym alertem (PR #324)
     published = json.loads((out / "semgrep.sarif").read_text(encoding="utf-8"))
     (result,) = published["runs"][0]["results"]
-    assert result["suppressions"] == [{"status": "rejected"}]
+    assert "suppressions" not in result
     assert "ukryty" not in json.dumps(published)
 
 
@@ -986,3 +1176,390 @@ def test_prepare_nieoczekiwany_blad_nie_zostawia_pliku(tmp_path, monkeypatch):
     with pytest.raises(TypeError):
         sr._prepare_report(sr.REPORTS["semgrep"], sca / "semgrep.sarif", out / "semgrep.sarif")
     assert not (out / "semgrep.sarif").exists()
+
+
+# --- allowlist i ochrona eksportu (#257) ---
+
+
+def test_rule_text_fallback_i_obcinanie():
+    rule_full = {
+        "shortDescription": {"text": "   "},
+        "fullDescription": {"text": "opis z full"},
+        "name": "nazwa",
+    }
+    assert sr._rule_text(rule_full, "r.id") == "opis z full"
+
+    rule_name = {
+        "shortDescription": {"text": ""},
+        "fullDescription": {"text": "   "},
+        "name": "tylko nazwa",
+    }
+    assert sr._rule_text(rule_name, "r.id") == "tylko nazwa"
+
+    rule_id_fallback = {
+        "shortDescription": {"text": ""},
+        "name": "   ",
+    }
+    assert sr._rule_text(rule_id_fallback, "r.id") == "r.id"
+    assert sr._rule_text(None, "r.id") == "r.id"
+
+    long_text = "a" * 600
+    rule_long = {"shortDescription": {"text": long_text}}
+    assert len(sr._rule_text(rule_long, "r.id")) == 500
+
+
+def test_export_rule_galezie_i_wlasciwosci():
+    rule = {
+        "id": "r1",
+        "help": {"markdown": "**tylko md**"},
+        "defaultConfiguration": {"level": "nieznany"},
+        "properties": {
+            "tags": "nie-lista",
+            "precision": 123,
+            "security-severity": 7.5,
+            "problem.severity": None,
+        },
+    }
+    exported = sr._export_rule(rule)
+    assert exported["help"] == {"markdown": "**tylko md**"}
+    assert "defaultConfiguration" not in exported
+    assert exported["properties"] == {"security-severity": "7.5"}
+
+    empty_props_rule = {"id": "r2", "help": {}, "properties": {"tags": []}}
+    exported_empty = sr._export_rule(empty_props_rule)
+    assert "help" not in exported_empty
+    assert "properties" not in exported_empty
+
+
+def test_export_location_i_result_galezie():
+    bad_phys = {"physicalLocation": "nie-obiekt"}
+    assert sr._export_location(bad_phys) is None
+
+    only_start_line = {
+        "physicalLocation": {
+            "artifactLocation": {"uri": "main.py"},
+            "region": {"startLine": 10},
+        }
+    }
+    exported_loc = sr._export_location(only_start_line)
+    assert exported_loc["physicalLocation"]["region"] == {"startLine": 10}
+
+    rules_list = [{"id": "r1", "name": "reguła 1"}]
+    result_by_index = {
+        "ruleId": "nieznana.id",
+        "ruleIndex": 0,
+        "locations": [only_start_line],
+        "level": "nieznany",
+        "partialFingerprints": {"zły_klucz": 123},
+    }
+    exported_res = sr._export_result(result_by_index, {}, rules_list)
+    assert exported_res["message"]["text"] == "reguła 1"
+    assert "level" not in exported_res
+    assert "partialFingerprints" not in exported_res
+
+
+def test_export_sarif_struktury_wejsciowe():
+    doc = {
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Tool",
+                        "rules": ["nie-obiekt", {"bez": "id"}, {"id": "r1"}],
+                    }
+                },
+                "automationDetails": {"id": 123},
+                "invocations": [{"toolExecutionNotifications": []}],
+            }
+        ]
+    }
+    exported = sr.export_sarif(doc)
+    run = exported["runs"][0]
+    assert len(run["tool"]["driver"]["rules"]) == 1
+    assert "automationDetails" not in run
+    assert run["results"] == []
+    assert "invocations" not in run
+
+
+def test_canary_wszystkie_wektory_wycieku(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+    output_file = tmp_path / "github_output"
+    summary_file = tmp_path / "summary.md"
+    write_exit(sca, "semgrep", "1\n")
+
+    rules = [
+        {
+            "id": "leak.rule",
+            "name": "Bezpieczna reguła",
+            "shortDescription": {"text": "Bezpieczny opis reguły"},
+            "help": {"text": "Bezpieczna pomoc"},
+        }
+    ]
+    leaky_doc = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {"driver": {"name": "Semgrep OSS", "version": "1.0", "rules": rules}},
+                "automationDetails": {"id": "run-id"},
+                "artifacts": [{"contents": {"text": CANARY}, "location": {"uri": "leak.py"}}],
+                "properties": {"canary": CANARY},
+                "originalUriBaseIds": {"%SRCROOT%": {"uri": f"file:///{CANARY}"}},
+                "invocations": [
+                    {
+                        "executionSuccessful": True,
+                        "toolExecutionNotifications": [
+                            {
+                                "descriptor": {"id": "Syntax error"},
+                                "level": "warning",
+                                "message": {"text": f"{CANARY}\nline 2", "markdown": f"**{CANARY}**"},
+                            }
+                        ],
+                    }
+                ],
+                "results": [
+                    {
+                        "ruleId": "leak.rule",
+                        "level": "error",
+                        "message": {
+                            "text": f"wyciek: {CANARY}",
+                            "markdown": f"**{CANARY}**",
+                            "arguments": [CANARY],
+                        },
+                        "fingerprints": {"matchBasedId/v1": CANARY},
+                        "partialFingerprints": {"lineHash": "clean_hash"},
+                        "properties": {"detail": CANARY},
+                        "suppressions": [{"kind": "weird", "justification": CANARY}],
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "src/leak.py", "uriBaseId": "%SRCROOT%"},
+                                    "region": {
+                                        "startLine": 42,
+                                        "startColumn": 1,
+                                        "snippet": {"text": f"token = '{CANARY}'"},
+                                    },
+                                    "contextRegion": {"snippet": {"text": CANARY}},
+                                }
+                            }
+                        ],
+                        "relatedLocations": [{"message": {"text": CANARY}, "physicalLocation": physical(CANARY)}],
+                        "codeFlows": [{"threadFlows": [{"locations": [{"location": {"message": {"text": CANARY}}}]}]}],
+                        "stacks": [{"frames": [{"location": physical(CANARY)}]}],
+                        "fixes": [{"description": {"text": CANARY}}],
+                        "graphs": [{"description": {"text": CANARY}}],
+                        "attachments": [{"description": {"text": CANARY}}],
+                    }
+                ],
+            }
+        ],
+    }
+    write_report(sca, "semgrep", leaky_doc)
+
+    env = {
+        "GITHUB_OUTPUT": str(output_file),
+        "GITHUB_STEP_SUMMARY": str(summary_file),
+    }
+    manifest = sr.prepare(sca, out, env)
+
+    entry = manifest["reports"][0]
+    assert entry["outcome"] == "findings"
+    assert entry["publish"] is True
+    assert entry["result_count"] == 1
+
+    published_bytes = (out / "semgrep.sarif").read_bytes()
+    published_text = published_bytes.decode("utf-8")
+    manifest_text = (out / "manifest.json").read_text(encoding="utf-8")
+    summary_text = summary_file.read_text(encoding="utf-8")
+    output_text = output_file.read_text(encoding="utf-8")
+
+    assert CANARY not in published_text
+    assert CANARY not in manifest_text
+    assert CANARY not in summary_text
+    assert CANARY not in output_text
+
+    published_doc = json.loads(published_text)
+    published_result = published_doc["runs"][0]["results"][0]
+    assert published_result["message"] == {"text": "Bezpieczny opis reguły"}
+    assert published_result["partialFingerprints"] == {"lineHash": "clean_hash"}
+    assert "fingerprints" not in published_result
+    assert "snippet" not in published_result["locations"][0]["physicalLocation"]["region"]
+    assert "contextRegion" not in published_result["locations"][0]["physicalLocation"]
+    assert "artifacts" not in published_doc["runs"][0]
+    assert "originalUriBaseIds" not in published_doc["runs"][0]
+
+
+def test_export_sarif_wymogi_githuba_i_opis_reguly():
+    rules = [
+        {
+            "id": "SEC001",
+            "name": "SecRule",
+            "shortDescription": {"text": "Krótki opis"},
+            "fullDescription": {"text": "Długi opis"},
+            "help": {"text": "Pomoc", "markdown": "**Pomoc**"},
+            "helpUri": "https://rules.example.com/sec001",
+            "defaultConfiguration": {"level": "error"},
+            "properties": {
+                "tags": ["security", "owasp-a1"],
+                "precision": "high",
+                "security-severity": "9.5",
+                "problem.severity": "error",
+            },
+        }
+    ]
+    doc = make_doc(
+        results=[
+            {
+                "ruleId": "SEC001",
+                "ruleIndex": 0,
+                "level": "error",
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": "app.py", "uriBaseId": "%SRCROOT%"},
+                            "region": {
+                                "startLine": 10,
+                                "startColumn": 4,
+                                "endLine": 10,
+                                "endColumn": 20,
+                            },
+                        }
+                    }
+                ],
+                "partialFingerprints": {"primaryLocationLineHash": "hash_xyz"},
+            }
+        ],
+        rules=rules,
+    )
+    exported = sr.export_sarif(doc)
+    run = exported["runs"][0]
+    res = run["results"][0]
+
+    assert res["ruleId"] == "SEC001"
+    assert res["level"] == "error"
+    assert res["message"] == {"text": "Krótki opis"}
+    assert res["partialFingerprints"] == {"primaryLocationLineHash": "hash_xyz"}
+
+    loc = res["locations"][0]["physicalLocation"]
+    assert loc["artifactLocation"] == {"uri": "app.py", "uriBaseId": "%SRCROOT%"}
+    assert loc["region"] == {"startLine": 10, "startColumn": 4, "endLine": 10, "endColumn": 20}
+
+    r = run["tool"]["driver"]["rules"][0]
+    assert r["id"] == "SEC001"
+    assert r["name"] == "SecRule"
+    assert r["shortDescription"] == {"text": "Krótki opis"}
+    assert r["fullDescription"] == {"text": "Długi opis"}
+    assert r["help"] == {"text": "Pomoc", "markdown": "**Pomoc**"}
+    assert r["helpUri"] == "https://rules.example.com/sec001"
+    assert r["defaultConfiguration"] == {"level": "error"}
+    assert r["properties"]["tags"] == ["security", "owasp-a1"]
+    assert r["properties"]["precision"] == "high"
+    assert r["properties"]["security-severity"] == "9.5"
+    assert r["properties"]["problem.severity"] == "error"
+
+
+def test_hermetyczny_fixture_semgrep_i_checkov(tmp_path):
+    sca = tmp_path / "sca"
+    out = tmp_path / "out"
+
+    # Semgrep fixture (jak realny wynik z repo)
+    write_exit(sca, "semgrep", "1\n")
+    semgrep_doc = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Semgrep OSS",
+                        "semanticVersion": "1.178.0",
+                        "rules": [
+                            {
+                                "id": "generic.secrets.security.detected-aws-access-key-id-value",
+                                "name": "AWS Access Key ID Value detected",
+                                "shortDescription": {"text": "Semgrep Finding: AWS Access Key ID Value"},
+                                "fullDescription": {"text": "AWS Access Key ID Value detected in source code."},
+                                "help": {"text": "Do not hardcode secrets."},
+                                "helpUri": "https://semgrep.dev/r/generic.secrets",
+                                "defaultConfiguration": {"level": "error"},
+                                "properties": {"precision": "very-high", "tags": ["CWE-798", "security"]},
+                            }
+                        ],
+                    }
+                },
+                "results": [
+                    {
+                        "ruleId": "generic.secrets.security.detected-aws-access-key-id-value",
+                        "fingerprints": {"matchBasedId/v1": "requires login"},
+                        "properties": {},
+                        "message": {"text": "Hardcoded secret: secret_value"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "leak.py", "uriBaseId": "%SRCROOT%"},
+                                    "region": {
+                                        "startLine": 2,
+                                        "startColumn": 15,
+                                        "endLine": 2,
+                                        "endColumn": 35,
+                                        "snippet": {"text": 'aws_secret = "secret_value"'},
+                                    },
+                                }
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    write_report(sca, "semgrep", semgrep_doc)
+
+    # Checkov fixture (jak realny wynik z repo)
+    write_exit(sca, "checkov", "1\n")
+    checkov_doc = {
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "Checkov",
+                        "version": "3.3.19",
+                        "informationUri": "https://checkov.io",
+                        "rules": [],
+                    }
+                },
+                "results": [
+                    {
+                        "ruleId": "CKV_AWS_20",
+                        "level": "error",
+                        "message": {"text": "Ensure S3 bucket policy is secure"},
+                        "locations": [
+                            {
+                                "physicalLocation": {
+                                    "artifactLocation": {"uri": "s3.tf"},
+                                    "region": {"startLine": 1, "endLine": 5},
+                                }
+                            }
+                        ],
+                        "partialFingerprints": {"primaryLocationLineHash": "hash123"},
+                    }
+                ],
+            }
+        ],
+    }
+    write_report(sca, "checkov", checkov_doc)
+
+    manifest = sr.prepare(sca, out, summary_env(tmp_path))
+    assert [r["outcome"] for r in manifest["reports"]] == ["findings", "findings"]
+    assert all(r["publish"] for r in manifest["reports"])
+
+    pub_semgrep = json.loads((out / "semgrep.sarif").read_text(encoding="utf-8"))
+    sem_res = pub_semgrep["runs"][0]["results"][0]
+    assert sem_res["message"]["text"] == "Semgrep Finding: AWS Access Key ID Value"
+    assert "fingerprints" not in sem_res
+    assert "snippet" not in sem_res["locations"][0]["physicalLocation"]["region"]
+
+    pub_checkov = json.loads((out / "checkov.sarif").read_text(encoding="utf-8"))
+    chk_res = pub_checkov["runs"][0]["results"][0]
+    assert chk_res["ruleId"] == "CKV_AWS_20"
+    assert chk_res["message"]["text"] == "CKV_AWS_20"  # fallback do ruleId przy pustych rules
+    assert chk_res["partialFingerprints"] == {"primaryLocationLineHash": "hash123"}

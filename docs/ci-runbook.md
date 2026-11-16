@@ -156,10 +156,12 @@ Trzy wyniki są rozdzielone i każdy ma własne miejsce w podsumowaniu przebiegu
 
 Stany skanera (`ci/sarif_report.py`): `clean` (kod 0, brak aktywnych wyników), `findings` (aktywne
 wyniki), `error` (kod ≥ 2, niespójny kod wyjścia lub raport odrzucony przez walidator), `not_run`
-(brak `build/sca/<narzędzie>.exit`, np. skaner zabity przez strażnika). Stany publikacji: `processed`
-(upload z `wait-for-processing` przeszedł; odrzucenie SARIF przez GitHub kończy krok błędem, ale gdy
-przetwarzanie trwa dłużej niż limit akcji, ta loguje tylko ostrzeżenie „Timed out waiting for analysis” —
-wtedy sprawdź rekord analizy w API, niżej), `failed`, `cancelled`,
+(brak `build/sca/<narzędzie>.exit`, np. skaner zabity przez strażnika). Raport jest też `error`, gdy
+skaner zgłosił w nim notyfikację `level: error` (analiza niekompletna) — nawet przy kodzie 0 i zerze
+wyników nie publikujemy wtedy pustego zamiennika. Stany publikacji: `processed` (krok „Potwierdzenie
+przetworzenia” odczytał z API terminalny status `complete` dla konkretnego `sarif-id`; sam zielony
+`upload-sarif` nie wystarcza, bo po własnym limicie oczekiwania akcja tylko ostrzega), `failed`
+(upload nieudany albo status `failed`/`pending` po terminie 5 minut), `cancelled`,
 `unsupported` (kontekst bez publikacji — niżej). Wyniki wyciszone w kodzie (`# nosemgrep`,
 `checkov:skip`) nie liczą się do `findings` i **nie są publikowane**: GitHub ignoruje pole SARIF
 `suppressions` i pokazałby je jako otwarte alerty, choć bramka ich nie liczy, a uzasadnienie jest w
@@ -175,24 +177,32 @@ kodzie. Ich liczbę podaje manifest (`suppressed_count`).
 | przebieg `dependabot[bot]` poza `pull_request`, także `push` commitu jego autorstwa (squash-merge) | `unsupported` — token tylko do odczytu |
 
 W kontekście `unsupported` job kończy się sukcesem z jawnym powodem w podsumowaniu, a raporty
-zostają w artefakcie `code-scanning-sarif`. Nie obchodzimy odmowy tokena przez PAT,
+(po eksporcie) zostają w artefakcie `code-scanning-sarif`. Nie obchodzimy odmowy tokena przez PAT,
 `pull_request_target` ani `workflow_run`.
 
 **Uprawnienia.** `security-events: write` ma wyłącznie job 3r. Nie uruchamia on skryptów z repo,
 lokalnych actions ani instalacji: pobiera artefakt `code-scanning-sarif` z tego samego przebiegu,
 sprawdza, że manifest wskazuje ten sam przebieg i SHA (`run_id`, `sha`), robi checkout bez zapisanych
-poświadczeń (tylko do mapowania ścieżek i fingerprintów) i wywołuje `upload-sarif`. Job skanujący zostaje tylko do odczytu. Pilnuje tego test
-`tests/unit/test_code_scanning_workflow.py`.
+poświadczeń (tylko do mapowania ścieżek i fingerprintów), wywołuje `upload-sarif` i odpytuje API o status
+przetworzenia (`curl` + `jq`). Job skanujący zostaje tylko do odczytu. Pilnuje tego test
+`tests/unit/test_code_scanning_workflow.py`, który także wykonuje skrypty kroków joba 3r.
 
-**Prywatność raportu.** Semgrep wpisuje do SARIF dopasowaną linię kodu (`region.snippet`), więc przy
-`p/secrets` przenosiłby wykryty sekret do Code scanning; komunikaty o błędach parsowania zawierają
-całe fragmenty plików. Przed publikacją `ci/sarif_report.py` usuwa `snippet` i `contextRegion` oraz
-zastępuje treść komunikatów narzędzia ich identyfikatorem (test z sekretem-canary). Surowe raporty zostają
-tylko w artefakcie `security-reports` (30 dni). Repozytorium jest publiczne, więc artefakty może pobrać
-każdy zalogowany użytkownik — tak samo jak kod, z którego pochodzą snippety; wykryty sekret trzeba
-unieważnić, a artefakt przebiegu można usunąć wcześniej (`gh api -X DELETE
-repos/{owner}/{repo}/actions/artifacts/<ID>`). Nie wypisujemy SARIF do logu. Do repozytorium nie
-wolno wkładać danych badaczy: usunięcie pliku nie usuwa go z historii Git, CI ani raportów.
+**Zakres ochrony eksportu (prywatność).** Repozytorium jest publiczne: kod, logi CI i artefakty może
+czytać każdy zalogowany użytkownik, a Code scanning — osoby z uprawnieniami do alertów. Skanery
+widzą dopasowany kod, więc przy `p/secrets` mogłyby wynieść wykryty sekret poza historię Git.
+Ustalony zakres:
+
+| Kanał | Co trafia | Ochrona |
+|---|---|---|
+| Code scanning i artefakt `code-scanning-sarif` | raport po `export_sarif` | **jawny schemat (allowlista pól)**: reguły narzędzia, `ruleId`, poziom, `uri` + linie/kolumny, `partialFingerprints`. Treść wyniku (`message`) zastąpiona tekstem reguły (semgrep wkleja w nią dopasowane metazmienne); bez `snippet`, `contextRegion`, `relatedLocations`, `codeFlows`, `fingerprints`, `properties`; notyfikacje narzędzia tylko z identyfikatorem |
+| artefakt `security-reports` | `build/sca/` **bez `*.sarif`** | surowe SARIF nie opuszczają runnera |
+| log joba 3 | semgrep: tylko `reguła plik:linia`; bandit: `plik:linia test poziom`; checkov `--compact` (bez bloków kodu) | stdout semgrepa idzie do `/dev/null` |
+| manifest, podsumowanie, `GITHUB_OUTPUT` | liczniki, wersje, skróty, powody błędów | nigdy treść raportu |
+
+Testy z sekretem-canary (`tests/unit/test_sarif_report.py`) wstawiają go w pola spoza allowlisty i w
+treść wyniku; nie może się pojawić w żadnym z kanałów. Pełną treść znaleziska (z kodem) zobaczysz
+lokalnie: `make security` albo w kodzie pod wskazaną linią. Wykryty sekret trzeba unieważnić —
+usunięcie pliku nie usuwa go z historii Git. Do repozytorium nie wolno wkładać danych badaczy.
 
 **Powtarzalność.** Manifest (`manifest.json` w artefakcie) wiąże raporty z `run_id`, `run_attempt`, SHA i
 refem oraz zapisuje wersję skanera i skrót zestawu reguł (`rules_digest`). Semgrep pobiera zestawy

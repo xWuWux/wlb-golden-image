@@ -139,11 +139,16 @@ jobs:
         id: sarif
         if: ${{ !cancelled() }}
         run: python3 ci/sarif_report.py prepare --sca-dir build/sca --out-dir build/code-scanning
+      # Surowe SARIF (snippety, komunikaty narzędzia z fragmentami kodu, ew. wykryty sekret) nie opuszczają
+      # runnera: repo jest publiczne, a artefakty może pobrać każdy zalogowany użytkownik. Publikowane są
+      # tylko raporty po eksporcie z allowlisty pól (artefakt code-scanning-sarif), #257.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: security-reports
-          path: build/sca/
+          path: |
+            build/sca/
+            !build/sca/*.sarif
           if-no-files-found: ignore
           retention-days: 30
       # Tylko dwa jawne raporty i manifest (nie całe build/sca) — wejście joba security-report.
@@ -243,6 +248,42 @@ jobs:
           category: checkov
           checkout_path: ${{ github.workspace }}
           wait-for-processing: true
+      # upload-sarif po przekroczeniu własnego limitu oczekiwania tylko ostrzega i kończy się sukcesem,
+      # więc „processed” potwierdzamy osobno: terminalny status konkretnego sarif-id (complete).
+      # pending po terminie to błąd kontroli infrastrukturalnej, nie zielony wynik.
+      - name: Potwierdzenie przetworzenia
+        id: confirm
+        if: ${{ !cancelled() && steps.context.outputs.supported == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SEMGREP_ID: ${{ steps.semgrep.outputs.sarif-id }}
+          CHECKOV_ID: ${{ steps.checkov.outputs.sarif-id }}
+          CONFIRM_TIMEOUT: "300"
+          CONFIRM_INTERVAL: "10"
+        run: |
+          for tool in semgrep checkov; do
+            id_var=${tool^^}_ID
+            id=${!id_var:-}
+            status=none
+            if [[ -n $id ]]; then
+              deadline=$((SECONDS + CONFIRM_TIMEOUT))
+              while :; do
+                # bez potoku: domyślny shell kroku ma tylko -e (bez pipefail), błąd curl zginąłby w potoku
+                body=$(curl -fsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" \
+                  -H "Accept: application/vnd.github+json" \
+                  "https://api.github.com/repos/$REPO/code-scanning/sarifs/$id") || body=""
+                status=$(jq -r '.processing_status // "unknown"' <<<"$body" 2>/dev/null) || status=unknown
+                [[ -n $status ]] || status=unknown
+                if [[ $status != pending && $status != unknown ]] || ((SECONDS >= deadline)); then
+                  break
+                fi
+                sleep "$CONFIRM_INTERVAL"
+              done
+            fi
+            echo "$tool: sarif-id=${id:-brak} status=$status"
+            echo "$tool=$status" >>"$GITHUB_OUTPUT"
+          done
       - name: Stan publikacji
         id: state
         if: always()
@@ -253,6 +294,8 @@ jobs:
           SEMGREP_UPLOAD: ${{ steps.semgrep.outcome }}
           CHECKOV_SCAN: ${{ needs.security.outputs.checkov }}
           CHECKOV_UPLOAD: ${{ steps.checkov.outcome }}
+          SEMGREP_CONFIRM: ${{ steps.confirm.outputs.semgrep }}
+          CHECKOV_CONFIRM: ${{ steps.confirm.outputs.checkov }}
         run: |
           # PublicationState: processed / failed / unsupported / cancelled (docs/ci-runbook.md#code-scanning)
           failed=0
@@ -263,8 +306,8 @@ jobs:
             echo "|---|---|---|"
           } >>"$GITHUB_STEP_SUMMARY"
           for tool in semgrep checkov; do
-            scan_var=${tool^^}_SCAN upload_var=${tool^^}_UPLOAD
-            scan=${!scan_var:-not_run} upload=${!upload_var:-skipped}
+            scan_var=${tool^^}_SCAN upload_var=${tool^^}_UPLOAD confirm_var=${tool^^}_CONFIRM
+            scan=${!scan_var:-not_run} upload=${!upload_var:-skipped} confirm=${!confirm_var:-none}
             if [[ $SUPPORTED != true ]]; then
               state="unsupported — ${REASON:-nieznany kontekst}"
               [[ -n $REASON ]] || failed=1
@@ -273,7 +316,15 @@ jobs:
               failed=1
             else
               case $upload in
-                success) state=processed ;;
+                success)
+                  # processed = GitHub potwierdził terminalny status complete dla tego sarif-id
+                  if [[ $confirm == complete ]]; then
+                    state=processed
+                  else
+                    state="failed — przetwarzanie niepotwierdzone (status: $confirm)"
+                    failed=1
+                  fi
+                  ;;
                 cancelled) state=cancelled; failed=1 ;;
                 *) state="failed — upload/przetwarzanie: $upload"; failed=1 ;;
               esac

@@ -6,14 +6,35 @@ require semgrep bandit checkov osv-scanner python3
 mkdir -p build/sca
 
 sast_semgrep() {
-  # tylko pliki śledzone przez git; reguły społecznościowe, bez telemetrii
+  local rc=0
+  # tylko pliki śledzone przez git; reguły społecznościowe, bez telemetrii.
+  # Tekstowe wyjście semgrepa zawiera dopasowane linie kodu (przy p/secrets — wykryty sekret), a log CI
+  # publicznego repo widzi każdy, więc stdout idzie do /dev/null; błędy narzędzia zostają na stderr (#257).
   scan_with_status build/sca semgrep semgrep scan --metrics=off --error --quiet \
     --config p/default --config p/python --config p/github-actions --config p/secrets \
-    --sarif-output=build/sca/semgrep.sarif .
+    --sarif-output=build/sca/semgrep.sarif . >/dev/null || rc=$?
+  semgrep_findings build/sca/semgrep.sarif
+  return "$rc"
+}
+
+# semgrep_findings PLIK — do logu tylko reguła i plik:linia aktywnych wyników, bez treści kodu (#257)
+semgrep_findings() {
+  [[ -f $1 ]] || return 0
+  python3 - "$1" <<'PY' || true
+import json, sys
+for run in json.load(open(sys.argv[1], encoding="utf-8")).get("runs", []):
+    for res in run.get("results", []):
+        if res.get("suppressions"):
+            continue
+        loc = (res.get("locations") or [{}])[0].get("physicalLocation", {})
+        line = loc.get("region", {}).get("startLine", "?")
+        print(f"  {res.get('ruleId')}  {loc.get('artifactLocation', {}).get('uri')}:{line}")
+PY
 }
 
 sast_bandit() {
-  bandit -q -ll ci/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/monitoring/files/wlb-health
+  # bez fragmentu kodu i komunikatu (B105/B106 wklejają wartość hasła) — tylko plik:linia i id testu (#257)
+  bandit -q -ll --format custom --msg-template "{relpath}:{line} {test_id} {severity}/{confidence}" ci/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/monitoring/files/wlb-health
 }
 
 iac_checkov() {

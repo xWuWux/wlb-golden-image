@@ -57,7 +57,7 @@ def test_ci_has_no_privileged_triggers_257() -> None:
 
 
 # --- job publikujący nie wykonuje kodu z repozytorium (#257) ---
-RUN_STEPS = {"context", "manifest", "state"}  # jedyne dozwolone kroki run: w jobie z zapisem
+RUN_STEPS = {"context", "manifest", "confirm", "state"}  # jedyne dozwolone kroki run: w jobie z zapisem
 
 
 def test_publishing_job_runs_no_repository_code_257() -> None:
@@ -69,7 +69,7 @@ def test_publishing_job_runs_no_repository_code_257() -> None:
         else:
             # allowlista, nie czarna lista: każdy nowy krok run: wymaga świadomej zmiany testu
             assert step.get("id") in RUN_STEPS, step.get("name")
-            forbidden = r"(^|[\s;|&(])(\./|ci/|tests/|python|pip|make|node|npm|sh\s|bash\s|source\s|\.\s)"
+            forbidden = r"(^|[\s;|&(])(\./|ci/|tests/|(python3?|pip3?|make|node|npm)\b|sh\s|bash\s|source\s|\.\s)"
             assert not re.search(forbidden, step["run"]), step["name"]
     assert {s.get("id") for s in PUBLISH["steps"] if "run" in s} == RUN_STEPS
     (checkout,) = _steps(PUBLISH, "actions/checkout@")
@@ -142,7 +142,7 @@ def _run_step(step_id: str, tmp_path: Path, env: dict[str, str]) -> tuple[int, s
     summary.touch()
     full_env = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), **env}
     process = subprocess.run(  # noqa: S603 - skrypt z workflow, bez wejścia użytkownika
-        ["/bin/bash", "-e", "-c", step["run"]],
+        ["/bin/bash", "-e", "-c", step["run"]],  # domyślny shell kroku w Actions: bash -e {0}
         env=full_env,
         capture_output=True,
         text=True,
@@ -196,13 +196,41 @@ def test_manifest_must_match_run_257(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("env", "expected_code", "expected"),
     [
+        # upload-sarif zielony, ale GitHub nie potwierdził przetworzenia (timeout akcji = tylko ostrzeżenie)
+        (
+            {
+                "SUPPORTED": "true",
+                "SEMGREP_SCAN": "clean",
+                "SEMGREP_UPLOAD": "success",
+                "SEMGREP_CONFIRM": "pending",
+                "CHECKOV_SCAN": "clean",
+                "CHECKOV_UPLOAD": "success",
+                "CHECKOV_CONFIRM": "complete",
+            },
+            1,
+            ["| semgrep | clean | failed — przetwarzanie niepotwierdzone (status: pending) |"],
+        ),
+        (
+            {
+                "SUPPORTED": "true",
+                "SEMGREP_SCAN": "clean",
+                "SEMGREP_UPLOAD": "success",
+                "SEMGREP_CONFIRM": "failed",
+                "CHECKOV_SCAN": "clean",
+                "CHECKOV_UPLOAD": "success",
+            },
+            1,
+            ["(status: failed)", "| checkov | clean | failed — przetwarzanie niepotwierdzone (status: none) |"],
+        ),
         (
             {
                 "SUPPORTED": "true",
                 "SEMGREP_SCAN": "findings",
                 "SEMGREP_UPLOAD": "success",
+                "SEMGREP_CONFIRM": "complete",
                 "CHECKOV_SCAN": "clean",
                 "CHECKOV_UPLOAD": "success",
+                "CHECKOV_CONFIRM": "complete",
             },
             0,
             ["| semgrep | findings | processed |", "| checkov | clean | processed |"],
@@ -219,6 +247,7 @@ def test_manifest_must_match_run_257(tmp_path: Path) -> None:
                 "SEMGREP_UPLOAD": "skipped",
                 "CHECKOV_SCAN": "clean",
                 "CHECKOV_UPLOAD": "success",
+                "CHECKOV_CONFIRM": "complete",
             },
             1,
             ["brak poprawnego raportu (error)"],
@@ -228,6 +257,7 @@ def test_manifest_must_match_run_257(tmp_path: Path) -> None:
                 "SUPPORTED": "true",
                 "SEMGREP_SCAN": "clean",
                 "SEMGREP_UPLOAD": "success",
+                "SEMGREP_CONFIRM": "complete",
                 "CHECKOV_SCAN": "not_run",
                 "CHECKOV_UPLOAD": "skipped",
             },
@@ -241,6 +271,7 @@ def test_manifest_must_match_run_257(tmp_path: Path) -> None:
                 "SEMGREP_UPLOAD": "failure",
                 "CHECKOV_SCAN": "clean",
                 "CHECKOV_UPLOAD": "success",
+                "CHECKOV_CONFIRM": "complete",
             },
             1,
             ["upload/przetwarzanie: failure", "| checkov | clean | processed |"],
@@ -252,6 +283,7 @@ def test_manifest_must_match_run_257(tmp_path: Path) -> None:
                 "SEMGREP_UPLOAD": "cancelled",
                 "CHECKOV_SCAN": "clean",
                 "CHECKOV_UPLOAD": "success",
+                "CHECKOV_CONFIRM": "complete",
             },
             1,
             ["| semgrep | clean | cancelled |"],
@@ -265,3 +297,77 @@ def test_publication_state_257(tmp_path: Path, env: dict[str, str], expected_cod
     assert code == expected_code, log
     for fragment in expected:
         assert fragment in summary
+
+
+# --- potwierdzenie terminalnego statusu sarif-id (#257, review PR #324) ---
+def _fake_api(tmp_path: Path, statuses: dict[str, list[str]]) -> dict[str, str]:
+    """Atrapa curl: kolejne odpowiedzi API /code-scanning/sarifs/<id> z listy statusów danego id."""
+    stubs = tmp_path / "stubs"
+    stubs.mkdir()
+    for sarif_id, sequence in statuses.items():
+        (tmp_path / f"seq-{sarif_id}").write_text("\n".join(sequence) + "\n", encoding="utf-8")
+    curl = stubs / "curl"
+    curl.write_text(
+        "#!/usr/bin/env bash\n"
+        'url=${*: -1}; id=${url##*/}; seq="$SEQ_DIR/seq-$id"\n'
+        'echo "$*" >>"$SEQ_DIR/calls"\n'
+        "[[ -s $seq ]] || exit 22\n"
+        'status=$(head -n1 "$seq"); [[ $(wc -l <"$seq") -gt 1 ]] && sed -i 1d "$seq"\n'
+        "[[ $status == http500 ]] && exit 22\n"
+        'printf \'{"processing_status": "%s"}\\n\' "$status"\n',
+        encoding="utf-8",
+    )
+    curl.chmod(0o755)
+    return {
+        "PATH": f"{stubs}:{os.environ['PATH']}",
+        "SEQ_DIR": str(tmp_path),
+        "GH_TOKEN": "t",
+        "REPO": "o/r",
+        "CONFIRM_INTERVAL": "0",
+    }
+
+
+@pytest.mark.skipif(shutil.which("jq") is None and not os.environ.get("CI"), reason="brak jq (lokalnie)")
+@pytest.mark.parametrize(
+    ("sequence", "timeout", "expected"),
+    [
+        (["complete"], "30", "complete"),
+        (["pending", "pending", "complete"], "30", "complete"),
+        (["failed"], "30", "failed"),
+        # pending po terminie zostaje pending (Stan publikacji zrobi z tego błąd)
+        (["pending"], "0", "pending"),
+        # chwilowy błąd API, potem wynik
+        (["http500", "complete"], "30", "complete"),
+    ],
+)
+def test_confirm_processing_status_257(tmp_path: Path, sequence: list[str], timeout: str, expected: str) -> None:
+    env = _fake_api(tmp_path, {"11": sequence})
+    env.update({"SEMGREP_ID": "11", "CHECKOV_ID": "", "CONFIRM_TIMEOUT": timeout})
+    code, log, outputs, _ = _run_step("confirm", tmp_path, env)
+    assert code == 0, log
+    assert outputs == {"semgrep": expected, "checkov": "none"}
+    calls = (tmp_path / "calls").read_text(encoding="utf-8")
+    assert "https://api.github.com/repos/o/r/code-scanning/sarifs/11" in calls
+
+
+# --- zakres ochrony eksportu: logi i surowe artefakty (#257, review PR #324) ---
+def test_raw_sarif_never_leaves_runner_257() -> None:
+    (reports,) = [s for s in _steps(SCAN, "actions/upload-artifact@") if s["with"]["name"] == "security-reports"]
+    paths = reports["with"]["path"].split()
+    assert "!build/sca/*.sarif" in paths
+    for job_name, job in JOBS.items():
+        for step in _steps(job, "actions/upload-artifact@"):
+            if step["with"]["name"] == "code-scanning-sarif":
+                continue
+            assert "semgrep.sarif" not in step["with"]["path"], job_name
+            assert "checkov.sarif" not in step["with"]["path"], job_name
+
+
+def test_scanner_logs_without_code_fragments_257() -> None:
+    script = (ROOT / "ci" / "security.sh").read_text(encoding="utf-8")
+    # tekstowe wyjście semgrepa (dopasowane linie kodu) nie trafia do publicznego logu
+    assert "--sarif-output=build/sca/semgrep.sarif . >/dev/null" in script
+    # bandit: tylko plik:linia i id testu, bez fragmentu kodu i komunikatu z wartością
+    assert '--msg-template "{relpath}:{line} {test_id} {severity}/{confidence}"' in script
+    # checkov: tryb bez bloków kodu
+    assert "--compact" in script

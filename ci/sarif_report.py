@@ -108,10 +108,26 @@ def _validate_run(run: object, expected: Report) -> None:
     if not isinstance(name, str) or expected.driver not in name.lower():
         raise ReportError(f"raport {expected.sarif} nie pochodzi z narzędzia {expected.tool}")
     invocations = run.get("invocations")
-    if isinstance(invocations, list):
+    if invocations is not None:
+        if not isinstance(invocations, list):
+            raise ReportError(f"raport {expected.sarif}: invocations nie jest listą")
         for invocation in invocations:
-            if isinstance(invocation, dict) and invocation.get("executionSuccessful") is False:
+            if not isinstance(invocation, dict):
+                raise ReportError(f"raport {expected.sarif}: element invocations nie jest obiektem")
+            if invocation.get("executionSuccessful") is False:
                 raise ReportError("skaner zgłosił nieudane wykonanie")
+            for key in ("toolExecutionNotifications", "toolConfigurationNotifications"):
+                notifications = invocation.get(key)
+                if notifications is not None:
+                    if not isinstance(notifications, list):
+                        raise ReportError(f"raport {expected.sarif}: {key} nie jest listą")
+                    for notification in notifications:
+                        if not isinstance(notification, dict):
+                            raise ReportError(f"raport {expected.sarif}: notyfikacja nie jest obiektem")
+                        if notification.get("level") == "error":
+                            raise ReportError(
+                                "skaner zgłosił błąd wykonania (notyfikacja level=error) — analiza niekompletna"
+                            )
     if "results" in run:
         results = run["results"]
         if not isinstance(results, list):
@@ -174,83 +190,285 @@ def load_report(path: Path, expected_tool: str) -> dict:
     return doc
 
 
-def _scrub_physical_locations(node: object) -> None:
-    """Rekurencyjnie usuwa snippet i contextRegion z każdego physicalLocation."""
-    if isinstance(node, dict):
-        physical = node.get("physicalLocation")
-        if isinstance(physical, dict):
-            region = physical.get("region")
-            if isinstance(region, dict):
-                region.pop("snippet", None)
-            physical.pop("contextRegion", None)
-        for value in node.values():
-            _scrub_physical_locations(value)
-    elif isinstance(node, list):
-        for item in node:
-            _scrub_physical_locations(item)
+def _rule_text(rule: dict | None, rule_id: str) -> str:
+    """Wyznacza bezpieczny tekst opisu wyniku na podstawie reguły (nigdy z result.message)."""
+    if isinstance(rule, dict):
+        short = rule.get("shortDescription")
+        if isinstance(short, dict):
+            text = short.get("text")
+            if isinstance(text, str) and text.strip():
+                return text[:500]
+        full = rule.get("fullDescription")
+        if isinstance(full, dict):
+            text = full.get("text")
+            if isinstance(text, str) and text.strip():
+                return text[:500]
+        name = rule.get("name")
+        if isinstance(name, str) and name.strip():
+            return name[:500]
+    return rule_id[:500]
 
 
-def _sanitize_notification(notification: dict) -> None:
-    """Zastępuje treść notyfikacji jej identyfikatorem.
+def _export_rule(rule: dict) -> dict | None:
+    rule_id = rule.get("id")
+    if not isinstance(rule_id, str) or not rule_id:
+        return None
+    item: dict = {"id": rule_id}
+    name = rule.get("name")
+    if isinstance(name, str) and name:
+        item["name"] = name
+    short = rule.get("shortDescription")
+    if isinstance(short, dict) and isinstance(short.get("text"), str):
+        item["shortDescription"] = {"text": short["text"]}
+    full = rule.get("fullDescription")
+    if isinstance(full, dict) and isinstance(full.get("text"), str):
+        item["fullDescription"] = {"text": full["text"]}
+    help_obj = rule.get("help")
+    if isinstance(help_obj, dict):
+        h_dict: dict[str, str] = {}
+        if isinstance(help_obj.get("text"), str):
+            h_dict["text"] = help_obj["text"]
+        if isinstance(help_obj.get("markdown"), str):
+            h_dict["markdown"] = help_obj["markdown"]
+        if h_dict:
+            item["help"] = h_dict
+    help_uri = rule.get("helpUri")
+    if isinstance(help_uri, str) and help_uri:
+        item["helpUri"] = help_uri
+    default_config = rule.get("defaultConfiguration")
+    if isinstance(default_config, dict):
+        level = default_config.get("level")
+        if isinstance(level, str) and level in {"none", "note", "warning", "error"}:
+            item["defaultConfiguration"] = {"level": level}
+    props = rule.get("properties")
+    if isinstance(props, dict):
+        p_dict: dict = {}
+        tags = props.get("tags")
+        if isinstance(tags, list):
+            safe_tags = [t for t in tags if isinstance(t, str)]
+            if safe_tags:
+                p_dict["tags"] = safe_tags
+        prec = props.get("precision")
+        if isinstance(prec, str) and prec:
+            p_dict["precision"] = prec
+        sec_sev = props.get("security-severity")
+        if isinstance(sec_sev, str) and sec_sev:
+            p_dict["security-severity"] = sec_sev
+        elif isinstance(sec_sev, (int, float)) and not isinstance(sec_sev, bool):
+            p_dict["security-severity"] = str(sec_sev)
+        prob_sev = props.get("problem.severity")
+        if isinstance(prob_sev, str) and prob_sev:
+            p_dict["problem.severity"] = prob_sev
+        if p_dict:
+            item["properties"] = p_dict
+    return item
 
-    Semgrep wkleja do komunikatów błędów parsowania całe fragmenty plików, a sekret może stać już w
-    pierwszej linii, więc przycinanie nie wystarcza. Pełna treść zostaje w artefakcie security-reports.
-    """
+
+def _export_notification(notification: dict) -> dict:
     descriptor = notification.get("descriptor")
-    ident = descriptor.get("id") if isinstance(descriptor, dict) else None
-    label = ident if isinstance(ident, str) and ident else "komunikat narzędzia"
-    notification["message"] = {"text": f"{label[:80]} (treść w artefakcie security-reports)"}
+    desc_id = descriptor.get("id") if isinstance(descriptor, dict) else None
+    ident = desc_id[:80] if isinstance(desc_id, str) and desc_id else "komunikat narzędzia"
+    item: dict = {"message": {"text": f"{ident} (szczegóły: skan lokalny, make security)"}}
+    if isinstance(desc_id, str) and desc_id:
+        item["descriptor"] = {"id": desc_id}
+    level = notification.get("level")
+    if isinstance(level, str) and level in {"none", "note", "warning", "error"}:
+        item["level"] = level
+    return item
 
 
-def _sanitize_notifications(run: dict) -> None:
-    """Czyści notyfikacje narzędzia w danym przebiegu (często zawierają kod źródłowy)."""
-    invocations = run.get("invocations")
-    if not isinstance(invocations, list):
-        return
-    for invocation in invocations:
-        if not isinstance(invocation, dict):
-            continue
-        for key in ("toolExecutionNotifications", "toolConfigurationNotifications"):
-            notifications = invocation.get(key)
-            if not isinstance(notifications, list):
-                continue
-            for notification in notifications:
-                if isinstance(notification, dict):
-                    _sanitize_notification(notification)
+def _export_location(loc: object) -> dict | None:
+    if not isinstance(loc, dict):
+        return None
+    phys = loc.get("physicalLocation")
+    if not isinstance(phys, dict):
+        return None
+    art = phys.get("artifactLocation")
+    if not isinstance(art, dict):
+        return None
+    uri = art.get("uri")
+    if not isinstance(uri, str) or not uri:
+        return None
+    region = phys.get("region")
+    if not isinstance(region, dict):
+        return None
+    start_line = region.get("startLine")
+    if not isinstance(start_line, int) or isinstance(start_line, bool) or start_line < 1:
+        return None
+
+    art_dict: dict[str, str] = {"uri": uri}
+    uri_base_id = art.get("uriBaseId")
+    if isinstance(uri_base_id, str) and uri_base_id:
+        art_dict["uriBaseId"] = uri_base_id
+
+    reg_dict: dict[str, int] = {"startLine": start_line}
+    for col_key in ("startColumn", "endLine", "endColumn"):
+        val = region.get(col_key)
+        if isinstance(val, int) and not isinstance(val, bool) and val >= 1:
+            reg_dict[col_key] = val
+
+    return {
+        "physicalLocation": {
+            "artifactLocation": art_dict,
+            "region": reg_dict,
+        }
+    }
 
 
-def sanitize(doc: dict) -> dict:
-    """Zwraca głęboką kopię raportu bez fragmentów kodu w wynikach.
+def _export_result(
+    result: object,
+    rules_map: dict[str, dict],
+    rules_list: list[dict],
+) -> dict:
+    if not isinstance(result, dict):
+        raise ReportError("wynik nie jest obiektem")
+    rule_id = result.get("ruleId")
+    if not isinstance(rule_id, str) or not rule_id:
+        raise ReportError("wynik bez reguły lub lokalizacji")
 
-    Snippet p/secrets może zawierać wykryty sekret, a code scanning i tak pokazuje kod
-    z repozytorium. Reguły, komunikaty wyników, ruleId i odciski palców pozostają bez
-    zmian. Notyfikacje narzędzia bywają nośnikiem fragmentów kodu, więc ich treść jest
-    zastępowana identyfikatorem notyfikacji.
+    locations = result.get("locations")
+    if not isinstance(locations, list) or not locations:
+        raise ReportError("wynik bez reguły lub lokalizacji")
+
+    valid_locations: list[dict] = []
+    for loc in locations:
+        exported_loc = _export_location(loc)
+        if exported_loc is not None:
+            valid_locations.append(exported_loc)
+
+    if not valid_locations:
+        raise ReportError("wynik bez reguły lub lokalizacji")
+
+    rule = rules_map.get(rule_id)
+    rule_index = result.get("ruleIndex")
+    if (
+        rule is None
+        and isinstance(rule_index, int)
+        and not isinstance(rule_index, bool)
+        and 0 <= rule_index < len(rules_list)
+    ):
+        rule = rules_list[rule_index]
+
+    res_item: dict = {
+        "ruleId": rule_id,
+        "message": {"text": _rule_text(rule, rule_id)},
+        "locations": valid_locations,
+    }
+    # ruleIndex nie jest eksportowany: eksport pomija reguły bez id, więc indeks mógłby wskazać inną regułę
+    level = result.get("level")
+    if isinstance(level, str) and level in {"none", "note", "warning", "error"}:
+        res_item["level"] = level
+    pfp = result.get("partialFingerprints")
+    if isinstance(pfp, dict):
+        safe_pfp = {k: v for k, v in pfp.items() if isinstance(k, str) and isinstance(v, str)}
+        if safe_pfp:
+            res_item["partialFingerprints"] = safe_pfp
+    return res_item
+
+
+def export_sarif(doc: dict) -> dict:
+    """Eksportuje bezpieczny dokument SARIF 2.1.0 na podstawie ścisłej allowlisty pól.
+
+    Usuwa wszelkie fragmenty kodu źródłowego (snippet, contextRegion, relatedLocations,
+    codeFlows, stacks, fixes itp.), metazmienne z treści komunikatów wyników (zastępowane
+    bezpiecznym opisem właściwej reguły) oraz nieobsługiwane pola (fingerprints, suppressions).
+    Notyfikacje wykonania są zastępowane identyfikatorem i ogólną wskazówką naprawy.
+    Nie przenosi też ``ruleIndex`` (indeksy po odrzuceniu reguł bez id byłyby przesunięte) ani
+    ``automationDetails`` (kategorię ustala wyłącznie workflow, nie treść raportu).
     """
-    clean = copy.deepcopy(doc)
-    runs = clean.get("runs")
-    if isinstance(runs, list):
-        for run in runs:
-            if isinstance(run, dict):
-                _sanitize_notifications(run)
-                results = run.get("results")
-                if isinstance(results, list):
-                    for result in results:
-                        _scrub_physical_locations(result)
-    return clean
+    exported_runs: list[dict] = []
+    runs = doc.get("runs") if isinstance(doc, dict) else None
+    for run in runs or []:
+        if not isinstance(run, dict):
+            continue
+        tool = run.get("tool")
+        driver = tool.get("driver") if isinstance(tool, dict) else None
+        driver_name = driver.get("name") if isinstance(driver, dict) else None
+        driver_dict: dict = {"name": driver_name if isinstance(driver_name, str) else ""}
+        if isinstance(driver, dict):
+            version = driver.get("version")
+            if isinstance(version, str) and version:
+                driver_dict["version"] = version
+            semantic_version = driver.get("semanticVersion")
+            if isinstance(semantic_version, str) and semantic_version:
+                driver_dict["semanticVersion"] = semantic_version
+            info_uri = driver.get("informationUri")
+            if isinstance(info_uri, str) and info_uri:
+                driver_dict["informationUri"] = info_uri
+
+        raw_rules = driver.get("rules") if isinstance(driver, dict) else None
+        rules_list: list[dict] = []
+        rules_map: dict[str, dict] = {}
+        exported_rules: list[dict] = []
+        if isinstance(raw_rules, list):
+            for r in raw_rules:
+                if isinstance(r, dict):
+                    rules_list.append(r)
+                    rid = r.get("id")
+                    if isinstance(rid, str) and rid:
+                        rules_map[rid] = r
+                    exported_rule = _export_rule(r)
+                    if exported_rule is not None:
+                        exported_rules.append(exported_rule)
+        driver_dict["rules"] = exported_rules
+
+        exported_results: list[dict] = []
+        raw_results = run.get("results")
+        if isinstance(raw_results, list):
+            for res in raw_results:
+                exported_results.append(_export_result(res, rules_map, rules_list))
+
+        run_dict: dict = {
+            "tool": {"driver": driver_dict},
+            "results": exported_results,
+        }
+        # automationDetails nie jest eksportowany: kategorię ustala wyłącznie workflow (wejście category)
+
+        exported_invocations: list[dict] = []
+        invocations = run.get("invocations")
+        if isinstance(invocations, list):
+            for invocation in invocations:
+                if not isinstance(invocation, dict):
+                    continue
+                inv_item: dict = {}
+                if "executionSuccessful" in invocation and isinstance(invocation["executionSuccessful"], bool):
+                    inv_item["executionSuccessful"] = invocation["executionSuccessful"]
+                raw_notifs = invocation.get("toolExecutionNotifications")
+                if isinstance(raw_notifs, list):
+                    notifs = [_export_notification(n) for n in raw_notifs if isinstance(n, dict)]
+                    if notifs:
+                        inv_item["toolExecutionNotifications"] = notifs
+                if inv_item:
+                    exported_invocations.append(inv_item)
+
+        if exported_invocations:
+            run_dict["invocations"] = exported_invocations
+
+        exported_runs.append(run_dict)
+
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": exported_runs,
+    }
 
 
 def _is_suppressed(result: object) -> bool:
-    """Wynik wyciszony: suppressions to niepusta lista bez rejected/underReview."""
+    """Wynik wyciszony: suppressions to niepusta lista poprawnych wpisów (kind + accepted/brak statusu)."""
     if not isinstance(result, dict):
         return False
     suppressions = result.get("suppressions")
     if not isinstance(suppressions, list) or not suppressions:
         return False
-    # uszkodzone wpisy (nie-obiekty) nie wyciszają — inaczej realny wynik zniknąłby jako „clean”
-    if not all(isinstance(item, dict) for item in suppressions):
-        return False
-    return not any(item.get("status") in ("rejected", "underReview") for item in suppressions)
+    for item in suppressions:
+        if not isinstance(item, dict):
+            return False
+        if item.get("kind") not in ("inSource", "external"):
+            return False
+        status = item.get("status")
+        if status is not None and status != "accepted":
+            return False
+    return True
 
 
 def classify(exit_code: int | None, info: ReportInfo | None) -> str:
@@ -304,9 +522,9 @@ def drop_suppressed(doc: dict) -> dict:
     return kept
 
 
-def _report_info(report: Report, clean: dict, payload: bytes) -> ReportInfo:
-    """Metadane liczone z raportu po sanityzacji, ale PRZED usunięciem wyciszeń (liczniki)."""
-    runs = clean["runs"]
+def _report_info(report: Report, doc: dict, payload: bytes) -> ReportInfo:
+    """Metadane liczone z raportu wejściowego przed usunięciem wyciszeń (liczniki) i payloadu."""
+    runs = doc["runs"]
     results = [result for run in runs for result in (run.get("results") or [])]
     suppressed_count = sum(1 for result in results if _is_suppressed(result))
     result_count = len(results) - suppressed_count
@@ -335,12 +553,13 @@ def _prepare_report(report: Report, source: Path, target: Path) -> ReportInfo:
     """Waliduje, sanityzuje i zapisuje raport; przy błędzie nie zostawia pliku."""
     try:
         doc = load_report(source, report.tool)
-        clean = sanitize(doc)
-        payload = json.dumps(drop_suppressed(clean), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        clean = drop_suppressed(doc)
+        exported = export_sarif(clean)
+        payload = json.dumps(exported, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         target.write_bytes(payload)
         if len(gzip.compress(payload)) > MAX_GZIP_BYTES:
             raise ReportError(f"raport {report.sarif} przekracza limit rozmiaru gzip")
-        return _report_info(report, clean, payload)
+        return _report_info(report, doc, payload)
     except OSError as exc:
         target.unlink(missing_ok=True)
         raise ReportError(f"nie udało się zapisać raportu {report.sarif}") from exc
