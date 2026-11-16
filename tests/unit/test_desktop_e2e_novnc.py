@@ -153,3 +153,50 @@ def test_optional_interaction_is_advisory(tmp_path):
     result = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     assert result["status"] == "pass"
     assert "tryb raportowy" in result["reason"]
+
+
+class FakePage:
+    """Minimalna strona: canvas = viewport minus pasek noVNC o zadanej wysokości."""
+
+    def __init__(self, chrome_h=60, chrome_w=0, stuck=False):
+        self.chrome_h = chrome_h
+        self.chrome_w = chrome_w
+        self.stuck = stuck
+        self.viewport_size = {"width": 1280, "height": 800}
+        self.sets = 0
+
+    def set_viewport_size(self, size):
+        self.viewport_size = dict(size)
+        self.sets += 1
+
+    def evaluate(self, _script):
+        if self.stuck:
+            return {"found": True, "count": 1, "colors": 42, "w": 1680, "h": 1050, "cssW": 1680, "cssH": 1050}
+        return {
+            "found": True,
+            "count": 1,
+            "readable": True,
+            "colors": 42,
+            "w": self.viewport_size["width"] - self.chrome_w,
+            "h": self.viewport_size["height"] - self.chrome_h,
+            "cssW": self.viewport_size["width"] - self.chrome_w,
+            "cssH": self.viewport_size["height"] - self.chrome_h,
+        }
+
+
+def test_fit_viewport_calibrates_novnc_chrome(tmp_path):
+    run = make_e2e(tmp_path)
+    run.clock.sleep = lambda _seconds: None
+    page = FakePage(chrome_h=44)
+    fit = run._fit_viewport(page, target(screen={"w": 1680, "h": 1050}))
+    assert fit["ok"] is True
+    # pasek 44 px nie jest zgadywany stałą: viewport = 1050 + 44, canvas = 1680x1050
+    assert page.viewport_size == {"width": 1680, "height": 1094}
+
+
+def test_fit_viewport_reports_failure_without_matching_screen(tmp_path):
+    run = make_e2e(tmp_path)
+    run.clock.sleep = lambda _seconds: None
+    fit = run._fit_viewport(FakePage(stuck=True), target())
+    assert fit["ok"] is False
+    assert fit["sample"]["w"] == 1680

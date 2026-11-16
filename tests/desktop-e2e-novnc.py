@@ -647,14 +647,32 @@ class E2E:
                 return None
             raise
 
-    def _fit_viewport(self, page, target: dict) -> None:
-        """Headless viewport musi pokazać cały canvas, inaczej klik w przycisk może być poza ekranem."""
-        width = max(1280, target["screen"]["w"])
-        height = max(800, target["screen"]["h"] + 60)
-        current = page.evaluate("() => ({w: window.innerWidth, h: window.innerHeight})")
-        if current.get("w") != width or current.get("h") != height:
-            page.set_viewport_size({"width": width, "height": height})
+    def _fit_viewport(self, page, target: dict) -> dict:
+        """Dopasowuje viewport tak, by canvas (framebuffer X) miał dokładnie rozmiar z target.json.
+
+        Paska noVNC (status + schowek) nie da się zgadnąć stałą: jego wysokość różni się między
+        wersjami. Kalibrujemy ją z różnicy viewport−canvas i powtarzamy, aż bufor zgadza się
+        z targetem. Bez dopasowania mapowanie pikseli targetu na canvas byłoby nieprawidłowe,
+        więc pointer nie klika na oślep — tylko po potwierdzonym rozmiarze.
+        """
+        want_w, want_h = target["screen"]["w"], target["screen"]["h"]
+        viewport = page.viewport_size or {"width": 1280, "height": 800}
+        probe: dict = {}
+        for _ in range(4):
+            probe = page.evaluate(_CANVAS_PROBE_JS)
+            if probe.get("found") and (probe.get("w"), probe.get("h")) == (want_w, want_h):
+                return {"ok": True, "viewport": viewport, "sample": probe}
+            chrome_w = max(0, viewport["width"] - int(probe.get("cssW") or viewport["width"]))
+            chrome_h = max(0, viewport["height"] - int(probe.get("cssH") or viewport["height"]))
+            fitted = {"width": want_w + chrome_w, "height": want_h + chrome_h}
+            if fitted == viewport:
+                break
+            page.set_viewport_size(fitted)
+            viewport = fitted
             self.clock.sleep(1.0)
+        probe = page.evaluate(_CANVAS_PROBE_JS)
+        ok = bool(probe.get("found")) and (probe.get("w"), probe.get("h")) == (want_w, want_h)
+        return {"ok": ok, "viewport": viewport, "sample": probe}
 
     def _type_nonce(self, page, nonce: str, label: str) -> dict:
         """Realna ścieżka klawiatury: fokus strony → keydown/keyup per znak → Enter."""
@@ -1074,7 +1092,14 @@ class E2E:
             fixture_error = str(exc)
             print(f"desktop-e2e: fixture targetu: {fixture_error}")
         if target is not None:
-            self._fit_viewport(desktop, target)
+            fit = self._fit_viewport(desktop, target)
+            self.result["viewport_fit"] = fit
+            if not fit["ok"]:
+                print(
+                    "desktop-e2e: nie udało się dopasować canvasu do target.screen: "
+                    f"{fit['sample'].get('w')}x{fit['sample'].get('h')} != "
+                    f"{target['screen']['w']}x{target['screen']['h']}"
+                )
         try:
             self._run_render(desktop, target)
         except ScenarioFailure as exc:

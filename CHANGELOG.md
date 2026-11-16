@@ -55,7 +55,8 @@ pierwszym Laboratorium na klastrze).
   akcją) i root czyta `/run/wlb/e2e/mouse.txt` (`rc=0`). Katalog markerów czyści się przed każdą akcją.
   Scenariusze launcher/render/pointer/keyboard/resize/reconnect są rozstrzygane niezależnie (mysz OK
   nie zalicza klawiatury), a Launcher→Desktop to wymagany scenariusz bez fallbacku `goto /desktop/`.
-  Resize zmienia viewport tylko na czas scenariusza i przywraca go przed akcją myszy — przy
+  Viewport jest dopasowywany do `target.screen` z kalibracją wysokości paska noVNC (bez zgadywania
+  stałej), a resize zmienia go tylko na czas scenariusza i przywraca przed akcją myszy — przy
   `rfb.resizeSession=true` framebuffer X idzie za oknem, więc target publikowany przy starcie
   opisywałby nieaktualną geometrię.
   Wynik v3 (`status: pass|fail|error`, pole `gating`) powstaje na każdej ścieżce, także po deadline;
