@@ -476,11 +476,14 @@ radiologia_flavor() {
   rad_img="$REPO_ROOT/output/$rad_full/$rad_full.qcow2"
   rm -rf "output/$rad_full"
   echo "== Build flavora wlb-radiologia (base_image=$IMAGE) =="
+  # Target in-session E2E (#277-A) włącza się TYLKO w buildach testowych CI — obraz produkcyjny
+  # badacza nie zawiera fixture. Bez tego etap 5 nie ma jak dowieść wejścia (markery /run/wlb/e2e).
   if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-radiologia.log" packer build -color=false -only='wlb-radiologia.*' \
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
-    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
+    -var "wlb_enable_e2e_target=true" packer/; then
     echo "build flavora wlb-radiologia nieudany (packer-radiologia.log w artefaktach etapu 5)"
     return 1
   fi
@@ -506,7 +509,8 @@ memory_flavor() {
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
-    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
+    -var "wlb_enable_e2e_target=true" packer/; then
     echo "build flavora wlb-memory nieudany (packer-memory.log w artefaktach etapu 5)"
     return 1
   fi
@@ -531,7 +535,8 @@ histologia_flavor() {
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
-    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" packer/; then
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
+    -var "wlb_enable_e2e_target=true" packer/; then
     echo "build flavora wlb-histologia nieudany (packer-histologia.log w artefaktach etapu 5)"
     return 1
   fi

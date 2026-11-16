@@ -47,6 +47,15 @@ variable "ssh_private_key_file" {
   default = "build/packer_ed25519"
 }
 
+# Target in-session E2E pulpitu (#277-A): katalog /run/wlb/e2e, okno myszy (zenity) i terminal
+# klawiatury w sesji badacza. Włączane TYLKO dla buildów testowych CI (ci/integration.sh -var),
+# domyślnie false — obraz produkcyjny badacza nie zawiera fixture E2E.
+variable "wlb_enable_e2e_target" {
+  type        = bool
+  default     = false
+  description = "Zainstaluj target in-session dla testów E2E (#277); tylko buildy testowe."
+}
+
 # Proweniencja: powiązanie obrazu z kodem (#12a). Puste = budowanie poza git/CI.
 variable "git_commit" {
   type        = string
