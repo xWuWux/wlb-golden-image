@@ -462,35 +462,38 @@ def _admin_checks(page, hub: str, user: str, clock: Clock) -> dict:
     return out
 
 
-def _rstudio_check(page, tile: dict, clock: Clock) -> dict:
-    """RStudio (histologia): kafelek otwiera proxy, które realnie się ładuje (nie 502/blank).
+def _rstudio_check(context, page, tile: dict, clock: Clock) -> dict:
+    """RStudio (histologia/memory): kafelek otwiera proxy, które realnie się ładuje (nie 502/blank).
 
-    jupyter-server-proxy montuje serwery w IFrame w głównym obszarze (.jp-ServerProxy) — w
-    przeciwieństwie do jrdp („Desktop”, new_browser_window=True) NIE otwiera nowej karty.
+    jupyter-server-proxy domyślnie ma new_browser_tab=True — kafelek („RStudio [↗]”) otwiera
+    NOWĄ KARTĘ (window.open), a nie IFrame w JupyterLabie.
     """
     out: dict = {"tile": tile["label"]}
     errors = re.compile(r"bad gateway|internal server error|error 50[234]|traceback", re.IGNORECASE)
     if not _show_launcher(page, clock):
         out.update({"loaded": False, "error": "Launcher nie jest dostępny"})
         return out
-    page.locator(f'.jp-LauncherCard[title="{tile["label"]}"]').first.click(timeout=clock.ms(15))
+    try:
+        with context.expect_page(timeout=clock.ms(60)) as popup_info:
+            page.locator(f'.jp-LauncherCard[title="{tile["label"]}"]').first.click(timeout=clock.ms(15))
+        rs = popup_info.value
+    except Exception as exc:
+        out.update({"loaded": False, "error": f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"})
+        return out
     end = time.monotonic() + min(clock.left(), 150)
-    src = title = body = ""
+    title = body = ""
     loaded = False
     while time.monotonic() < end:
-        iframe = page.locator(".jp-ServerProxy:visible iframe").last
         with contextlib.suppress(Exception):
-            # iframe/rsession jeszcze się przeładowuje — próbujemy do końca deadline'u
-            if iframe.count():
-                src = iframe.get_attribute("src") or ""
-                frame = iframe.content_frame
-                title = frame.locator("title").text_content(timeout=5000) or ""
-                body = frame.locator("body").inner_text(timeout=5000)[:600]
+            title = rs.title()
+            body = rs.inner_text("body", timeout=5000)[:600]
         if re.search(r"rstudio", f"{title}\n{body}", re.IGNORECASE) and not errors.search(body):
             loaded = True
             break
         time.sleep(1.5)
-    out.update({"frame_src": src, "title": title.strip(), "body": body.strip(), "loaded": loaded})
+    out.update({"url": rs.url, "title": title.strip(), "body": body.strip(), "loaded": loaded})
+    with contextlib.suppress(Exception):
+        rs.close()
     return out
 
 
@@ -657,7 +660,7 @@ def main() -> None:
             # RStudio (histologia) — kafelek już sprawdzony; tu realne ładowanie proxy.
             if rstudio_tile and rstudio_load:
                 stage = "RStudio"
-                checks["rstudio"] = _rstudio_check(page, rstudio_tile, clock)
+                checks["rstudio"] = _rstudio_check(context, page, rstudio_tile, clock)
                 if not checks["rstudio"].get("loaded"):
                     raise AssertionError(f"RStudio nie załadowało się: {checks['rstudio']}")
 
