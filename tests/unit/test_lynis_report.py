@@ -1,6 +1,10 @@
-"""Testy parsera raportu Lynis do podsumowania etapu 5 (#11), bez uruchamiania VM."""
+"""Testy parsera raportu Lynis do podsumowania etapu 5 (#11) i bramki regresji (#288), bez VM."""
+
+from pathlib import Path
 
 import lynis_report as lr
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "lynis-report.dat"
 
 SAMPLE = """\
 # Lynis report
@@ -63,3 +67,61 @@ def test_markdown_ogranicza_liczbe_sugestii():
 def test_brak_pliku_to_nie_blad(tmp_path):
     rc = lr.main(["lynis_report.py", str(tmp_path / "nie-ma.dat")])
     assert rc == 0
+
+
+def test_fixture_baseline_przechodzi_bramke():
+    data = lr.parse_report(FIXTURE.read_text(encoding="utf-8"))
+    assert data["hardening_index"] == lr.DEFAULT_BASELINE
+    assert data["warnings"] == []
+    assert lr.gate_failures(data) == []
+    assert lr.main(["lynis_report.py", "--gate", str(FIXTURE)]) == 0
+
+
+def test_bramka_wykrywa_regresje_indexu(tmp_path):
+    report = tmp_path / "lynis-report.dat"
+    report.write_text("hardening_index=71\n", encoding="utf-8")
+    data = lr.parse_report(report.read_text(encoding="utf-8"))
+    assert lr.gate_failures(data) == ["hardening index 71 < baseline 72"]
+    assert lr.main(["lynis_report.py", "--gate", str(report)]) == 1
+
+
+def test_bramka_wykrywa_kazde_ostrzezenie(tmp_path):
+    report = tmp_path / "lynis-report.dat"
+    report.write_text(
+        "hardening_index=80\nwarning[]=iptables bez reguł|FIRE-4512|-|-\n",
+        encoding="utf-8",
+    )
+    failures = lr.gate_failures(lr.parse_report(report.read_text(encoding="utf-8")))
+    assert failures == ["ostrzeżenie Lynis: iptables bez reguł [FIRE-4512]"]
+    assert lr.main(["lynis_report.py", "--gate", str(report)]) == 1
+
+
+def test_bramka_brak_indexu_i_brak_raportu(tmp_path):
+    assert lr.gate_failures({"hardening_index": None, "warnings": [], "suggestions": []}) == [
+        "brak hardening_index w raporcie (raport niekompletny)"
+    ]
+    # fail-closed: przy włączonej bramce brak artefaktu nie może po cichu przejść
+    assert lr.main(["lynis_report.py", "--gate", str(tmp_path / "nie-ma.dat")]) == 1
+
+
+def test_bramka_baseline_z_cli(tmp_path):
+    report = tmp_path / "lynis-report.dat"
+    report.write_text("hardening_index=72\n", encoding="utf-8")
+    assert lr.main(["lynis_report.py", "--gate", "--baseline", "70", str(report)]) == 0
+    assert lr.main(["lynis_report.py", "--gate", "--baseline", "80", str(report)]) == 1
+
+
+def test_bramka_odrzuca_bledne_argumenty(tmp_path):
+    report = tmp_path / "lynis-report.dat"
+    report.write_text("hardening_index=72\n", encoding="utf-8")
+    assert lr.main(["lynis_report.py", "--baseline"]) == 2
+    assert lr.main(["lynis_report.py", "--baseline", "abc", str(report)]) == 2
+    assert lr.main(["lynis_report.py", "--nieznana", str(report)]) == 2
+    assert lr.main(["lynis_report.py", str(report), str(report)]) == 2
+    assert lr.main(["lynis_report.py"]) == 2
+
+
+def test_markdown_tryb_bramki():
+    md = lr.render_markdown(lr.parse_report("hardening_index=72\n"), gating=True)
+    assert "Bramka regresji" in md
+    assert "Raport przeglądowy" not in md

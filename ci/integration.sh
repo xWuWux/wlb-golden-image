@@ -7,11 +7,13 @@
 #      (testowy odbiornik SIEM na hoście, VM wysyła do niego rsyslogiem), a dekodery i reguły
 #      Wazuh parsują ten log na nazwane pola i rozpoznają podrobione wpisy (#17)
 #   5. dryf zamrożonych wersji: czy budowanie odtworzyło dokładnie envs/*.lock
-#   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11
+#   6. utwardzenie systemu: raport Lynis z VM testowej (hardening index + ostrzeżenia/sugestie) — #11;
+#      WLB_LYNIS_GATING=1 promuje go do bramki regresji (#288): index < WLB_LYNIS_BASELINE lub warning[]
 #   7. podatności pakietów zainstalowanych w obrazie: systemowe (bez jądra), R, Python (raport) — osobno:
 #      ci/integration.sh image-sca  (w CI jako osobny krok, po zapisaniu artefaktów)
-#   8. E2E renderu pulpitu w przeglądarce: Playwright/Chromium na runnerze → Hub VM (#206) — raport,
-#      nie bramka (WLB_E2E_GATING=1 promuje wynik E2E do bramki)
+#   8. E2E przeglądarkowe z runnera → Hub VM: render pulpitu noVNC (#206/#277) i UI JupyterLaba
+#      (#288, klasa 5) — Playwright/Chromium w warstwie testowej. Raport, nie bramka
+#      (WLB_E2E_GATING=1 promuje wynik E2E do bramki)
 #
 #   PREV_IMAGE=stary.qcow2   migracja z poprzedniej wersji obrazu (domyślnie: ten sam obraz)
 #   REUSE_IMAGE=1            nie buduj ponownie, jeśli obraz tej wersji już jest w output/
@@ -83,6 +85,64 @@ collect_vm_logs() {
   "${SSH[@]}" 'sudo journalctl -b --no-pager' >"$LOGS/$name-journal.log" 2>/dev/null || true
   "${SSH[@]}" 'sudo ausearch --input-logs -k wlb_sluza_out -k wlb_sluza_in -i' >"$LOGS/$name-audit.log" 2>/dev/null || true
   cp build/test/serial.log "$LOGS/$name-serial.log" 2>/dev/null || true
+}
+
+# Flavor obrazu z nazwy logu akceptacji — wymagania kafelków JupyterLaba (#288, klasa 5).
+jlab_flavor() {
+  case $1 in
+    acceptance-memory) echo memory ;;
+    acceptance-radiologia) echo radiologia ;;
+    acceptance-histologia) echo histologia ;;
+    *) echo general ;; # baza: BEZ Desktop/RStudio (regresja lekkości, #105)
+  esac
+}
+
+# #288 (klasa 5): E2E UI JupyterLaba w przeglądarce — ten sam stack Playwrighta co pulpitu
+# (#206/#277): .tools/venv-e2e instalowany przez ci/install-tools.sh e2e, żadnego drugiego.
+# Scenariusze: logowanie u01 przez formularz Huba, kafelki Launchera, kernele Python/R/Julia
+# (`1+1`), file browser (utwórz/edytuj/zapisz), zablokowany Download/eksport (#284), brak UI
+# admina. Krok canvasu/wejścia pulpitu zostaje w tests/desktop-e2e-novnc.py — tu tylko kafelek.
+# Nie-bramkujący jak desktop E2E: rc zmienia dopiero WLB_JLAB_GATING=1 (lub WLB_E2E_GATING=1).
+jupyterlab_e2e() {
+  local logname=$1
+  if [[ ! -f tests/jupyterlab-e2e.py || ! -x $TOOLS_DIR/venv-e2e/bin/python ]]; then
+    echo "E2E JupyterLaba: SKIP (brak venv-e2e — ci/install-tools.sh e2e)" |
+      tee -a "$LOGS/$logname.log"
+    return 0
+  fi
+  local hub passwd flavor rc=0 e2e_reason=""
+  if "${SSH[@]}" "grep -qE '^[[:space:]]*HUB_TLS=0[[:space:]]*$' /etc/wlb/lab.env" 2>/dev/null; then
+    hub="http://localhost:${HUB_PORT}"
+  else
+    hub="https://localhost:${HUB_TLS_PORT}"
+  fi
+  passwd=$("${SSH[@]}" 'sudo cat /root/wlb-hub-u01-initial-password' 2>/dev/null || true)
+  if [[ -z $passwd ]]; then
+    echo "E2E JupyterLaba: SKIP (brak hasła u01)" | tee -a "$LOGS/$logname.log"
+    return 0
+  fi
+  flavor=$(jlab_flavor "$logname")
+  mkdir -p "$LOGS/jlab-$logname"
+  WLB_E2E_HUB=$hub WLB_E2E_USER=u01 WLB_E2E_PASS="$passwd" \
+    WLB_JLAB_FLAVOR=$flavor WLB_JLAB_TIMEOUT=480 \
+    WLB_JLAB_ARTIFACT_DIR="$LOGS/jlab-$logname" \
+    "$TOOLS_DIR/venv-e2e/bin/python" tests/jupyterlab-e2e.py \
+    >"$LOGS/jlab-$logname.log" 2>&1 || rc=$?
+  if [[ $rc -eq 0 ]]; then
+    echo "E2E JupyterLaba ($flavor): PASS" | tee -a "$LOGS/$logname.log"
+  else
+    e2e_reason=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["reason"])' \
+      "$LOGS/jlab-$logname/result.json" 2>/dev/null || true)
+    if [[ ${WLB_JLAB_GATING:-${WLB_E2E_GATING:-0}} == 1 ]]; then
+      echo "E2E JupyterLaba ($flavor): FAIL (rc=$rc; WLB_JLAB_GATING=1; zob. jlab-$logname): $e2e_reason" |
+        tee -a "$LOGS/$logname.log"
+      return 1
+    else
+      echo "E2E JupyterLaba ($flavor): SKIP (rc=$rc; nie bramkuje; zob. jlab-$logname): $e2e_reason" |
+        tee -a "$LOGS/$logname.log"
+    fi
+  fi
+  return 0
 }
 
 acceptance() {
@@ -184,6 +244,8 @@ acceptance() {
     else
       echo "E2E pulpitu: SKIP (brak venv-e2e — ci/install-tools.sh e2e)" | tee -a "$LOGS/$logname.log"
     fi
+    # #288 (klasa 5): E2E UI samego JupyterLaba — ten sam venv i ta sama bramka co pulpit.
+    jupyterlab_e2e "$logname" || rc=1
     # pakiety systemowe faktycznie zainstalowane w obrazie (dla skanu podatności)
     "${SSH[@]}" 'cat /var/lib/dpkg/status' >"$ARTIFACTS/dpkg-status" || true
     # tozsamosc systemu z TEJ SAMEJ VM co dpkg-status (#129): osv-scanner ekosystem pakietow
@@ -365,15 +427,33 @@ image_oval() {
 }
 
 hardening_report() {
-  # Raport utwardzenia z VM testowej (zebrany w acceptance). Krok opcjonalny: zawsze zwraca 0,
+  # Raport utwardzenia z VM testowej (zebrany w acceptance). Domyślnie krok opcjonalny (zawsze 0),
   # bo audyt walidują osobne testy akceptacyjne, a odstępstwa są świadome i opisane (#11).
+  # WLB_LYNIS_GATING=1 promuje go do bramki REGRESJI (#288): hardening_index poniżej baseline
+  # (WLB_LYNIS_BASELINE, domyślnie 72) albo dowolne warning[] = błąd. Bez flagi — tylko raport.
+  local rc=0 args=()
+  if [[ ${WLB_LYNIS_GATING:-0} == 1 ]]; then
+    args=(--gate --baseline "${WLB_LYNIS_BASELINE:-72}")
+    if [[ ! -s $ARTIFACTS/lynis-report.dat ]]; then
+      echo "Brak raportu Lynis — bramka WLB_LYNIS_GATING=1 (fail-closed)"
+      return 1
+    fi
+  fi
   if [[ ! -s $ARTIFACTS/lynis-report.dat ]]; then
     echo "Brak raportu Lynis (VM nie wystartowała lub skan się nie wykonał) — pomijam"
     return 0
   fi
-  python3 ci/lynis_report.py "$ARTIFACTS/lynis-report.dat" | summary >/dev/null
+  python3 ci/lynis_report.py "${args[@]}" "$ARTIFACTS/lynis-report.dat" | summary >/dev/null || rc=$?
   grep -oP '^hardening_index=\K\d+' "$ARTIFACTS/lynis-report.dat" |
     tail -1 | sed 's/^/Lynis hardening index: /' || true
+  if [[ ${WLB_LYNIS_GATING:-0} == 1 ]]; then
+    if ((rc == 0)); then
+      echo "Lynis: bramka regresji PASS"
+    else
+      echo "Lynis: bramka regresji FAIL (rc=$rc)"
+    fi
+  fi
+  return "$rc"
 }
 
 # Flavor wlb-radiologia (#135): opt-in (etykieta build-radiologia / zmiana plików flavora / nocny build —
@@ -475,7 +555,7 @@ run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
 run_check "Migracja na istniejącym dysku roboczym" migration
 run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
 run_check "Jedno jądro w obrazie (#9)" kernel_single
-run_check "Utwardzenie systemu (Lynis, raport)" hardening_report
+run_check "Utwardzenie systemu (Lynis, raport; bramka z WLB_LYNIS_GATING=1)" hardening_report
 run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
 run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
 run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor

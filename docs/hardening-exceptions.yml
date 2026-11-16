@@ -1,7 +1,9 @@
 # Świadome odstępstwa od profilu utwardzenia (CIS Ubuntu 24.04 L1 Server).
 #
-# Skany utwardzenia w etapie 5 (Lynis, oscap OVAL) są RAPORTAMI, nie bramkami — audyt walidują osobne
+# Skany utwardzenia w etapie 5 (Lynis, oscap OVAL) są domyślnie RAPORTAMI — audyt walidują osobne
 # testy akceptacyjne, a odstępstwa są świadome i opisane (por. ci/integration.sh: hardening_report, #11).
+# Lynis ma opcjonalną bramkę REGRESJI (#288): WLB_LYNIS_GATING=1 karze spadek poniżej baseline
+# (WLB_LYNIS_BASELINE, domyślnie 72) oraz każde warning[] — bez wymagania absolutnego 100.
 # Ten plik jest rejestrem rozliczalności: każda pozycja ma uzasadnienie i odnośnik do ADR. Jest też
 # podstawą do przyszłej integracji z raportem skanu (#11), żeby wymienione reguły pokazywały się jako
 # udokumentowane odstępstwo, a nie milcząca niezgodność.
