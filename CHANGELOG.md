@@ -26,6 +26,16 @@ pierwszym Laboratorium na klastrze).
   i portów jądra (`/dev/mem`, `/proc/kcore`, `/dev/kmem`, `/dev/port`) kończąca się błędem uprawnień
   (`EACCES`/`EPERM`). Brak opcjonalnego urządzenia na obrazie jest zgłaszany jako `SKIP` (fail-secure).
 
+- **E2E UI JupyterLaba w przeglądarce (#288, klasa 5):** nowy `tests/jupyterlab-e2e.py` na tym samym
+  stacku Playwrighta co E2E pulpitu (`.tools/venv-e2e`, `ci/install-tools.sh e2e`) dowodzi tego, czego
+  nie widać w grepie configu: badacz `u01` loguje się przez formularz Huba i dostaje działający
+  JupyterLab. Scenariusze: kafelki Launchera (Python/R/Julia/Help, a Desktop/RStudio zależnie od
+  flavora — baza bez GUI to regresja lekkości #105), kernele Python i R liczą `1+1` z UI (Julia, gdy
+  kafelek jest), file browser tworzy/edytuje/zapisuje plik (weryfikacja po ponownym otwarciu),
+  Download i eksport notebooka są zablokowane w DOM (#284), a `/hub/admin` zwraca 403 i nie ma do
+  niego linku. Krok canvasu/wejścia pulpitu zostaje w `tests/desktop-e2e-novnc.py` (#206/#277) — ten
+  test tylko pilnuje kafelka. Wpięty w etap 5 obok E2E pulpitu, za bramką `WLB_JLAB_GATING=1`
+  (lub `WLB_E2E_GATING=1`); flavor z nazwy logu akceptacji.
 - **Test dryfu wersji bez fałszywych alarmów (#277/#304):** `ci/lock_drift.py` porównuje wersje
   semantycznie (PEP 440), a nie znakowo. Lock (pip) zapisuje `soupsieve==4.0.0`, a `conda env export`
   w obrazie podaje `4.0` — to to samo wydanie, więc pin jest spełniony i pip nic nie doinstalowuje.
