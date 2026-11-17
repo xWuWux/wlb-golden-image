@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # Końcowa bramka: czy PR jest gotowy do code review i merge.
 #   NEEDS   JSON z wynikami jobów (toJSON(needs) w GitHub Actions)
-# Etapy 1–4b (z 3.5) muszą przejść zawsze; 5 — gdy zmiana dotyczy obrazu; 6 — gdy został uruchomiony.
+# Etapy 1–4b (z 3.5) muszą przejść zawsze; 3r — gdy etap 3 wykonał skan (#257); 5 — gdy zmiana
+# dotyczy obrazu; 6 — gdy został uruchomiony.
 set -euo pipefail
 python3 - <<'PY'
 import json, os, sys
 
 needs = json.loads(os.environ["NEEDS"])
 image = needs["lint"].get("outputs", {}).get("image") == "true"
+# Publikacja Code scanning (#257) jest wymagana, gdy etap 3 doszedł do skanu (sukces lub znaleziska);
+# kontekst bez publikacji (merge queue, Dependabot poza PR) kończy job sukcesem ze stanem unsupported.
+scanned = needs.get("security", {}).get("result") in ("success", "failure")
 stages = [
     ("lint", "1. Lint, format i sekrety", True),
     ("build-check", "2. Build test", True),
     ("security", "3. Security & compliance", True),
+    ("security-report", "3r. Publikacja Code scanning", scanned),
     ("observability", "3.5. Kontrakty obrazu", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
     ("mutation", "4b. Testy mutacyjne", True),

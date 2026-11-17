@@ -23,6 +23,18 @@ pierwszym Laboratorium na klastrze).
   `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany
   przez wiele PR-ów scala się zachowując wiersze z obu stron, zamiast konfliktować N-stronnie.
   Docelowo regeneracja w CI znormalizuje kolejność.
+- **Wyniki SAST/IaC w GitHub Code scanning (#257):** raporty SARIF `semgrep` i `checkov` z etapu 3
+  trafiają do zakładki Security (kategorie `semgrep`/`checkov`), z adnotacjami w PR, także gdy etap 3
+  jest czerwony od znalezisk. `ci/security.sh` zapisuje kod wyjścia każdego skanera i usuwa stary
+  raport przed skanem; `ci/sarif_report.py` klasyfikuje wynik (`clean`/`findings`/`error`/`not_run`),
+  waliduje SARIF (także notyfikacje `level: error` = analiza niekompletna), eksportuje go z jawnej allowlisty
+  pól (sekret z `p/secrets` nie trafia do GitHuba ani do treści wyniku) i zapisuje manifest z wersją skanera
+  i skrótem reguł. Surowe SARIF nie trafiają do artefaktów, a log semgrepa/bandita nie zawiera kodu.
+  Job 3r potwierdza w API terminalny status przetworzenia (`complete`) każdego `sarif-id` i skrót każdego
+  raportu z manifestem. Nowe sprawdzenie etapu 3 „Kontrakt SARIF” uruchamia przypięte semgrep/checkov na
+  fixture `tests/fixtures/sarif-contract/` (celowe znaleziska i canary) i sprawdza cały łańcuch eksportu. Publikuje osobny job „3r” — jedyny z `security-events: write`,
+  bez wykonywania kodu z repo. Polityka: raport, nie druga bramka; brak publikacji blokuje „Gotowe do
+  code review” jako błąd infrastruktury. Runbook: `docs/ci-runbook.md#code-scanning`.
 
 - **Koniec konfliktów CHANGELOG przy równoległych PR-ach:** `.gitattributes` oznacza
   `CHANGELOG.md merge=union` — git scala sekcję „Niewydane" zachowując wpisy z obu stron

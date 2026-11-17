@@ -1,0 +1,10 @@
+# Fixture kontraktu SARIF (#257): celowo za szerokie uprawnienia (checkov CKV2_GHA_1).
+# Nie jest workflow tego repo — leży poza .github/ w katalogu głównym i nie jest uruchamiany.
+name: fixture
+on: push
+permissions: write-all
+jobs:
+  noop:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: "true"
