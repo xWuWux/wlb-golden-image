@@ -1220,7 +1220,8 @@ PY
   [ "$status" -eq 1 ]
   [[ $output == *"rejestr /etc/wlb/entra-accounts ma zbyt szerokie prawa (644)"* ]]
   chmod 0600 "$SANDBOX/etc/wlb/entra-accounts"
-  WLB_ENTRA_ACCOUNTS_OWNER=0 run "$FIRSTBOOT"
+  # oczekiwany właściciel inny niż faktyczny (testy w CI biegną jako root, lokalnie jako użytkownik)
+  WLB_ENTRA_ACCOUNTS_OWNER=$(($(id -u) + 1)) run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"rejestr /etc/wlb/entra-accounts musi należeć do root"* ]]
   echo "3f1c2b4a-0000-4000-8000-000000000002 9a8b7c6d-0000-4000-8000-0000000000a3 u02" >>"$SANDBOX/etc/wlb/entra-accounts"
