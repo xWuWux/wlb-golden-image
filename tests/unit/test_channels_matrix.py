@@ -8,6 +8,7 @@ raportu CI i dokumentacji. Ten test pilnuje schematu oraz — co ważniejsze —
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import subprocess
 from pathlib import Path
@@ -255,3 +256,48 @@ def test_harness_self_test() -> None:
     )
     assert proc.returncode == 0, f"self-test failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
     assert "Self-test passed!" in proc.stdout
+
+
+# --- Spójność required: YAML (źródło prawdy) vs harness (wlb_ch_required) -----------------
+# Harness nie czyta YAML — liczy required z prefiksu ID. Ten test wyciąga logikę prefiksową
+# z fragmentu i porównuje ją z matrycą, żeby pole `required` nie było dekoracyjne i żeby
+# rozjazd (np. nowy kanał known_open oznaczony jako required) failował w CI, a nie po cichu
+# zmieniał bramkowanie. Wybór: test wymusza zgodność, zamiast zmuszać harness do parsowania
+# YAML — fragment jest cudzym plikiem (agy) i nie ma w nim parsera YAML; YAML pozostaje
+# źródłem prawdy, a test pilnuje, że prefiksowa logika harnessu ją odzwierciedla.
+
+REQUIRED_FN = re.compile(r"wlb_ch_required\(\)\s*\{(?P<body>.*?)\n\}", re.S)
+CASE_ARM = re.compile(r"^\s*(?P<pattern>[^\s)]+)\)\s*echo\s+(?P<value>[01])\s*;;", re.M)
+
+
+def _harness_required_arms(fragment_text: str) -> list[tuple[str, int]]:
+    match = REQUIRED_FN.search(fragment_text)
+    assert match, "harness nie zawiera funkcji wlb_ch_required()"
+    arms = [(arm.group("pattern"), int(arm.group("value"))) for arm in CASE_ARM.finditer(match.group("body"))]
+    assert arms, "wlb_ch_required() bez rozpoznanych gałęzi case"
+    return arms
+
+
+def _harness_required(channel_id: str, arms: list[tuple[str, int]]) -> int:
+    for pattern, value in arms:
+        if fnmatch.fnmatchcase(channel_id, pattern):
+            return value
+    raise AssertionError(f"{channel_id}: żadna gałąź case wlb_ch_required nie pasuje (brak fallbacku '*')")
+
+
+def test_harness_required_matches_matrix(channels: list[dict]) -> None:
+    """required w YAML musi zgadzać się z wlb_ch_required() w harnessie — inaczej gating
+    (required+error -> blokada) zależy od prefiksu ID, a nie od matrycy."""
+    arms = _harness_required_arms(FRAGMENT.read_text(encoding="utf-8"))
+    mismatches = []
+    for entry in channels:
+        harness = bool(_harness_required(entry["id"], arms))
+        if harness != entry["required"]:
+            mismatches.append(f"{entry['id']}: YAML required={entry['required']}, harness wlb_ch_required={harness}")
+    assert not mismatches, "rozjazd required YAML <-> harness:\n" + "\n".join(mismatches)
+
+
+def test_known_open_is_not_required(channels: list[dict]) -> None:
+    """known_open to raport ryzyka, nie bramka — nie może być required=true (gating by je blokował)."""
+    bad = [entry["id"] for entry in channels if entry["expected"] == "known_open" and entry["required"]]
+    assert not bad, f"known_open oznaczone jako required (zabronione): {bad}"
