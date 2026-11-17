@@ -18,7 +18,7 @@ Zaktualizować istniejący ruleset z zachowaniem warunków, metod scalania, ochr
 | `required_status_checks` | Jeden unikalny kontekst `Gotowe do code review` z oczekiwanym źródłem GitHub Actions | Przed przypięciem źródła sprawdź producenta na prawdziwym PR. W API źródło wskazuje `integration_id`, którego wartość trzeba odczytać z faktycznego checku |
 | `require_code_owner_review` | false w tej zmianie | Włączyć w osobnym kroku po dodaniu i sprawdzeniu efektywnego CODEOWNERS na gałęzi bazowej oraz uprawnień zespołów z #59 |
 
-Agregat sprawdza wymagane etapy 1–4 wraz z 3.5 i etap 5 dla zmian obrazu. Pominięcie etapu 5 jest dopuszczalne przy zmianach poza obrazem. Jeśli opcjonalny etap 6 uruchomiono i zakończył się błędem, agregat blokuje scalenie. Kontekst musi mieć jednego producenta, a zmiany workflow i klasyfikatora zakresu wymagają uważnej recenzji. Status sprawdzaj na commicie ocenianym przez GitHub dla PR, a przy przyszłej kolejce również dla `merge_group`. [Workflow](../.github/workflows/ci.yml) · [Agregat](../ci/ready.sh)
+Agregat sprawdza wymagane etapy 1–4 wraz z 3.5, publikację Code scanning (3r, gdy etap 3 wykonał skan, #257) i etap 5 dla zmian obrazu. Pominięcie etapu 5 jest dopuszczalne przy zmianach poza obrazem. Jeśli opcjonalny etap 6 uruchomiono i zakończył się błędem, agregat blokuje scalenie. Kontekst musi mieć jednego producenta, a zmiany workflow i klasyfikatora zakresu wymagają uważnej recenzji. Status sprawdzaj na commicie ocenianym przez GitHub dla PR, a przy przyszłej kolejce również dla `merge_group`. [Workflow](../.github/workflows/ci.yml) · [Agregat](../ci/ready.sh)
 
 ## Odbiór poza gałęzią produkcyjną
 
