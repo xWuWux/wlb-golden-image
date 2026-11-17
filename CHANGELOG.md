@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
+  zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
+  `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
+  PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+
 - **Koniec konfliktów mapy testów przy równoległych PR-ach:** `.gitattributes` oznacza
   `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany
   przez wiele PR-ów scala się zachowując wiersze z obu stron, zamiast konfliktować N-stronnie.
