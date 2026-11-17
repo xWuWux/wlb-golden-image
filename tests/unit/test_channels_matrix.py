@@ -9,6 +9,7 @@ raportu CI i dokumentacji. Ten test pilnuje schematu oraz — co ważniejsze —
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 MATRIX = ROOT / "tests" / "channels.yaml"
 FRAGMENT = ROOT / "tests" / "acceptance.d" / "46-kanaly-eksportu.sh"
 
-REQUIRED_FIELDS = ("id", "direction", "surface", "expected", "probe", "evidence", "owner", "test")
+REQUIRED_FIELDS = ("id", "direction", "surface", "expected", "probe", "evidence", "owner", "test", "required")
 DIRECTIONS = {"export", "import", "internal"}
 SURFACES = {"jupyter", "rstudio", "jamovi", "desktop", "network", "client"}
 EXPECTATIONS = {"denied", "allowed", "known_open"}
@@ -29,6 +30,7 @@ PREFIX_SURFACE = {
     "DT-": "desktop",
     "NET-": "network",
     "RS-": "rstudio",
+    "CL-": "client",
 }
 OWNER_BY_SURFACE = {
     "jupyter": "platform",
@@ -36,6 +38,7 @@ OWNER_BY_SURFACE = {
     "desktop": "platform",
     "network": "platform",
     "rstudio": "rstudio",
+    "client": "platform",
 }
 
 # Wywołania harnessu: ID KIERUNEK OCZEKIWANIE "OPIS" -- SONDY...
@@ -84,8 +87,19 @@ def test_top_level_schema(matrix: dict) -> None:
 
 def test_required_fields(channels: list[dict]) -> None:
     for entry in channels:
-        missing = [name for name in REQUIRED_FIELDS if not entry.get(name)]
+        missing = [
+            name
+            for name in REQUIRED_FIELDS
+            if entry.get(name) is None or (isinstance(entry[name], str) and not entry[name])
+        ]
         assert not missing, f"{entry.get('id', '?')}: brak pól {missing}"
+
+
+def test_required_is_bool(channels: list[dict]) -> None:
+    for entry in channels:
+        assert isinstance(entry.get("required"), bool), (
+            f"{entry['id']}: pole 'required' musi być wartością logiczną (true/false)"
+        )
 
 
 def test_unique_ids(channels: list[dict]) -> None:
@@ -116,6 +130,7 @@ def test_known_open_has_why(channels: list[dict]) -> None:
     for entry in channels:
         if entry["expected"] == "known_open":
             assert entry.get("why"), f"{entry['id']}: known_open wymaga uzasadnienia (why)"
+            assert entry.get("owner"), f"{entry['id']}: known_open wymaga jawnego właściciela (owner)"
 
 
 def test_every_denied_group_has_positive_control(channels: list[dict]) -> None:
@@ -175,6 +190,7 @@ def test_scope_minimum(entries: dict[str, dict]) -> None:
         "JL-SAVE",
         "JL-FILES-DL",
         "JL-NBCONVERT",
+        "JL-CONTENTS-BASE64",
         "JM-SANDBOX-HOME-READ",
         "JM-ETC-SHADOW-READ",
         "DT-SLUIZA-OUT-WRITE",
@@ -183,6 +199,10 @@ def test_scope_minimum(entries: dict[str, dict]) -> None:
         "NET-PROXY-MIRROR",
         "NET-DIRECT-IP",
         "RS-TRANSFER-PATHS",
+        "CL-PRINT",
+        "CL-SAVE-PAGE",
+        "CL-CLIPBOARD",
+        "CL-SCREENSHOT",
     ):
         assert required in ids, f"brak kanału {required}"
     variants = {"DOTDOT", "ENCODED", "SLASH", "DOT", "ABS", "SYMLINK"}
@@ -223,3 +243,15 @@ def test_known_open_not_asserted(entries: dict[str, dict], calls: dict[str, dict
 def test_jrdp_pin_is_audited_version(entries: dict[str, dict]) -> None:
     # Pin 3.0.1 = wersja audytowana w #140/#277 (noVNC bez UI transferu plików).
     assert entries["DT-JRDP-VERSION"]["probe"]["expect_version"] == "3.0.1"
+
+
+def test_harness_self_test() -> None:
+    """Harness musi pomyślnie przejść smoke test klasyfikacji kodów (124/127 -> rc=2 error)."""
+    proc = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(FRAGMENT), "--self-test"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, f"self-test failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+    assert "Self-test passed!" in proc.stdout

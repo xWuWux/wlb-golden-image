@@ -3,28 +3,90 @@
 #
 # Harness realizuje wpisy matrycy jako sondy JAKO BADACZ (as "$R1"), po sesji huba/serwera
 # notebooków. Zasada nadrzędna: każda asercja `denied` ma kontrolę pozytywną w tej samej grupie
-# (surface) — błąd kontroli unieważnia denial (SKIP, nigdy fałszywy PASS). `known_open` jest
-# tylko raportowany (SKIP z właścicielem), nie asertowany.
+# (surface) — błąd kontroli unieważnia denial (ERROR/SKIP, nigdy fałszywy PASS). `known_open` jest
+# tylko raportowany (SKIP z właścicielem i uzasadnieniem why), nie asertowany.
 #
-# Gating: WLB_CHANNEL_GATING=1 (flaga --channel-gating z tests/acceptance.sh) zamienia
-# niezgodność na FAIL. Domyślnie niezgodność = SKIP — do walidacji KVM, jak #138.
+# Gating: WLB_CHANNEL_GATING=1 (flaga --channel-gating z tests/acceptance.sh) promuje niezgodności
+# (fail) oraz awarie wymaganych sond (error) do FAIL blokującego bramkę.
+# Domyślnie (bez gatingu) niezgodność = SKIP/MISMATCH — do walidacji KVM, jak #138.
 # Raport: /tmp/wlb-channels/channels.json + channels.md; ci/integration.sh kopiuje je do
 # build/ci-logs/channels-<flavor>/ (per flavor, żeby raporty się nie nadpisywały).
+
+# --- Tryb self-test (smoke test bez VM) ---
+if [[ ${1:-} == "--self-test" ]]; then
+  set -u
+  set +e
+  ST_FAIL=0
+  st_assert() {
+    local desc=$1 expected=$2 actual=$3
+    if [[ $expected == "$actual" ]]; then
+      echo "  PASS  $desc"
+    else
+      echo "  FAIL  $desc (oczekiwano: $expected, otrzymano: $actual)"
+      ST_FAIL=$((ST_FAIL + 1))
+    fi
+  }
+
+  wlb_expect_exit() {
+    local want=$1 rc
+    shift
+    "$@"
+    rc=$?
+    if ((rc == 2 || rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+      return 2
+    fi
+    if [[ $want == nonzero ]]; then
+      if ((rc != 0)); then return 0; else return 1; fi
+    else
+      if ((rc == want)); then return 0; else return 1; fi
+    fi
+  }
+
+  echo "== Self-test harnessu kanałów (#292) =="
+  wlb_expect_exit 0 true
+  st_assert "wlb_expect_exit 0 na sukcesie -> 0" 0 $?
+  wlb_expect_exit 0 false
+  st_assert "wlb_expect_exit 0 na porażce -> 1" 1 $?
+  wlb_expect_exit nonzero false
+  st_assert "wlb_expect_exit nonzero na kodzie 1 -> 0" 0 $?
+  wlb_expect_exit nonzero true
+  st_assert "wlb_expect_exit nonzero na kodzie 0 -> 1" 1 $?
+
+  # Sprawdzenie mapowania błędów infrastrukturalnych na rc=2 (error, NIGDY pass/denied)
+  wlb_expect_exit nonzero sh -c 'exit 124'
+  st_assert "wlb_expect_exit timeout 124 -> rc=2 (awaria)" 2 $?
+  wlb_expect_exit nonzero sh -c 'exit 126'
+  st_assert "wlb_expect_exit permission 126 -> rc=2 (awaria)" 2 $?
+  wlb_expect_exit nonzero sh -c 'exit 127'
+  st_assert "wlb_expect_exit command-not-found 127 -> rc=2 (awaria)" 2 $?
+  wlb_expect_exit nonzero sh -c 'exit 137'
+  st_assert "wlb_expect_exit sigkill 137 -> rc=2 (awaria)" 2 $?
+  wlb_expect_exit 0 sh -c 'exit 127'
+  st_assert "wlb_expect_exit 0 na 127 -> rc=2 (awaria)" 2 $?
+
+  if ((ST_FAIL == 0)); then
+    echo "Self-test passed!"
+    exit 0
+  else
+    echo "Self-test FAILED ($ST_FAIL błędów)"
+    exit 1
+  fi
+fi
+
 echo "== Kanały eksportu/importu (#292 — matryca tests/channels.yaml) =="
 
+# Inicjalizacja wszystkich zmiennych PRZED ich użyciem (odporność na set -u)
 WLB_CH_DIR=${WLB_CH_DIR:-/tmp/wlb-channels}
 WLB_CH_ROWS=$WLB_CH_DIR/rows.tsv
+WLB_CH_JAMOVI_RUNTIME=${WLB_CH_JAMOVI_RUNTIME:-/tmp/wlb-channels-runtime}
+[[ -n ${R1:-} ]] || R1=u01
+[[ -n ${R2:-} ]] || R2=u02
 WLB_CH_JAR=/tmp/wlb-test-$R1.jar
 WLB_CH_ARGS=" $* "
 WLB_CH_GATING=0
 [[ $WLB_CH_ARGS == *" --channel-gating "* ]] && WLB_CH_GATING=1
 WLB_CH_FLAG_PROXY=0
 [[ $WLB_CH_ARGS == *" --proxy-allowlist "* ]] && WLB_CH_FLAG_PROXY=1
-
-rm -rf "$WLB_CH_DIR" "$WLB_CH_JAMOVI_RUNTIME"
-mkdir -p "$WLB_CH_DIR"
-chmod 755 "$WLB_CH_DIR"
-: >"$WLB_CH_ROWS"
 
 declare -A WLB_CH_CTRL=()
 WLB_CH_CONTROL=0
@@ -34,7 +96,14 @@ WLB_CH_JUPYTER_OK=0
 WLB_CH_XSRF=""
 WLB_CH_PROXY=""
 WLB_CH_MIRROR=""
-WLB_CH_JAMOVI_RUNTIME=/tmp/wlb-channels-runtime
+
+rm -rf "$WLB_CH_DIR" "$WLB_CH_JAMOVI_RUNTIME"
+mkdir -p "$WLB_CH_DIR"
+chmod 755 "$WLB_CH_DIR"
+: >"$WLB_CH_ROWS"
+
+WLB_R1_HOME=$(getent passwd "jupyter-$R1" 2>/dev/null | cut -d: -f6)
+[[ -n ${WLB_R1_HOME:-} ]] || WLB_R1_HOME="/workspace/jupyter-$R1"
 
 wlb_ch_surface() {
   case $1 in
@@ -43,6 +112,7 @@ wlb_ch_surface() {
     DT-*) echo desktop ;;
     NET-*) echo network ;;
     RS-*) echo rstudio ;;
+    CL-*) echo client ;;
     *) echo unknown ;;
   esac
 }
@@ -55,31 +125,54 @@ wlb_ch_owner() {
   esac
 }
 
-# wlb_ch_record ID KIERUNEK OCZEKIWANIE OBSERWACJA WERDYKT OPIS [KONTROLA]
+wlb_ch_required() {
+  case $1 in
+    JM-*) echo 0 ;;               # jamovi opcjonalne (specyficzne dla flavora histologia)
+    RS-*) echo 0 ;;               # rstudio placeholder capture
+    CL-*) echo 0 ;;               # client known_open (raport ryzyka, nie asercja)
+    JL-CONTENTS-BASE64) echo 0 ;; # known_open
+    *) echo 1 ;;
+  esac
+}
+
+# wlb_ch_record ID KIERUNEK OCZEKIWANIE OBSERWACJA WERDYKT OPIS [KONTROLA] [REQUIRED]
 wlb_ch_record() {
-  local id=$1 dir=$2 exp=$3 obs=$4 verdict=$5 desc=${6:-} control=${7:-0}
+  local id=$1 dir=$2 exp=$3 obs=$4 verdict=$5 desc=${6:-} control=${7:-0} req=${8:-1}
   local surface owner
   surface=$(wlb_ch_surface "$id")
   owner=$(wlb_ch_owner "$id")
   desc=${desc//$'\t'/ }
   obs=${obs//$'\t'/ }
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$id" "$surface" "$dir" "$exp" "$obs" "$verdict" "$owner" "$control" "$desc" >>"$WLB_CH_ROWS"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$id" "$surface" "$dir" "$exp" "$obs" "$verdict" "$owner" "$control" "$req" "$desc" >>"$WLB_CH_ROWS"
   case $verdict in
     pass) ok "$id: $desc" ;;
-    fail) ko "$id: $desc (obserwacja: $obs)" ;;
+    fail)
+      if ((WLB_CH_GATING == 1)); then
+        ko "$id: $desc (obserwacja: $obs)"
+      else
+        skip "$id [MISMATCH]: $desc — $obs"
+      fi
+      ;;
+    error)
+      if ((req == 1 && WLB_CH_GATING == 1)); then
+        ko "$id [ERROR]: $desc (awaria sondy: $obs)"
+      else
+        skip "$id [ERROR]: $desc — awaria sondy: $obs"
+      fi
+      ;;
     skip) skip "$id: $desc — $obs" ;;
     known_open) skip "known_open $id (owner=$owner): $desc" ;;
   esac
 }
 
 # wlb_probe ID KIERUNEK OCZEKIWANIE OPIS -- POLECENIE...
-# 0 = obserwacja zgodna z oczekiwaniem; 1 = niezgodność; 2 = harness (SKIP, nigdy PASS).
+# 0 = obserwacja zgodna z oczekiwaniem; 1 = niezgodność; 2 = awaria sondy/harnessu (error).
 wlb_probe() {
   local id=$1 dir=$2 exp=$3 desc=$4
   shift 4
   [[ ${1:-} == -- ]] && shift
-  local rc obs verdict surface state
+  local rc obs verdict surface state req
   WLB_CH_OBS=""
   WLB_CH_ALWAYS_FAIL=0
   "$@"
@@ -87,9 +180,14 @@ wlb_probe() {
   obs=${WLB_CH_OBS:-rc=$rc}
   surface=$(wlb_ch_surface "$id")
   state=${WLB_CH_CTRL[$surface]:-1}
+  req=$(wlb_ch_required "$id")
+
   if ((rc == 2)); then
-    verdict=skip
-    ((WLB_CH_CONTROL == 1)) && WLB_CH_CTRL[$surface]=0
+    # Awaria sondy / brak narzędzia / timeout — NIGDY fałszywy pass!
+    verdict=error
+    if ((WLB_CH_CONTROL == 1)); then
+      WLB_CH_CTRL[$surface]=0
+    fi
   elif ((WLB_CH_ALWAYS_FAIL == 1)); then
     if ((rc == 0)); then verdict=pass; else verdict=fail; fi
   elif ((WLB_CH_CONTROL == 1)); then
@@ -97,20 +195,19 @@ wlb_probe() {
       verdict=pass
       WLB_CH_CTRL[$surface]=1
     else
+      verdict=fail
       WLB_CH_CTRL[$surface]=0
-      if ((WLB_CH_GATING == 1)); then verdict=fail; else verdict=skip; fi
     fi
   elif ((state == 0)); then
-    verdict=skip
+    verdict=error
     obs="$obs; kontrola pozytywna grupy $surface nie przeszła"
   elif ((rc == 0)); then
     verdict=pass
-  elif ((WLB_CH_GATING == 1)); then
-    verdict=fail
   else
-    verdict=skip
+    verdict=fail
   fi
-  wlb_ch_record "$id" "$dir" "$exp" "$obs" "$verdict" "$desc" "$WLB_CH_CONTROL"
+
+  wlb_ch_record "$id" "$dir" "$exp" "$obs" "$verdict" "$desc" "$WLB_CH_CONTROL" "$req"
   WLB_CH_CONTROL=0
 }
 
@@ -122,30 +219,38 @@ wlb_control() {
 
 wlb_known_open() {
   local id=$1 dir=$2 desc=$3
-  wlb_ch_record "$id" "$dir" known_open "n/a" known_open "$desc" 0
+  local req
+  req=$(wlb_ch_required "$id")
+  wlb_ch_record "$id" "$dir" known_open "n/a" known_open "$desc" 0 "$req"
 }
 
 # wlb_expect_exit OCZEKIWANE(nonzero|N) POLECENIE... — normalizuje kod wyjścia sondy.
-# Kod 2 jest zarezerwowany dla harnessu i propagowany bez zmian.
+# Kod 2 jest zarezerwowany dla harnessu/awarii sondy. Kody 124 (timeout), 126 (exec denied),
+# 127 (command not found) oraz sygnały (>=128) to awarie sondy i zwracają rc=2 (error), NIGDY pass!
 wlb_expect_exit() {
   local want=$1 rc
   shift
   "$@"
   rc=$?
-  ((rc == 2)) && return 2
+  if ((rc == 2 || rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+    WLB_CH_OBS="awaria sondy: rc=$rc"
+    return 2
+  fi
   [[ -n ${WLB_CH_OBS:-} ]] || WLB_CH_OBS="rc=$rc"
   if [[ $want == nonzero ]]; then
-    ((rc != 0))
+    if ((rc != 0)); then return 0; else return 1; fi
   else
-    ((rc == want))
+    if ((rc == want)); then return 0; else return 1; fi
   fi
 }
 
 # wlb_as_fs read|write KATALOG — system plików widziany przez konto badacza.
-# Zapis tworzy plik W KATALOGU (samo `>katalog` dałoby EISDIR u każdego, czyli fałszywe „denied").
 wlb_as_fs() {
   local op=$1 path=$2 rc
-  id "jupyter-$R1" >/dev/null 2>&1 || return 2
+  id "jupyter-$R1" >/dev/null 2>&1 || {
+    WLB_CH_OBS="brak konta jupyter-$R1"
+    return 2
+  }
   if [[ $op == read ]]; then
     as "$R1" test -r "$path"
   else
@@ -153,6 +258,10 @@ wlb_as_fs() {
     as "$R1" sh -c 'printf wlb >"$1/wlb-kanaly-probe"' sh "$path" 2>/dev/null
   fi
   rc=$?
+  if ((rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+    WLB_CH_OBS="awaria as_fs: rc=$rc ($op $path)"
+    return 2
+  fi
   WLB_CH_OBS="rc=$rc ($op $path)"
   return "$rc"
 }
@@ -167,6 +276,10 @@ wlb_jamovi() {
   as "$R1" env XDG_RUNTIME_DIR="$WLB_CH_JAMOVI_RUNTIME" \
     timeout --kill-after=5s 60s flatpak run --command=sh org.jamovi.jamovi -c "$1" >/dev/null 2>&1
   rc=$?
+  if ((rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+    WLB_CH_OBS="awaria Flatpak jamovi: rc=$rc"
+    return 2
+  fi
   WLB_CH_OBS="rc=$rc (jamovi)"
   return "$rc"
 }
@@ -175,13 +288,28 @@ wlb_jamovi() {
 wlb_http() {
   local method=$1 path=$2 data=$3
   shift 3
-  local code args=(-X "$method") want
-  ((WLB_CH_JUPYTER_OK == 1)) || return 2
-  command -v curl >/dev/null 2>&1 || return 2
+  local code args=(-X "$method") want rc
+  ((WLB_CH_JUPYTER_OK == 1)) || {
+    WLB_CH_OBS="brak sesji JupyterLab (WLB_CH_JUPYTER_OK=0)"
+    return 2
+  }
+  command -v curl >/dev/null 2>&1 || {
+    WLB_CH_OBS="brak narzędzia curl"
+    return 2
+  }
   [[ -n $data ]] && args+=(--data "$data")
   [[ -n ${WLB_CH_XSRF:-} ]] && args+=(-H "X-XSRFToken: $WLB_CH_XSRF")
   code=$(curl -s -o /dev/null -w '%{http_code}' --path-as-is --max-time 20 \
-    -b "$WLB_CH_JAR" -c "$WLB_CH_JAR" "${args[@]}" "$HUB$path" 2>/dev/null) || return 2
+    -b "$WLB_CH_JAR" -c "$WLB_CH_JAR" "${args[@]}" "$HUB$path" 2>/dev/null)
+  rc=$?
+  if ((rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+    WLB_CH_OBS="awaria curl HTTP: rc=$rc ($method $path)"
+    return 2
+  fi
+  if [[ $code == "000" ]]; then
+    WLB_CH_OBS="awaria HTTP: kod 000 (brak połączenia z Hubem)"
+    return 2
+  fi
   WLB_CH_OBS="HTTP $code ($method $path)"
   for want in "$@"; do
     [[ $code == "$want" ]] && return 0
@@ -192,34 +320,53 @@ wlb_http() {
 # wlb_net proxy|direct CEL OCZEKIWANE(status lub nonzero).
 wlb_net() {
   local via=$1 target=$2 want=$3 code rc
-  command -v curl >/dev/null 2>&1 || return 2
+  command -v curl >/dev/null 2>&1 || {
+    WLB_CH_OBS="brak narzędzia curl"
+    return 2
+  }
   if [[ $via == proxy ]]; then
     [[ -n $WLB_CH_PROXY ]] || {
       WLB_CH_OBS="brak proxy (--proxy-allowlist / http_proxy w /etc/environment)"
       return 2
     }
     code=$(as "$R1" curl -q -s -o /dev/null -w '%{http_code}' --noproxy '' -x "$WLB_CH_PROXY" \
-      --max-time 8 "$target" 2>/dev/null) || return 2
+      --max-time 8 "$target" 2>/dev/null)
+    rc=$?
+    if ((rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+      WLB_CH_OBS="awaria curl proxy: rc=$rc"
+      return 2
+    fi
     WLB_CH_OBS="HTTP $code ($target via proxy)"
     [[ $code == "$want" ]] && return 0
     return 1
   fi
+  # direct
   as "$R1" curl -q -s -o /dev/null --noproxy '*' --max-time 5 "$target" >/dev/null 2>&1
   rc=$?
+  if ((rc == 124 || rc == 126 || rc == 127 || rc >= 128)); then
+    WLB_CH_OBS="awaria curl direct: rc=$rc"
+    return 2
+  fi
   WLB_CH_OBS="rc=$rc ($target direct)"
   if [[ $want == nonzero ]]; then
-    ((rc != 0))
+    if ((rc != 0)); then return 0; else return 1; fi
   else
-    ((rc == want))
+    if ((rc == want)); then return 0; else return 1; fi
   fi
 }
 
 # wlb_version PAKIET WERSJA — dryf wersji zawsze FAIL (wymaga re-audytu kanałów).
 wlb_version() {
   local pkg=$1 want=$2 ver
-  [[ -x /opt/tljh/user/bin/python ]] || return 2
+  [[ -x /opt/tljh/user/bin/python ]] || {
+    WLB_CH_OBS="brak interpretera /opt/tljh/user/bin/python"
+    return 2
+  }
   ver=$(/opt/tljh/user/bin/python -c 'import importlib.metadata as m, sys; print(m.version(sys.argv[1]))' \
-    "$pkg" 2>/dev/null) || return 2
+    "$pkg" 2>/dev/null) || {
+    WLB_CH_OBS="błąd odczytu wersji pakietu $pkg"
+    return 2
+  }
   WLB_CH_OBS="version=$ver"
   WLB_CH_ALWAYS_FAIL=1
   [[ $ver == "$want" ]]
@@ -239,9 +386,11 @@ wlb_ch_jupyter_setup() {
   hub_spawn "$R1" >/dev/null 2>&1 || return 1
   curl -s -o /dev/null -b "$WLB_CH_JAR" -c "$WLB_CH_JAR" -L --max-time 25 "$HUB/user/$R1/lab" || return 1
   WLB_CH_XSRF=$(awk '$6 == "_xsrf" {print $7}' "$WLB_CH_JAR" 2>/dev/null | tail -1)
-  # shellcheck disable=SC2016 # $HOME/$1 rozwija powłoka-dziecko (as/sandbox)
-  as "$R1" sh -c 'printf "id,wynik\n" >"$HOME/wlb-kanaly-probe.csv"' 2>/dev/null || true
-  as "$R1" ln -sfn /etc/passwd "$HOME/wlb-passwd-link" 2>/dev/null || true
+  # Przygotowanie plików testowych w domowym katalogu badacza ($WLB_R1_HOME, nie /root!)
+  as "$R1" sh -c "printf 'id,wynik\n' >\"$WLB_R1_HOME/wlb-kanaly-probe.csv\"" 2>/dev/null || true
+  as "$R1" sh -c "printf '{\"cells\":[],\"metadata\":{},\"nbformat\":4,\"nbformat_minor\":2}' >\"$WLB_R1_HOME/wlb-kanaly-probe.ipynb\"" 2>/dev/null || true
+  as "$R1" sh -c "printf wlb >\"$WLB_R1_HOME/wlb-kanaly-probe.txt\"" 2>/dev/null || true
+  as "$R1" ln -sfn /etc/passwd "$WLB_R1_HOME/wlb-passwd-link" 2>/dev/null || true
   return 0
 }
 
@@ -252,8 +401,6 @@ else
   WLB_CH_MIRROR=${WLB_CH_MIRROR_TARGET:-https://pypi.wlb.local/simple/}
 fi
 install -d -m 700 -o "jupyter-$R1" -g "jupyter-$R1" "$WLB_CH_JAMOVI_RUNTIME" 2>/dev/null || true
-# shellcheck disable=SC2016 # $HOME/$1 rozwija powłoka-dziecko (as/sandbox)
-as "$R1" sh -c 'printf wlb >"$HOME/wlb-kanaly-probe.txt"' 2>/dev/null || true
 
 if wlb_ch_jupyter_setup; then
   WLB_CH_JUPYTER_OK=1
@@ -269,8 +416,9 @@ wlb_probe JL-SAVE internal allowed "zapis pliku w domu przez /api/contents" -- \
   '{"type": "file", "format": "text", "content": "wlb-kanaly-probe"}' 200 201
 wlb_probe JL-FILES-DL export denied "pobranie /files?download=1" -- \
   wlb_http GET "/user/$R1/files/wlb-kanaly-probe.csv?download=1" "" 403
-wlb_probe JL-NBCONVERT export denied "eksport /api/nbconvert" -- \
-  wlb_http GET "/user/$R1/api/nbconvert?format=pdf&download=1" "" 403
+wlb_probe JL-NBCONVERT export denied "eksport /nbconvert/html/wlb-kanaly-probe.ipynb" -- \
+  wlb_http GET "/user/$R1/nbconvert/html/wlb-kanaly-probe.ipynb?download=1" "" 403
+wlb_known_open JL-CONTENTS-BASE64 export "pobranie treści pliku base64 przez Contents API (?content=1&format=base64)"
 wlb_probe JL-TRAVERSAL-DOTDOT export denied "contents ../../etc/passwd" -- \
   wlb_http GET "/user/$R1/api/contents/../../etc/passwd?content=1" "" 403
 wlb_probe JL-TRAVERSAL-ENCODED export denied "contents %2e%2e/%2e%2e/etc/passwd" -- \
@@ -320,8 +468,15 @@ wlb_probe NET-DIRECT-IP export denied "bezpośrednie połączenie po IP zablokow
 wlb_known_open RS-TRANSFER-PATHS export "RStudio: ścieżki upload/download/export bez fixture \
   tests/fixtures/rstudio-transfer-paths.txt (owner=rstudio; TODO capture mitmproxy, #292 PR-T3)"
 
-# Sprzątanie plików sond w domu badacza (symlink i pliki testowe).
-as "$R1" rm -f "$HOME/wlb-kanaly-probe.txt" "$HOME/wlb-kanaly-probe.csv" "$HOME/wlb-passwd-link" 2>/dev/null || true
+# --- Klient niezarządzany: known_open (raport ryzyka, nie asercje) ---
+wlb_known_open CL-PRINT export "druk z przeglądarki klienta (Ctrl+P)"
+wlb_known_open CL-SAVE-PAGE export "zapis strony w przeglądarce klienta (Save Page As)"
+wlb_known_open CL-CLIPBOARD export "schowek systemowy hosta klienta"
+wlb_known_open CL-SCREENSHOT export "zrzut ekranu po stronie klienta"
+
+# Sprzątanie plików sond w domu badacza ($WLB_R1_HOME).
+as "$R1" rm -f "$WLB_R1_HOME/wlb-kanaly-probe.txt" "$WLB_R1_HOME/wlb-kanaly-probe.csv" \
+  "$WLB_R1_HOME/wlb-kanaly-probe.ipynb" "$WLB_R1_HOME/wlb-passwd-link" 2>/dev/null || true
 
 # --- Raport: JSON + tabela markdown (per flavor; ci/integration.sh kopiuje do build/ci-logs) ---
 python3 - "$WLB_CH_ROWS" "$WLB_CH_DIR" "$WLB_CH_GATING" <<'PY'
@@ -335,10 +490,10 @@ rows = []
 for line in pathlib.Path(rows_path).read_text(encoding="utf-8").splitlines():
     if not line.strip():
         continue
-    fields = line.split("\t", 8)
-    while len(fields) < 9:
+    fields = line.split("\t", 9)
+    while len(fields) < 10:
         fields.append("")
-    channel_id, surface, direction, expected, observed, verdict, owner, control, detail = fields
+    channel_id, surface, direction, expected, observed, verdict, owner, control, req, detail = fields
     rows.append(
         {
             "id": channel_id,
@@ -349,11 +504,12 @@ for line in pathlib.Path(rows_path).read_text(encoding="utf-8").splitlines():
             "verdict": verdict,
             "owner": owner,
             "control": control == "1",
+            "required": req == "1",
             "detail": detail,
         }
     )
 
-summary = {name: sum(1 for row in rows if row["verdict"] == name) for name in ("pass", "fail", "skip", "known_open")}
+summary = {name: sum(1 for row in rows if row["verdict"] == name) for name in ("pass", "fail", "skip", "error", "known_open")}
 flavor = ""
 release = pathlib.Path("/etc/wlb/image-release")
 if release.is_file():
@@ -380,8 +536,8 @@ table += [
 ]
 (outdir / "channels.md").write_text("\n".join(table) + "\n", encoding="utf-8")
 print(
-    f"Kanały: {summary['pass']} PASS, {summary['fail']} FAIL, {summary['skip']} SKIP, "
-    f"{summary['known_open']} known_open (gating={int(gating)}); raport: {outdir}/channels.json"
+    f"Kanały: {summary['pass']} PASS, {summary['fail']} FAIL, {summary['error']} ERROR, "
+    f"{summary['skip']} SKIP, {summary['known_open']} known_open (gating={int(gating)}); raport: {outdir}/channels.json"
 )
 PY
 cat "$WLB_CH_DIR/channels.md"
