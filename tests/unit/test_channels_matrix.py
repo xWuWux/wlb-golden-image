@@ -255,3 +255,82 @@ def test_harness_self_test() -> None:
     )
     assert proc.returncode == 0, f"self-test failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
     assert "Self-test passed!" in proc.stdout
+
+
+# --- Spójność required: YAML (źródło prawdy) vs harness (wlb_ch_required) -----------------
+# Harness nie czyta YAML — liczy required z prefiksu ID. Ten test wyciąga SAMĄ FUNKCJĘ
+# wlb_ch_required() i wykonuje ją w bashu, więc porównuje faktyczną semantykę `case` (alternatywy,
+# kolejność, globbing), a nie jej ręcznie przepisany regex. Rozjazd failuje w CI, zamiast po cichu
+# zmieniać bramkowanie. Ograniczenie: to nadal DWA źródła (YAML + prefiksy w harnessie); test je
+# wiąże, ale nie sprawia, że YAML jest czytany w runtime — patrz komentarz przy teście.
+
+REQUIRED_FN = re.compile(r"^wlb_ch_required\(\)\s*\{.*?^\}", re.S | re.M)
+REQUIRED_TIMEOUT_S = 10
+
+
+def _harness_required_map(fragment: Path, ids: list[str]) -> dict[str, int]:
+    """Uruchamia wlb_ch_required() z fragmentu dla podanych ID; zwraca {id: 0|1}.
+
+    Wyciągamy tylko definicję funkcji (bez reszty harnessu, żeby nie odpalać sond), walidujemy
+    składnię bash -n i wykonujemy w jednym procesie. To dokładna semantyka `case`, nie regex.
+    """
+    text = fragment.read_text(encoding="utf-8")
+    match = REQUIRED_FN.search(text)
+    assert match, "harness nie zawiera funkcji wlb_ch_required()"
+    func = match.group(0)
+    script = func + '\nfor id in "$@"; do printf "%s\\t%s\\n" "$id" "$(wlb_ch_required "$id")"; done\n'
+    proc = subprocess.run(  # noqa: S603
+        ["/bin/bash", "-c", script, "wlb-ch-required", *ids],
+        capture_output=True,
+        text=True,
+        timeout=REQUIRED_TIMEOUT_S,
+        check=False,
+    )
+    assert proc.returncode == 0, f"wlb_ch_required() nie wykonał się: rc={proc.returncode}\n{proc.stderr}"
+    mapping: dict[str, int] = {}
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        channel_id, _, raw = line.partition("\t")
+        assert raw in {"0", "1"}, f"{channel_id}: wlb_ch_required zwróciło {raw!r} (oczekiwano 0/1)"
+        mapping[channel_id] = int(raw)
+    assert set(mapping) == set(ids), f"brak wyników dla ID: {sorted(set(ids) - set(mapping))}"
+    return mapping
+
+
+def _required_mismatches(channels: list[dict], mapping: dict[str, int]) -> list[str]:
+    return [
+        f"{entry['id']}: YAML required={entry['required']}, harness wlb_ch_required={bool(mapping[entry['id']])}"
+        for entry in channels
+        if bool(mapping[entry["id"]]) != entry["required"]
+    ]
+
+
+def test_harness_required_matches_matrix(channels: list[dict]) -> None:
+    """required w YAML musi zgadzać się z wlb_ch_required() w harnessie — inaczej gating
+    (required+error -> blokada) zależy od prefiksu ID, a nie od matrycy."""
+    mapping = _harness_required_map(FRAGMENT, [entry["id"] for entry in channels])
+    mismatches = _required_mismatches(channels, mapping)
+    assert not mismatches, "rozjazd required YAML <-> harness:\n" + "\n".join(mismatches)
+
+
+def test_harness_required_detects_drift(tmp_path: Path, channels: list[dict]) -> None:
+    """Test negatywny: spreparowany harness z rozjechaną gałęzią MUSI zostać wykryty.
+
+    Bez tego zielony wynik mógłby być pusty (np. ekstrakcja złapałaby tylko fallback `*`).
+    """
+    text = FRAGMENT.read_text(encoding="utf-8")
+    mutated = text.replace("JM-*) echo 0 ;;", "JM-*) echo 1 ;;", 1)
+    assert mutated != text, "fixture: nie znaleziono gałęzi JM-*) do zmutowania"
+    bad_fragment = tmp_path / "46-kanaly-eksportu-mutated.sh"
+    bad_fragment.write_text(mutated, encoding="utf-8")
+    mapping = _harness_required_map(bad_fragment, [entry["id"] for entry in channels])
+    mismatches = _required_mismatches(channels, mapping)
+    assert mismatches, "test nie wykrył rozjazdu po mutacji gałęzi JM-*) — bramka jest pusta"
+    assert any(item.startswith("JM-SANDBOX-HOME-READ") for item in mismatches)
+
+
+def test_known_open_is_not_required(channels: list[dict]) -> None:
+    """known_open to raport ryzyka, nie bramka — nie może być required=true (gating by je blokował)."""
+    bad = [entry["id"] for entry in channels if entry["expected"] == "known_open" and entry["required"]]
+    assert not bad, f"known_open oznaczone jako required (zabronione): {bad}"
