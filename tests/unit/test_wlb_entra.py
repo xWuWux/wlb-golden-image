@@ -6,6 +6,7 @@ wyłącznie wymianę kodu na token (`get_token_info`).
 """
 
 import asyncio
+import json
 import logging
 import sys
 import time
@@ -118,7 +119,7 @@ def make_auth(registry, **extra):
     c.WlbEntraAuthenticator.oauth_callback_url = "https://portal.wlb.local/hub/oauth_callback"
     c.WlbEntraAuthenticator.required_role = ROLE
     c.WlbEntraAuthenticator.accounts_file = str(registry)
-    c.WlbEntraAuthenticator.logins_file = str(registry.parent / "entra-logins")
+    c.WlbEntraAuthenticator.bindings_file = str(registry.parent / "entra-bindings")
     for key, value in extra.items():
         setattr(c.WlbEntraAuthenticator, key, value)
     return wlb_entra_auth.WlbEntraAuthenticator(config=c)
@@ -154,7 +155,7 @@ def test_domyslne_punkty_koncowe_v2_i_minimalny_scope(registry):
     auth = make_auth(registry)
     assert auth.authorize_url == f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/authorize"
     assert auth.token_url == f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/token"
-    assert auth.scope == ["openid"]
+    assert auth.scope == ["openid", "profile"]  # Entra wysyła oid dopiero z profile
     assert auth.login_service == "Microsoft Entra ID"
     assert auth.allow_all is False and auth.manage_groups is False
 
@@ -224,6 +225,7 @@ def test_brak_required_role_wstrzymuje_logowanie(registry, monkeypatch, caplog):
         ({"exp": int(time.time()) - 10}, "exp"),
         ({"exp": None}, "exp"),
         ({"oid": "nie-guid"}, "oid"),
+        ({"oid": None}, "oid"),  # brak claimu oid (np. bez zakresu profile) = odmowa, nie UPN
     ],
 )
 def test_odrzucony_id_token(registry, monkeypatch, caplog, overrides, field):
@@ -269,24 +271,34 @@ def refresh(auth, name):
     return asyncio.run(auth.refresh_user(SimpleNamespace(name=name)))
 
 
-def test_sesja_trwa_dopoki_rejestr_wskazuje_te_sama_osobe(registry, monkeypatch):
+def bindings(registry):
+    return json.loads((registry.parent / "entra-bindings").read_text())
+
+
+def test_pierwsze_logowanie_wiaze_konto_z_osoba(registry, monkeypatch):
     auth = make_auth(registry)
     assert login(auth, monkeypatch, id_token())["name"] == "u01"
-    assert (registry.parent / "entra-logins").stat().st_mode & 0o777 == 0o600
+    assert bindings(registry) == {"u01": f"{TENANT} {OID_ANNA}"}
+    assert (registry.parent / "entra-bindings").stat().st_mode & 0o777 == 0o600
     assert refresh(auth, "u01") is True
+    login(auth, monkeypatch, id_token())  # kolejne logowanie tej samej osoby niczego nie zmienia
+    assert bindings(registry) == {"u01": f"{TENANT} {OID_ANNA}"}
 
 
-def test_przejecie_konta_konczy_sesje_poprzedniej_osoby(registry, monkeypatch, caplog):
-    """#102 D3: konto u01 przekazane innej osobie — sesja i tokeny poprzedniej osoby wygasają."""
+def test_przekazanie_konta_zablokowane_bez_powrotu_starej_sesji(registry, monkeypatch, caplog):
+    """Przegląd #330: A zalogowana, u01 przepisane na B, B się loguje — stara sesja A nie może wrócić."""
     caplog.set_level(logging.INFO)
     auth = make_auth(registry)
-    login(auth, monkeypatch, id_token())
+    login(auth, monkeypatch, id_token())  # A
     registry.write_text(f"{TENANT} {OID_OBCY} u01\n")
-    assert refresh(auth, "u01") is False
-    assert "nieaktualna wobec rejestru" in caplog.text
+    assert refresh(auth, "u01") is False  # żądania A podlegające odświeżeniu odrzucone
+    assert login(auth, monkeypatch, id_token(oid=OID_OBCY)) is None  # B nie przejmie konta
+    assert "przekazanie konta wymaga procedury #102 D3" in caplog.text
+    assert bindings(registry) == {"u01": f"{TENANT} {OID_ANNA}"}  # powiązanie bez zmian
+    assert refresh(auth, "u01") is False  # i stara sesja A nadal odrzucana
 
 
-def test_usuniecie_z_rejestru_i_bledny_rejestr_koncza_sesje(registry, monkeypatch):
+def test_usuniecie_z_rejestru_odrzuca_zadania(registry, monkeypatch):
     auth = make_auth(registry)
     login(auth, monkeypatch, id_token())
     login(auth, monkeypatch, id_token(oid=OID_JAN))
@@ -297,7 +309,7 @@ def test_usuniecie_z_rejestru_i_bledny_rejestr_koncza_sesje(registry, monkeypatc
     assert refresh(auth, "jkowalski") is False
 
 
-def test_sesja_sprzed_migracji_bez_zapisu_wymaga_logowania_entra(registry):
+def test_sesja_sprzed_migracji_bez_powiazania_odrzucona(registry):
     # konto w rejestrze, ale nikt nie logował się na nie przez Entra (np. sesja hasłem przed migracją)
     assert refresh(make_auth(registry), "u01") is False
 
@@ -310,16 +322,17 @@ def test_odswiezenie_niezalezne_od_enable_auth_state(registry, monkeypatch):
     assert refresh(auth, "u01") is True
 
 
-def test_brak_zapisu_logowania_to_odmowa(registry, monkeypatch, caplog):
-    auth = make_auth(registry, logins_file=str(registry.parent / "brak-katalogu" / "entra-logins"))
+def test_brak_zapisu_powiazania_to_odmowa(registry, monkeypatch, caplog):
+    auth = make_auth(registry, bindings_file=str(registry.parent / "brak-katalogu" / "entra-bindings"))
     assert login(auth, monkeypatch, id_token()) is None
     assert "nie można zapisać" in caplog.text
 
 
-def test_uszkodzony_zapis_logowan_konczy_sesje(registry, monkeypatch):
+@pytest.mark.parametrize("content", ["{nie-json", "[]", '{"u01": 1}'])
+def test_uszkodzone_powiazania_wstrzymuja_logowanie_i_zadania(registry, monkeypatch, caplog, content):
     auth = make_auth(registry)
     login(auth, monkeypatch, id_token())
-    (registry.parent / "entra-logins").write_text("[]")
+    (registry.parent / "entra-bindings").write_text(content)
     assert refresh(auth, "u01") is False
-    (registry.parent / "entra-logins").write_text("{nie-json")
-    assert refresh(auth, "u01") is False
+    assert login(auth, monkeypatch, id_token()) is None
+    assert "logowanie wstrzymane" in caplog.text

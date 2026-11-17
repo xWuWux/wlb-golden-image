@@ -32,7 +32,7 @@ TID, CLIENT, ROLE = "3f1c2b4a-0000-4000-8000-000000000001", "6c3e2f10-0000-4000-
 c = Config()
 for key, value in dict(tenant_id=TID, client_id=CLIENT, client_secret="s", required_role=ROLE, allow_all=True,
                        oauth_callback_url="https://portal.wlb.local/hub/oauth_callback", accounts_file=sys.argv[1],
-                       logins_file=sys.argv[1] + ".logins").items():
+                       bindings_file=sys.argv[1] + ".bindings").items():
     setattr(c.WlbEntraAuthenticator, key, value)
 auth = WlbEntraAuthenticator(config=c)
 assert auth.allow_all is False, "allow_all nie może być włączone"
@@ -61,7 +61,7 @@ results = {
 }
 print(results)
 assert results == {"przypisany": "u01", "bez_roli": None, "nieprzypisany": 403, "obcy_tenant": 403}, results
-# sesja związana z osobą: przekazanie konta innej osobie kończy sesję poprzedniej
+# konto powiązane z osobą: rejestr wskazujący inną osobę odrzuca żądania poprzedniej
 class U: name = "u01"
 assert asyncio.run(auth.refresh_user(U())) is True
 open(sys.argv[1], "w").write(f"{TID} 9a8b7c6d-0000-4000-8000-0000000000b2 u01\n")

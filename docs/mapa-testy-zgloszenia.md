@@ -156,7 +156,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-17). Odświ
 
 ### #102 — Weryfikacja architektury: model kont WLB (nazwane vs bezosobowe uNN) wg standardu  ·  _otwarte_
 - `tests/acceptance-remote.sh` — *0. Konta bezosobowe uNN/a01 pre-provisionowane; self-signup wyłączony (IMG-002/#102)*
-- `tests/unit/test_wlb_entra.py` — `test_przejecie_konta_konczy_sesje_poprzedniej_osoby`
+- `tests/unit/test_wlb_entra.py` — `test_przekazanie_konta_zablokowane_bez_powrotu_starej_sesji`
 - `tests/unit/test_wlb_hub_user.py` — *Tryby odczytu dla bezpiecznego provisioningu w wlb-firstboot (#102)*
 - `tests/unit/wlb-firstboot.bats` — `HUB_ADMIN_USER nie może używać przestrzeni kont badaczy, nawet poza aktualną pulą (#102)`, `RESEARCHER_ACCOUNTS: błędny zapis i przepełnienie są odrzucane przed provisioningiem (#102)`, `pełna konfiguracja Laboratorium`, `plik hasła bez konta — konto nie jest odtwarzane, ostrzeżenie (#102)`, `plik oczekujący bez konta (przerwanie przed zapisem w bazie) — konto z hasłem z pliku (#102)`, `plik oczekujący, konto z dysku roboczego ma inne hasło — hasło bez zmian (#102)`, `pre-provisioning kont stanowiskowych uNN wg RESEARCHER_ACCOUNTS (IMG-002/#102)`, `przerwanie po zapisie konta, przed plikiem hasła — ponowienie odzyskuje hasło (#102)`, *Przerwanie provisioningu kont (#102)*
 

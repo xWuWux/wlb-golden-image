@@ -38,12 +38,19 @@ Dotychczasowy tryb `AUTH_MODE=oidc` (#57) zamieniał claim (`preferred_username`
 - **Dostęp:** wpis w rejestrze **i** rola aplikacji Laboratorium (`ENTRA_REQUIRED_ROLE`) w `roles` id_token.
   Rola zamiast grup, bo grupy podlegają limitowi w tokenie (overage). `allow_all` jest zablokowane w kodzie,
   a `allowed_users` i admin nie omijają kontroli.
-- **Token:** punkty końcowe v2.0, zakres `openid` (bez imienia i adresu e-mail). Sprawdzane są `tid`, `iss`,
-  `aud` i `exp`. Z claimów zostają tylko `tid`, `oid` i `roles`. Surowy id_token nie trafia do `auth_state`.
-- **Odwołanie i przejęcie:** rejestr jest czytany przy każdym logowaniu. Sesja jest związana z osobą:
-  po logowaniu zapisujemy, która para `(tid, oid)` weszła na konto (`/var/lib/wlb/entra-logins`). Przy
-  odświeżaniu (5 min), dla tokenów API i przed startem serwera ten zapis musi zgadzać się z rejestrem.
-  Usunięcie wiersza albo przekazanie konta kończy sesje i tokeny poprzedniej osoby bez restartu huba.
+- **Token:** punkty końcowe v2.0, zakresy `openid profile`. Entra wysyła `oid` dopiero z `profile`; imię
+  i UPN odrzucamy zaraz po odczycie. Sprawdzane są `tid`, `iss`, `aud` i `exp`. Z claimów zostają tylko `tid`,
+  `oid` i `roles`. Surowy id_token ani tokeny dostępu nie trafiają do `auth_state`.
+- **Brak przekazywania kont (MVP):** pierwsze udane logowanie trwale wiąże konto z `(tid, oid)`
+  (`/workspace/.wlb-hub/entra-bindings`, obok bazy huba). Rejestr wskazujący na koncie inną osobę odrzuca
+  jej logowanie. Powód: stare ciasteczka i tokeny poprzedniej osoby identyfikują konto, a nie osobę, więc
+  bez ich odwołania następca dzieliłby konto z poprzednikiem. Przekazanie konta będzie jedną operacją
+  administracyjną #102 D3 (blokada logowań i spawnu → odwołanie ciasteczek i tokenów Hub/OAuth → zamknięcie
+  dostępu do serwera → potwierdzenie → atomowa zmiana przypisania). Awaria zostawi konto zablokowane.
+- **Ograniczenie dostępu przy zmianie rejestru:** rejestr jest czytany przy każdym logowaniu oraz w
+  `refresh_user` (żądania do huba po `auth_refresh_age`, start serwera). Blokuje to nowe logowania i żądania
+  podlegające odświeżeniu. **Nie** jest trwałym odwołaniem poświadczeń ani gwarancją zamknięcia trwających
+  połączeń (WebSocket notebooka, noVNC, pamięć podręczna serwera badacza). Pełne odcięcie wymaga zatrzymania serwera.
 - **Fail-secure:** `wlb-firstboot` waliduje zmienne i rejestr przed zmianą na VM. Błędny rejestr w trakcie
   pracy wstrzymuje logowanie (403), a nie otwiera dostępu.
 - **Migracja i powrót:** zmiana `AUTH_MODE` per Laboratorium (RB-entra). Konta, UID, `/workspace`,
@@ -62,20 +69,37 @@ z oauthenticator 17.
 
 * **Pozytywne:**
   - brak imion, UPN i e-maili w loginach i logach. W dzienniku huba jest `oid` przy odmowach (pseudonim, nadal dana osobowa),
-  - istniejące konta i dane nienaruszone, a migracja i rollback sprowadzają się do zmiany jednej zmiennej,
-  - dostęp per Laboratorium nadawany w Entra (rola) i na VM (rejestr), bez restartu huba,
+  - istniejące konta i dane nienaruszone. Migracja to procedura w oknie serwisowym (zatrzymanie serwerów, rejestr,
+    `AUTH_MODE`), a rollback wymaga wcześniejszego resetu haseł Native kont z odebranym dostępem (RB-entra §5),
+  - dostęp per Laboratorium nadawany w Entra (rola) i na VM (rejestr), bez restartu huba; przekazanie konta innej osobie
+    jest zablokowane, zamiast działać bez odwołania poświadczeń,
   - naprawione P0 i błąd startu trybu `oidc`.
 * **Negatywne / dług techniczny:**
   - rejestr na VM to dane pseudonimizowane (oid ↔ konto) objęte backupem. Lokalizację musi potwierdzić IOD (#102 D1),
   - utrzymanie rejestru jest ręczne. Narzędzie dla Administratora Klienta i synchronizacja z rejestrem
     organizacyjnym to zakres #102/#51,
   - odebranie roli lub blokada w Entra działa od następnego logowania: hub nie wymienia tokenów z Entra.
-    Natychmiastowe odcięcie zapewnia usunięcie wiersza z rejestru. Pełne sprawdzanie ról w trakcie sesji
-    wymagałoby `enable_auth_state` + `offline_access` (klucz szyfrujący, refresh token) i jest osobną decyzją,
+    Nie obiecujemy CAE ani ponownej oceny polityk Entra w trakcie lokalnej sesji. Maksymalny wiek sesji
+    i SLA odwołania trzeba ustalić z właścicielem platformy (sign-in frequency w Entra, limit sesji huba §9.5),
   - podpis id_token nie jest weryfikowany lokalnie (jak w oauthenticator). Token pochodzi bezpośrednio z punktu `token` po TLS,
-  - brak testu z prawdziwym tenantem w CI.
+  - testy w repozytorium to testy modułowe authenticatora z podstawioną odpowiedzią punktu `token`.
+    Brak testu z prawdziwym tenantem w CI.
 * **Świadomie pominięte:**
   - usunięcie haseł Native (osobny krok po odbiorze),
-  - procedura przejęcia konta z unieważnieniem sesji (#102 D3),
+  - procedura przekazania konta z odwołaniem poświadczeń (#102 D3); do tego czasu przekazanie jest zablokowane,
   - portal vs VDI (#18 D2),
   - wiele tenantów (rejestr już ma kolumnę `tid`, ale walidacja wymaga tenantu Laboratorium).
+
+## Odbiór (przed produkcją; wymaga tenantu testowego)
+
+1. `oid`/`tid`/`roles` w id_token dla użytkownika wewnętrznego i gościa B2B; brak `oid` = odmowa.
+2. Conditional Access: polityka w trybie *On* (nie *Report-only*), brak wyłączeń dla badaczy, efektywne MFA
+   gościa B2B (zaufanie do MFA tenantu macierzystego) potwierdzone w logach logowań Entra.
+3. Callback: dwie karty, przerwany callback, stary `state`, ponowne użycie kodu, powrót przeglądarką „wstecz”.
+   Ochrony z oauthenticator, bez własnego protokołu.
+4. Odcięcie przez HTTP/API/WebSocket: ciasteczko, token API, token OAuth serwera i trwające połączenie
+   notebooka/noVNC po usunięciu wiersza i zatrzymaniu serwera, także po restarcie huba. Sprawdzić faktyczną
+   odmowę, nie tylko wynik `refresh_user`.
+5. Awarie: wygasły `client_secret`, DNS/proxy/TLS/IdP niedostępne, przesunięty zegar. Nowe logowania odmawiają,
+   brak automatycznego powrotu do Native, działające obliczenia nie są przerywane.
+6. Odtworzenie dysku roboczego z kopii nie przywraca odwołanego dostępu (rejestr wobec rejestru organizacyjnego).

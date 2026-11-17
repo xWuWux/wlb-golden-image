@@ -312,9 +312,9 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
 - Uwierzytelnianie: domyślnie Native Authenticator (`AUTH_MODE=native`). `AUTH_MODE=entra` — logowanie przez
   Microsoft Entra ID (IdP GUMed, MFA przez Conditional Access): login wynika z rejestru przypisań
   `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`), nie z claimu osobowego, a wejście wymaga też roli
-  aplikacji Laboratorium. Konta (`u01`, `a01`, stare konta nazwane), dane i hasła Native zostają bez zmian,
-  więc migracja to dopisanie rejestru i zmiana `AUTH_MODE`, a powrót — `AUTH_MODE=native`
-  ([RB-entra](docs/runbooks/RB-entra.md)). `AUTH_MODE=oidc` — inny dostawca OIDC przez `GenericOAuthenticator`,
+  aplikacji Laboratorium. Konta (`u01`, `a01`, stare konta nazwane), dane i hasła Native zostają bez zmian;
+  przekazanie konta innej osobie jest zablokowane do czasu procedury #102 D3. Migracja w oknie serwisowym
+  i powrót do haseł: [RB-entra](docs/runbooks/RB-entra.md). `AUTH_MODE=oidc` — inny dostawca OIDC przez `GenericOAuthenticator`,
   wyłącznie z niepustym `OIDC_ALLOWED_GROUPS` (bez `allow_all`, #18).
 - HTTPS: hub nasłuchuje na porcie 80 i zakłada TLS na portalu WLB lub bramce VDI. Ewentualnie
   można włączyć `https.*` w TLJH.

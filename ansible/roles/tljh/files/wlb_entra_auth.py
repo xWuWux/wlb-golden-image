@@ -9,16 +9,21 @@
   podlega limitowi grup w tokenie (groups overage). `allow_all`, `allowed_users`
   i `admin_users` nie omijają tej kontroli;
 - tenant, issuer, audience i ważność id_token są sprawdzane, punkty końcowe to v2.0;
-- z tokenu zostają tylko `tid`, `oid` i `roles` — imię, e-mail i UPN nie trafiają do
-  modelu uwierzytelnienia ani do dziennika (w logach tylko pseudonim `oid` przy odmowie);
-- **sesja jest związana z osobą**: po udanym logowaniu zapisujemy, która para `(tid, oid)`
-  zalogowała się na konto (`logins_file`, root 0600). Każde odświeżenie sesji, także sesji
-  tokenem API i przed startem serwera, porównuje ją z bieżącym rejestrem. Usunięcie wiersza
-  albo przekazanie konta innej osobie kończy sesję i tokeny poprzedniej osoby najpóźniej
-  po `auth_refresh_age`. Sesja bez zapisu (np. zalogowana hasłem przed migracją) też się kończy.
+- zakres `openid profile` (Entra gwarantuje `oid` dopiero z `profile`), ale z tokenu zostają
+  tylko `tid`, `oid` i `roles` — imię, e-mail i UPN nie trafiają do modelu uwierzytelnienia
+  ani do dziennika (w logach pseudonim `oid` przy odmowie);
+- **konto raz związane z osobą nie przechodzi na inną** (`bindings_file`, obok bazy huba na
+  dysku roboczym): pierwsze udane logowanie wiąże konto z `(tid, oid)` na stałe. Rejestr
+  wskazujący na koncie inną osobę odmawia jej logowania — przekazanie konta wymaga osobnej
+  procedury z odwołaniem poświadczeń (#102 D3), której jeszcze nie ma;
+- `refresh_user` (wołany przez JupyterHub przy żądaniach do huba po `auth_refresh_age`,
+  dla tokenów API i przed startem serwera) odmawia, gdy konto nie ma już wiersza w rejestrze
+  albo nie ma powiązania z Entra (np. sesja zalogowana hasłem przed migracją).
 
-Odebranie roli aplikacji w Entra działa od następnego logowania (bez wymiany tokenów
-z Entra hub nie widzi bieżących ról). Natychmiastowe odcięcie = usunięcie wiersza z rejestru.
+To blokuje nowe logowania i żądania podlegające odświeżeniu. NIE jest trwałym odwołaniem
+poświadczeń: nie usuwa ciasteczek ani tokenów z bazy huba i nie zamyka trwających połączeń
+(WebSocket notebooka, noVNC) — pełne odwołanie wymaga osobnej procedury. Odebranie roli
+w Entra działa od następnego logowania (hub nie wymienia tokenów z Entra po zalogowaniu).
 
 Konfigurację (`70-wlb-auth.py`) generuje `wlb-firstboot` dla `AUTH_MODE=entra`.
 """
@@ -49,10 +54,10 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
         config=True,
         help="Wartość roli aplikacji Entra wymaganej do wejścia do tego Laboratorium.",
     )
-    logins_file = Unicode(
-        "/var/lib/wlb/entra-logins",
+    bindings_file = Unicode(
+        "/workspace/.wlb-hub/entra-bindings",
         config=True,
-        help="Kto (tid, oid) ostatnio zalogował się na każde konto; wiąże sesję z osobą (root, 0600).",
+        help="Trwałe powiązania konto -> (tid, oid) z pierwszego logowania; obok bazy huba (root, 0600).",
     )
 
     @validate("allow_all")
@@ -77,9 +82,10 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
 
     @default("scope")
     def _scope_default(self):
-        # id_token z `oid`, `tid` i `roles` wymaga tylko `openid`; bez `profile`/`email` IdP nie
-        # wysyła imienia ani adresu, których WLB nie potrzebuje (minimalizacja danych, RODO)
-        return ["openid"]
+        # Entra wysyła `oid` w id_token tylko przy zakresie `profile` (id-token-claims-reference).
+        # `profile` dokłada też imię i UPN — odrzucamy je zaraz po odczycie tokenu (token_to_user),
+        # więc nie trafiają do modelu uwierzytelnienia ani do dziennika. Bez `email`.
+        return ["openid", "profile"]
 
     def _accounts(self):
         try:
@@ -124,24 +130,33 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
             state.pop(key, None)
         return state
 
-    # --- powiązanie sesji z osobą --------------------------------------------------------------
+    # --- trwałe powiązanie konta z osobą ---------------------------------------------------------
 
-    def _recorded_logins(self):
+    def _bindings(self):
+        """Konto -> 'tid oid'. Brak pliku = brak powiązań; uszkodzony plik = błąd (fail-secure)."""
         try:
-            with open(self.logins_file, encoding="utf-8") as fh:
+            with open(self.bindings_file, encoding="utf-8") as fh:
                 data = json.load(fh)
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return {}
-        return data if isinstance(data, dict) else {}
+        except (OSError, ValueError) as exc:
+            self.log.error("WLB Entra: nieczytelne powiązania %s — logowanie wstrzymane: %s", self.bindings_file, exc)
+            raise web.HTTPError(403, DENIED) from exc
+        if not isinstance(data, dict) or not all(isinstance(v, str) for v in data.values()):
+            self.log.error("WLB Entra: niepoprawny format %s — logowanie wstrzymane", self.bindings_file)
+            raise web.HTTPError(403, DENIED)
+        return data
 
-    def _record_login(self, username, identity):
-        logins = self._recorded_logins()
-        logins[username] = " ".join(identity)
-        tmp = f"{self.logins_file}.tmp"
+    def _bind(self, bindings, username, identity):
+        """Zapisuje NOWE powiązanie (atomowo); istniejących nigdy nie nadpisuje."""
+        bindings = {**bindings, username: identity}
+        tmp = f"{self.bindings_file}.tmp"
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(logins, fh, sort_keys=True)
-        os.replace(tmp, self.logins_file)
+            json.dump(bindings, fh, sort_keys=True)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, self.bindings_file)
 
     def user_info_to_username(self, user_info):
         login = self._accounts().login_for(user_info["tid"], user_info["oid"])
@@ -174,25 +189,41 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
         # dopuścić osoby bez przypisania i bez roli Laboratorium
         if not self._allowed(username, user_info):
             return False
+        identity = f"{user_info['tid']} {user_info['oid']}"
         try:
-            self._record_login(username, (user_info["tid"], user_info["oid"]))
-        except OSError as exc:
-            # bez zapisu sesja i tak skończyłaby się przy pierwszym odświeżeniu — odmawiamy od razu
-            self.log.error("WLB Entra: nie można zapisać %s: %s", self.logins_file, exc.strerror)
+            bindings = self._bindings()
+        except web.HTTPError:
+            return False
+        bound = bindings.get(username)
+        if bound is None:
+            try:
+                self._bind(bindings, username, identity)
+            except OSError as exc:
+                self.log.error("WLB Entra: nie można zapisać %s: %s", self.bindings_file, exc.strerror)
+                return False
+            self.log.info("WLB Entra: konto %s powiązane z oid=%s (pierwsze logowanie)", username, user_info["oid"])
+        elif bound != identity:
+            # Stare ciasteczka i tokeny poprzedniej osoby nadal wskazują to konto — dopuszczenie
+            # następcy wymaga najpierw ich odwołania (#102 D3). Do tego czasu przekazanie jest zablokowane.
+            self.log.warning(
+                "WLB Entra: konto %s powiązane z inną osobą — przekazanie konta wymaga procedury #102 D3 (oid=%s)",
+                username,
+                user_info["oid"],
+            )
             return False
         return True
 
     async def refresh_user(self, user, handler=None, **kwargs):
-        # Woła to JupyterHub co auth_refresh_age dla sesji z ciasteczkiem, dla tokenów API i przed
-        # startem serwera (refresh_pre_spawn). Sesja trwa, dopóki rejestr wskazuje na koncie TĘ SAMĄ
-        # osobę, która się zalogowała. Bez wymiany tokenów z Entra (i bez auth_state), więc działa
-        # niezależnie od enable_auth_state.
+        # JupyterHub woła to przy żądaniach do huba starszych niż auth_refresh_age (ciasteczko, token
+        # API) i przed startem serwera (refresh_pre_spawn). Żądanie przechodzi, gdy rejestr nadal
+        # wskazuje na koncie osobę, z którą konto jest trwale powiązane. Bez wymiany tokenów z Entra
+        # i bez auth_state. False odrzuca bieżące żądanie; nie usuwa poświadczeń z bazy huba.
         try:
             current = self._accounts().identity_for(user.name)
+            bound = self._bindings().get(user.name)
         except web.HTTPError:
             return False
-        recorded = self._recorded_logins().get(user.name)
-        if current is None or recorded != " ".join(current):
-            self.log.info("WLB Entra: sesja konta %s nieaktualna wobec rejestru — wymagane logowanie", user.name)
+        if current is None or bound != " ".join(current):
+            self.log.info("WLB Entra: konto %s bez ważnego przypisania w rejestrze — żądanie odrzucone", user.name)
             return False
         return True

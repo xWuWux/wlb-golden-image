@@ -36,10 +36,14 @@ pierwszym Laboratorium na klastrze).
   (podklasa `AzureAdOAuthenticator`, oauthenticator 17 z TLJH 2.0) loguje na konto wskazane
   w rejestrze przypisań `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`, root 0600, tylko
   identyfikatory) i wymaga roli aplikacji Laboratorium (`ENTRA_REQUIRED_ROLE`). Claim osobowy
-  (UPN, e-mail) nie staje się loginem, a hub prosi tylko o zakres `openid`. Sprawdzane są tenant,
-  issuer, audience i ważność id_token. `allow_all` nie da się włączyć. Sesja jest związana z osobą: usunięcie
-  wiersza albo przekazanie konta kończy sesje i tokeny API poprzedniej osoby w ciągu 5 minut, bez restartu huba. Konta, dane i hasła Native się nie zmieniają,
-  więc migracja to rejestr i `AUTH_MODE=entra`, a powrót to `AUTH_MODE=native` (runbook `RB-entra`).
+  (UPN, e-mail) nie staje się loginem. Zakresy `openid profile` (`oid` wymaga `profile`), ale imię i UPN są odrzucane po odczycie. Sprawdzane są tenant,
+  issuer, audience i ważność id_token. `allow_all` nie da się włączyć. Pierwsze logowanie trwale wiąże konto z osobą,
+  a przekazanie konta innej osobie jest zablokowane do czasu procedury z odwołaniem poświadczeń (#102 D3).
+  Usunięcie wiersza z rejestru blokuje nowe logowania i żądania podlegające odświeżeniu, ale nie zamyka trwających
+  połączeń (pełne odcięcie: zatrzymanie serwera). Konta, dane i hasła Native się nie zmieniają. Migracja to procedura
+  w oknie serwisowym (zatrzymanie serwerów, rejestr, `AUTH_MODE=entra`), powrót to `AUTH_MODE=native` po resecie
+  haseł kont z odebranym dostępem (runbook `RB-entra`). Testy są modułowe (podstawiona odpowiedź tokenu);
+  odbiór z tenantem testowym opisuje IMG-011.
   `wlb-firstboot` waliduje całość przed zmianą na VM. Wzór: `cloud-init/examples/lab-user-data-entra.yaml`.
 - **`AUTH_MODE=oidc` naprawiony (P0 z audytu #18):** bez `OIDC_ALLOWED_GROUPS` firstboot kończy
   się błędem przed zmianą, zamiast generować `allow_all = True` (dostęp dla każdego użytkownika IdP).
