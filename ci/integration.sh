@@ -51,14 +51,18 @@ echo "Zasoby: host $CPUS CPU; VM $VM_CPUS vCPU / $VM_MEMORY MB; budowanie $BUILD
 SSH=(ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i build/test/id_ed25519 -p 2222 wlbadmin@127.0.0.1)
 
 build_image() {
-  if [[ ${REUSE_IMAGE:-0} == 1 && -f $IMAGE ]]; then
-    echo "Używam istniejącego obrazu $IMAGE"
-    return 0
-  fi
+  # Przygotowanie środowiska NIEZALEŻNE od budowy bazy: klucz SSH, packer init i metadane Git
+  # (GIT_COMMIT/…) muszą istnieć także przy REUSE_IMAGE=1 — flavory budują się packerem z
+  # -var git_commit=$GIT_COMMIT, więc pominięcie tego przy trafieniu cache dawało unbound variable
+  # (set -u) i brak zainicjowanego packera przy budowie wariantu.
   [[ -f build/packer_ed25519 ]] || ssh-keygen -q -t ed25519 -N '' -C wlb-packer-build -f build/packer_ed25519
-  rm -rf "output/$FULL"
   packer init packer/ >/dev/null
   image_provenance # GIT_COMMIT/GIT_DESCRIBE/GIT_DIRTY/BUILD_RUN do metadanych obrazu (#12a)
+  if [[ ${REUSE_IMAGE:-0} == 1 && -f $IMAGE ]]; then
+    echo "Używam istniejącego obrazu $IMAGE (baza z etapu 5a; środowisko przygotowane dla flavorów)"
+    return 0
+  fi
+  rm -rf "output/$FULL"
   # Tylko baza (wlb.qemu.wlb). Bez -only Packer buduje też flavory (wlb-memory, wlb-radiologia)
   # RÓWNOLEGLE z bazą — a te mają disk_image=true z base_image=output/wlb-general.qcow2
   # (placeholder) i padają natychmiast, bo bazy jeszcze nie ma. Flavory buduje się warstwowo

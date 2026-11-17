@@ -438,6 +438,8 @@ jobs:
     if: needs.lint.outputs.image == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    outputs:
+      image_date: ${{ steps.imgdate.outputs.date }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Miejsce na dysku
@@ -462,9 +464,15 @@ jobs:
           path: .tools
           key: tools-security-${{ runner.os }}-${{ hashFiles('ci/install-tools.sh', 'ci/requirements-security.txt') }}
       - run: ci/install-tools.sh lint security
+      - id: imgdate
+        # IMAGE_DATE wyliczone RAZ i wystawione jako output joba — matrix integracji (i 6a/6b) MUSZĄ
+        # użyć tej samej daty, inaczej $FULL (wlb-general-<ver>-<data>) rozjeżdża się między jobami,
+        # obraz z cache nie pasuje do REUSE_IMAGE i wariant pada/odbudowuje się po cichu (regresja #288).
+        run: echo "date=$(date +%Y%m%d)" >>"$GITHUB_OUTPUT"
       - run: ci/guard.sh --name "5a. Budowa bazy" --timeout 70m --memory auto -- ci/integration.sh build-base
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+          IMAGE_DATE: ${{ steps.imgdate.outputs.date }}
       # obraz bazowy dla matrixa integracji i etapów 6a/6b (#288 klasa 4)
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -519,6 +527,7 @@ jobs:
       - run: ci/guard.sh --name "5. Integracja (${{ matrix.flavor }})" --timeout 150m --memory auto -- ci/integration.sh
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
+          IMAGE_DATE: ${{ needs.build-base.outputs.image_date }}
           REUSE_IMAGE: "1"
           WLB_FLAVOR: ${{ matrix.flavor }}
           # Flavor wlb-radiologia budowany+testowany tylko na żądanie (etykieta build-radiologia / zmiana
