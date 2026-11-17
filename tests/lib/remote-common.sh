@@ -81,13 +81,50 @@ hub_login() {
     "$HUB/hub/login"
 }
 
-# uruchomienie serwera notebooków zalogowanego użytkownika; czeka na konto systemowe
+# uruchomienie serwera notebooków zalogowanego użytkownika; czeka na konto systemowe i aktywną jednostkę
 hub_spawn() {
   local user=$1
   curl -s -o /dev/null -b "/tmp/wlb-test-$user.jar" -c "/tmp/wlb-test-$user.jar" -L "$HUB/hub/spawn"
   for _ in $(seq 1 60); do
-    id "jupyter-$user" &>/dev/null && return 0
+    id "jupyter-$user" &>/dev/null && systemctl is-active --quiet "jupyter-$user" && return 0
     sleep 2
+  done
+  return 1
+}
+
+# zatrzymanie serwera notebooków zalogowanego użytkownika; czeka na wyłączenie jednostki
+hub_stop() {
+  local user=$1 jar=/tmp/wlb-test-$1.jar xsrf code
+  if [ -f "$jar" ]; then
+    xsrf=$(grep -oP '\t_xsrf\t\K\S+' "$jar" | tail -1)
+    [ -n "$xsrf" ] || xsrf=$(curl -s -b "$jar" -c "$jar" "$HUB/hub/home" | grep -oP 'name="_xsrf"\s+value="\K[^"]+' | head -1)
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -b "$jar" -c "$jar" \
+      -H "X-XSRFToken: $xsrf" -H "Referer: $HUB/hub/home" \
+      "$HUB/hub/api/users/$user/server?_xsrf=$xsrf")
+  else
+    code=000
+  fi
+  if [[ ! "$code" =~ ^(200|202|204)$ ]]; then
+    local tok
+    tok=$(/opt/tljh/hub/bin/python -c '
+import sys
+from jupyterhub.orm import User
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+db = sessionmaker(bind=create_engine("sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"))()
+u = db.query(User).filter_by(name=sys.argv[1]).first()
+if u:
+    t = u.new_api_token(note="hub_stop_token")
+    db.commit()
+    sys.stdout.write(t)
+' "$user" 2>/dev/null || true)
+    if [ -n "$tok" ]; then
+      curl -s -o /dev/null -X DELETE -H "Authorization: token $tok" "$HUB/hub/api/users/$user/server"
+    fi
+  fi
+  for _ in $(seq 1 30); do
+    systemctl is-active --quiet "jupyter-$user" || return 0
+    sleep 1
   done
   return 1
 }

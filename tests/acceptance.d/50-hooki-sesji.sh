@@ -62,15 +62,36 @@ if scratch and os.path.isdir(scratch):
     with open(os.path.join(scratch, "sub", "plik.tmp"), "w", encoding="utf-8") as fh:
         fh.write("x")
 ns["wlb_post_stop_hook"](spawner)
+
+# Test osieroconej sesji: plik stanu z poprzedniej sesji musi zostać domknięty jako interrupted
+import json
+stale_unit = unit + "-stale"
+stale_file = os.path.join(ns["_WLB_STATE_DIR"], stale_unit + ".json")
+os.makedirs(ns["_WLB_STATE_DIR"], exist_ok=True)
+with open(stale_file, "w", encoding="utf-8") as fh:
+    json.dump({"session_id": "sess-stale-97", "start_wall": 123456, "lab_source": "spawner_env"}, fh)
+stale_spawner = types.SimpleNamespace(
+    user=types.SimpleNamespace(name=user),
+    unit_name=stale_unit,
+    environment={"WLB_LAB_NAME": "lab-test01"},
+    log=types.SimpleNamespace(warning=lambda *a, **k: warn.append(a)),
+)
+ns["wlb_pre_spawn_hook"](stale_spawner)
+interrupted_call = [c for c in calls if c and c[0].endswith("wlb-usage-record") and "interrupted:spawner_env" in c]
+ns["wlb_post_stop_hook"](stale_spawner)
+
 with open(result, "w", encoding="utf-8") as fh:
     fh.write("scratch=%s\n" % scratch)
     fh.write("scratch_uid=%s\n" % scratch_uid)
     fh.write("xauth=%s\n" % " ".join(" ".join(c) for c in calls))
+    fh.write("interrupted=%s\n" % ("ok" if interrupted_call else "none"))
 PY
 expect_ok "pre_spawn tworzy scratch per-unit na tmpfs i ustawia TMPDIR sesji (#318)" \
   test "$(sed -n 's/^scratch=//p' "$W50_RESULT")" = "$W50_SCRATCH"
 expect_ok "scratch należy do UID badacza (10000-59999, #318)" \
   test "$(sed -n 's/^scratch_uid=//p' "$W50_RESULT")" = "$W50_UID"
+expect_ok "pre_spawn domyka osieroconą sesję jako interrupted (#97, #98)" \
+  test "$(sed -n 's/^interrupted=//p' "$W50_RESULT")" = "ok"
 expect_ok "post_stop usuwa scratch w całości (katalog z podkatalogiem, #318)" test ! -e "$W50_SCRATCH"
 expect_ok "Plik-świadek w /workspace przeżywa sprzatanie (deny-lista, #318)" \
   test -f "$W50_HOME/wlb-318-witness"
@@ -133,6 +154,69 @@ PY
   rm -f /workspace/.Xauthority "$W50_HOME/.vnc/keepme.log" "$W50_HOME/.vnc/wlb-318-other.txt"
 else
   skip "Reaping display-scoped (#318): brak pulpitu/xauth — sprawdzone testami jednostkowymi"
+fi
+
+# --- Pełny E2E cykl życia z realnym Hubem (#97, #318) ---
+# Weryfikacja że realny JupyterHub / SystemdSpawner wykonuje wlb_pre_spawn_hook i wlb_post_stop_hook
+# w pełnym cyklu życia serwera badacza: spawn -> TMPDIR i scratch 0700 -> stop przez API Huba
+# -> usunięcie scratcha i stanów -> skorelowany session_stop w journald -> ponowny spawn z nowym UUID.
+if systemctl is-active --quiet "jupyter-$R2"; then
+  W50_REAL_UNIT="jupyter-$R2.service"
+  W50_REAL_SCRATCH="/run/wlb/scratch/$W50_REAL_UNIT"
+  W50_REAL_STATE="/run/wlb/usage/sessions/$W50_REAL_UNIT.json"
+
+  expect_ok "Realny Hub: scratch sesji na tmpfs obecny dla jupyter-$R2 (#97, #318)" test -d "$W50_REAL_SCRATCH"
+  expect_ok "Realny Hub: scratch ma tryb 0700 (#97, #318)" \
+    bash -c "[ \"\$(stat -c %a \"$W50_REAL_SCRATCH\")\" = 700 ]"
+  expect_ok "Realny Hub: scratch należy do badacza $R2 (#97, #318)" \
+    bash -c "[ \"\$(stat -c %u \"$W50_REAL_SCRATCH\")\" = \"$W50_UID\" ]"
+  expect_ok "Realny Hub: plik stanu sesji obecny (#97, #98)" test -s "$W50_REAL_STATE"
+
+  W50_E2E_SID1=$(sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' "$W50_REAL_STATE")
+  expect_ok "Realny Hub: session_id w stanie sesji jest niepusty (#97)" test -n "$W50_E2E_SID1"
+  expect_ok "Realny Hub: session_start wyemitowany do journald z SID1 (#97)" \
+    bash -c "journalctl -t wlb-session 2>/dev/null | grep -q 'session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID1'"
+
+  # Zapisujemy plik-marker w scratchu badacza, aby dowieść że zostanie skasowany przez post_stop_hook
+  touch "$W50_REAL_SCRATCH/e2e-marker.tmp"
+  chown "jupyter-$R2" "$W50_REAL_SCRATCH/e2e-marker.tmp"
+
+  expect_ok "Realny Hub: zatrzymanie serwera przez API Huba (hub_stop $R2) (#97)" \
+    hub_stop "$R2"
+  expect_fail "Realny Hub: jednostka systemd zatrzymana (#97)" \
+    systemctl is-active --quiet "jupyter-$R2"
+  expect_ok "Realny Hub: scratch sesji całkowicie usunięty po stopie (#97, #318)" \
+    test ! -e "$W50_REAL_SCRATCH"
+  expect_ok "Realny Hub: plik stanu sesji usunięty po stopie (#97)" \
+    test ! -e "$W50_REAL_STATE"
+
+  for _ in $(seq 1 15); do
+    journalctl -t wlb-session 2>/dev/null | grep -qE "session_stop user=jupyter-$R2 .*hub_session=$W50_E2E_SID1 duration=[0-9]+" && break
+    sleep 1
+  done
+  expect_ok "Realny Hub: session_stop w journald ze skorelowanym SID1 i czasem trwania (#97)" \
+    bash -c "journalctl -t wlb-session 2>/dev/null | grep -qE 'session_stop user=jupyter-$R2 .*hub_session=$W50_E2E_SID1 duration=[0-9]+'"
+
+  # Ponowny spawn serwera przez Hub — weryfikacja czystego startu nowej sesji z nowym UUID
+  expect_ok "Realny Hub: ponowny spawn serwera $R2 (#97)" \
+    hub_spawn "$R2"
+  expect_ok "Realny Hub: jednostka systemd ponownie aktywna (#97)" \
+    systemctl is-active --quiet "jupyter-$R2"
+  expect_ok "Realny Hub: nowy scratch sesji utworzony (#97, #318)" \
+    test -d "$W50_REAL_SCRATCH"
+
+  W50_E2E_SID2=$(sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' "$W50_REAL_STATE")
+  expect_ok "Realny Hub: nowy session_id jest różny od poprzedniego (#97)" \
+    test -n "$W50_E2E_SID2" -a "$W50_E2E_SID2" != "$W50_E2E_SID1"
+
+  for _ in $(seq 1 15); do
+    journalctl -t wlb-session 2>/dev/null | grep -q "session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID2" && break
+    sleep 1
+  done
+  expect_ok "Realny Hub: session_start wyemitowany dla nowego SID2 (#97)" \
+    bash -c "journalctl -t wlb-session 2>/dev/null | grep -q 'session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID2'"
+else
+  skip "Realny Hub E2E (#97): serwer jupyter-$R2 nie jest aktywny"
 fi
 
 rm -f "$W50_HOME/wlb-318-witness" /workspace/.wlb-export-queue/wlb-318-witness

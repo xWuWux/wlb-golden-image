@@ -234,3 +234,98 @@ def test_sprzatanie_pomijane_dla_uid_spoza_zakresu(tmp_path, monkeypatch):
     ns["wlb_post_stop_hook"](_spawner())
 
     assert scratch.exists(), "uid spoza zakresu 10000-59999 nie może nic usuwać"
+
+
+def test_pre_spawn_domyka_osierocona_sesje_jako_interrupted(tmp_path, monkeypatch):
+    """#97/#98: pre_spawn wykrywa stary plik stanu (np. po awaryjnym restarcie huba),
+    domyka poprzednią sesję jako 'interrupted:<source>' przez wlb-usage-record ze starym session_id,
+    po czym uruchamia nową sesję ze świeżym session_id i nowym plikiem stanu."""
+    state_file = tmp_path / "jupyter-tester1.service.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "session_id": "sess-orphaned-99",
+                "start_wall": 1_234_567,
+                "lab_source": "spawner_env",
+            }
+        ),
+        encoding="utf-8",
+    )
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=1_235_000, monotonic=100.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    # 1. Poprzednia sesja domknięta jako interrupted
+    rec = _call(calls, "wlb-usage-record")
+    assert rec is not None, "powinien powstać rekord interrupted dla osieroconej sesji"
+    # argumenty: [prog, unit, sid, lab, start, stop, duration, status]
+    assert rec[1] == "jupyter-tester1.service"
+    assert rec[2] == "sess-orphaned-99", "rekord musi dotyczyć starego session_id"
+    assert rec[3] == "lab-x"
+    assert rec[4] == "1234567"
+    assert rec[5] == "", "stop_wall pusty (null w rekordzie, nie epocha 1970)"
+    assert rec[6] == "", "duration pusty"
+    assert rec[7] == "interrupted:spawner_env"
+
+    # 2. Nowa sesja startuje z unikalnym session_id
+    assert spawner._wlb_session != "sess-orphaned-99"
+    start_call = _call(calls, "wlb-session-log", "start")
+    assert start_call is not None
+    assert start_call[4] == spawner._wlb_session
+
+    # 3. Plik stanu na dysku został nadpisany nową sesją
+    new_state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert new_state["session_id"] == spawner._wlb_session
+    assert new_state["start_wall"] == 1_235_000
+    assert new_state["lab_source"] == "spawner_env"
+
+
+def test_pre_spawn_osierocona_sesja_bez_start_wall_przekazuje_pusty_czas(tmp_path, monkeypatch):
+    """#97/#98: brak start_wall w osieroconym stanie -> pusty argument w wywołaniu wlb-usage-record,
+    nigdy '0' czy 'None' udające czas."""
+    state_file = tmp_path / "jupyter-tester1.service.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "session_id": "sess-no-start",
+                "lab_source": "spawner_env",
+            }
+        ),
+        encoding="utf-8",
+    )
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=2_000_000, monotonic=200.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    rec = _call(calls, "wlb-usage-record")
+    assert rec is not None
+    assert rec[2] == "sess-no-start"
+    assert rec[4] == "", "brak start_wall to pusty string -> null w JSON"
+    assert rec[7] == "interrupted:spawner_env"
+
+
+def test_pre_spawn_czysta_sesja_nie_wywoluje_interrupted(tmp_path, monkeypatch):
+    """#97: pierwszy start sesji (brak pliku stanu) nie woła wlb-usage-record interrupted."""
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=1_000_000, monotonic=50.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    assert _call(calls, "wlb-usage-record") is None
+    assert _call(calls, "wlb-session-log", "start") is not None
+
+
+def test_pre_spawn_uszkodzony_plik_stanu_nie_wywraca_spawnu(tmp_path, monkeypatch):
+    """#97: uszkodzony/niepełny JSON w stanie sesji jest ignorowany (fail-secure),
+    nie blokuje startu nowego serwera."""
+    (tmp_path / "jupyter-tester1.service.json").write_text("{ niepoprawny json ...", encoding="utf-8")
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=1_000_000, monotonic=50.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)  # nie rzuca błędu
+
+    assert _call(calls, "wlb-usage-record") is None
+    assert _call(calls, "wlb-session-log", "start") is not None
+    assert spawner._wlb_session
