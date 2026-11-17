@@ -159,6 +159,24 @@ case $EVENT in
 esac
 [[ $histologia == true ]] && image=true
 
+# Dynamiczna macierz flavorów etapu 5: tylko warianty, które REALNIE się zbudują i przetestują.
+# general jest zawsze (gdy image=true — bazowa akceptacja MVP); memory/histologia/radiologia dołączają
+# wyłącznie przy opt-in. Dzięki temu job w macierzy = job, który faktycznie buduje — brak fałszywego
+# zielonego z gałęzi „pominięto" (#317/P1-5). Nieopt-inowy flavor NIE istnieje jako job, zamiast przechodzić
+# na pusto — i nie obciąża budżetu GitHub Actions.
+flavors_list=()
+[[ $image == true ]] && flavors_list+=(general)
+[[ $radiologia == true ]] && flavors_list+=(radiologia)
+[[ $memory == true ]] && flavors_list+=(memory)
+[[ $histologia == true ]] && flavors_list+=(histologia)
+# JSON budujemy w czystym bashu (bez zależności od pythona — spójny format ", " jak json.dumps);
+# nazwy flavorów to kontrolowane literały [a-z], więc nie trzeba escapować.
+flavors_json="["
+for _f in "${flavors_list[@]}"; do
+  [[ $flavors_json == "[" ]] && flavors_json+="\"$_f\"" || flavors_json+=", \"$_f\""
+done
+flavors_json+="]"
+
 perf=false
 { has_label perf || [[ ${IN_PERF:-false} == true ]]; } && perf=true
 # nocny build obejmuje też benchmarki wydajności (wczesne wykrycie regresji wydajności)
@@ -172,5 +190,6 @@ echo "image=$image"
 echo "radiologia=$radiologia"
 echo "memory=$memory"
 echo "histologia=$histologia"
+echo "flavors=$flavors_json"
 echo "perf=$perf"
 echo "ephemeral=$ephemeral"

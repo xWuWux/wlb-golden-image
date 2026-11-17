@@ -64,6 +64,7 @@ jobs:
       radiologia: ${{ steps.changes.outputs.radiologia }}
       memory: ${{ steps.changes.outputs.memory }}
       histologia: ${{ steps.changes.outputs.histologia }}
+      flavors: ${{ steps.changes.outputs.flavors }}
       perf: ${{ steps.changes.outputs.perf }}
       ephemeral: ${{ steps.changes.outputs.ephemeral }}
     steps:
@@ -489,7 +490,9 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        flavor: [general, memory, histologia, radiologia]
+        # Dynamiczna lista: tylko flavory, które realnie się zbudują (general zawsze gdy image=true,
+        # reszta przy opt-in). Nieopt-inowy flavor nie jest jobem zamiast przechodzić na pusto (#317/P1-5).
+        flavor: ${{ fromJSON(needs.lint.outputs.flavors) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Miejsce na dysku (obraz + VM testowe)

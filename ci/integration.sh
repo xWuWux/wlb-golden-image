@@ -473,6 +473,10 @@ hardening_report() {
 # akceptację (adaptacyjne 70-radiologia + 40-pulpit wykryją flavor). Łapie błędy runtime (np. installer FSL).
 radiologia_flavor() {
   [[ ${WLB_BUILD_RADIOLOGIA:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == radiologia ]]; then
+      echo "BŁĄD: flavor 'radiologia' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_RADIOLOGIA=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
     echo "pominięto: brak etykiety build-radiologia ani zmiany plików flavora (#135)"
     return 0
   }
@@ -502,6 +506,10 @@ radiologia_flavor() {
 # i konwersję CSV->ODS na realnym obrazie.
 memory_flavor() {
   [[ ${WLB_BUILD_MEMORY:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == memory ]]; then
+      echo "BŁĄD: flavor 'memory' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_MEMORY=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
     echo "pominięto: brak etykiety build-memory ani zmiany plików flavora (#105)"
     return 0
   }
@@ -528,6 +536,10 @@ memory_flavor() {
 # jamovi-Flatpak i — kluczowo — start sandboxa bwrap (nieuprzywilejowane userns na utwardzonym jądrze).
 histologia_flavor() {
   [[ ${WLB_BUILD_HISTOLOGIA:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == histologia ]]; then
+      echo "BŁĄD: flavor 'histologia' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_HISTOLOGIA=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
     echo "pominięto: brak etykiety build-histologia ani zmiany plików flavora (#108)"
     return 0
   }
