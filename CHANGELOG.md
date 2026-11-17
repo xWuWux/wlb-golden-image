@@ -80,17 +80,23 @@ pierwszym Laboratorium na klastrze).
   Wcześniej taki zapis czerwienił etap 5 jako `DRYF` (po bumpie bezpieczeństwa soupsieve), mimo że
   obraz był zgodny z lockiem. Wersje nieparsowalne nadal porównujemy znakowo, a realna różnica
   (np. `4.0.1` vs `4.0.0`) pozostaje błędem.
-- **E2E wejścia pulpitu w przeglądarce (#277):** krok interakcji `tests/desktop-e2e-novnc.py` przestał
-  być best-effort i **deterministycznie potwierdza reakcję** pulpitu. Przyczyną fałszywego
-  `before == after` była próbka: czytała tylko lewy-górny róg 200×200, a prawy klik trafiał w ~(640,400)
-  — menu xfdesktop powstawało poza próbką, a zrzut robiono już po `Escape`. Teraz porównujemy **pełny
-  bufor** canvasu (próg na piksel + minimalna liczba zmienionych pikseli), klikamy przez
-  `locator.click(position=…)` (bez ręcznego offsetu paska noVNC) i fotografujemy menu, zanim `Escape`
-  je zamknie. Dodatkowo opakowany `WebSocket.send` liczy komunikaty RFB (`PointerEvent`/`KeyEvent`),
-  więc wynik rozróżnia „zdarzenie nie dotarło do noVNC” od „noVNC wysłał, pulpit nie zareagował”.
-  Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
-  a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
-  (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
+- **E2E pulpitu bez fałszywych bramek (#277, część B):** `tests/desktop-e2e-novnc.py` nie rozstrzyga
+  już o wejściu po diffie pikseli ani liczniku `WebSocket.send` — jedno i drugie jest **wyłącznie
+  diagnostyką** w `result.json` (progu diffu nie kalibrujemy). Bramką jest *skutek* wejścia odczytany
+  out-of-band z VM: klawiatura wpisuje świeży nonce i root porównuje go z `/run/wlb/e2e/keyboard.txt`,
+  mysz klika konkretny przycisk targetu (geometria z `/run/wlb/e2e/target.json`, odświeżona tuż przed
+  akcją) i root czyta `/run/wlb/e2e/mouse.txt` (`rc=0`). Katalog markerów czyści się przed każdą akcją.
+  Scenariusze launcher/render/pointer/keyboard/resize/reconnect są rozstrzygane niezależnie (mysz OK
+  nie zalicza klawiatury), a Launcher→Desktop to wymagany scenariusz bez fallbacku `goto /desktop/`.
+  Viewport jest dopasowywany do `target.screen` z kalibracją wysokości paska noVNC (bez zgadywania
+  stałej), a resize zmienia go tylko na czas scenariusza i przywraca przed akcją myszy — przy
+  `rfb.resizeSession=true` framebuffer X idzie za oknem, więc target publikowany przy starcie
+  opisywałby nieaktualną geometrię.
+  Wynik v3 (`status: pass|fail|error`, pole `gating`) powstaje na każdej ścieżce, także po deadline;
+  test czyta markery jako root (lokalnie `sudo -n` albo `WLB_E2E_SSH`) i wymaga realnego zaufania do
+  `WLB_E2E_CA` (tymczasowy NSS DB + `certutil`) — niezaufany certyfikat to ERROR, nie
+  `--ignore-certificate-errors`. Etap 5 przekazuje SSH/CA oraz `WLB_E2E_DESKTOP=absent|required`:
+  baza jest bezpulpitująca, a flavory (memory, radiologia, histologia) wołają akceptację z `required`.
 - **Bramka regresji utwardzenia Lynis (#288):** etap 5 nadal domyślnie tylko raportuje
   (`hardening_index`, ostrzeżenia, sugestie), ale `WLB_LYNIS_GATING=1` promuje wynik do bramki:
   spadek `hardening_index` poniżej `WLB_LYNIS_BASELINE` (domyślnie 72) albo dowolne `warning[]`
