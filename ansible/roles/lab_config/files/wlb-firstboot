@@ -146,7 +146,8 @@ case $HUB_TLS in
   0) ;;
   *) die "HUB_TLS musi być 0 albo 1, jest '${HUB_TLS}'" ;;
 esac
-# Uwierzytelnianie: native (MVP, Native Authenticator) albo oidc (Entra ID / Keycloak przez OAuth). #18
+# Uwierzytelnianie (#18): native (MVP, Native Authenticator), entra (Microsoft Entra ID, docelowe IdP GUMed)
+# albo oidc (dowolny dostawca OIDC, np. Keycloak, przez GenericOAuthenticator).
 AUTH_MODE=${AUTH_MODE:-native}
 OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
 OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
@@ -160,6 +161,47 @@ OIDC_USERNAME_CLAIM=${OIDC_USERNAME_CLAIM:-preferred_username} # claim -> login;
 OIDC_GROUPS_CLAIM=${OIDC_GROUPS_CLAIM:-groups}
 OIDC_ALLOWED_GROUPS=${OIDC_ALLOWED_GROUPS:-} # grupy IdP z dostępem do Laboratorium (oddzielone przecinkami)
 OIDC_ADMIN_GROUPS=${OIDC_ADMIN_GROUPS:-}     # grupy IdP z rolą administratora huba
+# AUTH_MODE=entra: klient i callback z OIDC_CLIENT_ID / OIDC_CLIENT_SECRET / OIDC_CALLBACK_URL, login z rejestru
+# przypisań (tid, oid) -> konto, dostęp tylko z rolą aplikacji Laboratorium (#18, #102 D4)
+ENTRA_TENANT_ID=${ENTRA_TENANT_ID:-}                                # identyfikator (GUID) tenantu Entra GUMed
+ENTRA_REQUIRED_ROLE=${ENTRA_REQUIRED_ROLE:-}                        # wartość roli aplikacji dającej wejście, np. WLB.Lab.<LAB_NAME>
+ENTRA_ACCOUNTS_FILE=${ENTRA_ACCOUNTS_FILE:-/etc/wlb/entra-accounts} # rejestr 'tid oid konto' (root, 0600)
+ENTRA_ACCOUNTS_TOOL=${WLB_ENTRA_ACCOUNTS_TOOL:-/opt/wlb/hub/wlb_entra_accounts.py}
+GUID_RE='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+# Fail-secure (#18): konfigurację uwierzytelniania sprawdzamy PRZED jakąkolwiek zmianą na VM — błąd nie może
+# zostawić huba otwartego dla każdego konta w tenancie ani po cichu wrócić do logowania hasłem.
+validate_auth() {
+  local v perm owner
+  case $AUTH_MODE in
+    native) ;;
+    oidc)
+      # P0 z audytu (#18, 2026-11-06): bez grup GenericOAuthenticator wpuściłby każdego z IdP (allow_all)
+      [[ -n ${OIDC_ALLOWED_GROUPS//[[:space:],]/} ]] ||
+        die "AUTH_MODE=oidc: wymagane niepuste OIDC_ALLOWED_GROUPS — bez grup dostęp miałby każdy użytkownik IdP (#18)"
+      ;;
+    entra)
+      for v in ENTRA_TENANT_ID ENTRA_REQUIRED_ROLE OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_CALLBACK_URL; do
+        [[ -n ${!v} ]] || die "AUTH_MODE=entra: brak wymaganej zmiennej ${v}"
+      done
+      [[ $ENTRA_TENANT_ID =~ $GUID_RE ]] || die "AUTH_MODE=entra: ENTRA_TENANT_ID musi być identyfikatorem GUID tenantu"
+      [[ $ENTRA_REQUIRED_ROLE =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$ ]] ||
+        die "AUTH_MODE=entra: ENTRA_REQUIRED_ROLE musi być wartością roli aplikacji (litery, cyfry, . _ -)"
+      [[ $OIDC_CALLBACK_URL =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/hub/oauth_callback$ ]] ||
+        die "AUTH_MODE=entra: OIDC_CALLBACK_URL musi mieć postać https://<portal>/hub/oauth_callback (#18)"
+      [[ -r $R$ENTRA_ACCOUNTS_FILE ]] || die "AUTH_MODE=entra: brak rejestru przypisań ${ENTRA_ACCOUNTS_FILE} (cloud-init write_files)"
+      read -r perm owner < <(stat -c '%a %u' "$R$ENTRA_ACCOUNTS_FILE" 2>/dev/null || echo 777 -1)
+      (((8#$perm & 8#077) == 0)) ||
+        die "AUTH_MODE=entra: rejestr ${ENTRA_ACCOUNTS_FILE} ma zbyt szerokie prawa (${perm}) — wymagane maks. 0600 (#18)"
+      # właściciel root: rejestr decyduje, kto wchodzi na które konto (WLB_* nadpisuje tylko w testach)
+      [[ $owner == "${WLB_ENTRA_ACCOUNTS_OWNER:-0}" ]] ||
+        die "AUTH_MODE=entra: rejestr ${ENTRA_ACCOUNTS_FILE} musi należeć do root (właściciel UID ${owner}) (#18)"
+      python3 "$ENTRA_ACCOUNTS_TOOL" --check "$R$ENTRA_ACCOUNTS_FILE" --tenant "$ENTRA_TENANT_ID" >/dev/null ||
+        die "AUTH_MODE=entra: rejestr przypisań ${ENTRA_ACCOUNTS_FILE} niepoprawny (szczegóły powyżej)"
+      ;;
+    *) die "AUTH_MODE musi być native, entra albo oidc, jest '${AUTH_MODE}'" ;;
+  esac
+}
+validate_auth
 NTP_SERVERS=${NTP_SERVERS:-}
 SIEM_HOST=${SIEM_HOST:-}
 SIEM_PROTOCOL=${SIEM_PROTOCOL:-tcp}
@@ -621,9 +663,10 @@ elif [[ -f $HUB_CONFIG_D/11-wlb-session.py ]]; then
   log "limit sesji: cofnięto wydłużenie — cull.max_age przywrócone do domyślnego ${default_session_seconds} s (§9.5, #78)"
 fi
 
-# --- 5c. Uwierzytelnianie: native (MVP) albo OIDC (Entra ID / Keycloak), #18 -----------------
-# Domyślnie Native Authenticator (konta lokalne w bazie huba). AUTH_MODE=oidc przełącza na
-# GenericOAuthenticator: logowanie webowe SSO, MFA po stronie IdP, hub bez haseł. Nadpisuje
+# --- 5c. Uwierzytelnianie: native (MVP), Entra ID albo OIDC (np. Keycloak), #18 ------------------
+# Domyślnie Native Authenticator (konta lokalne w bazie huba). AUTH_MODE=entra przełącza na
+# WlbEntraAuthenticator (Entra ID, login z rejestru przypisań, rola aplikacji Laboratorium), a
+# AUTH_MODE=oidc na GenericOAuthenticator (inny IdP). Logowanie webowe SSO, MFA po stronie IdP. Nadpisuje
 # authenticator_class z config.yaml, bo plik 70 ładuje się po nim. Fail-secure: brak wymaganej
 # zmiennej przerywa konfigurację, zamiast po cichu wrócić do logowania lokalnego.
 AUTH_CONF=$HUB_CONFIG_D/70-wlb-auth.py
@@ -674,22 +717,49 @@ print(f"c.GenericOAuthenticator.userdata_url = {os.environ['OIDC_USERDATA_URL']!
 print(f"c.GenericOAuthenticator.oauth_callback_url = {os.environ['OIDC_CALLBACK_URL']!r}")
 print(f"c.GenericOAuthenticator.scope = {os.environ['OIDC_SCOPE'].split()!r}")
 print(f"c.GenericOAuthenticator.username_claim = {os.environ['OIDC_USERNAME_CLAIM']!r}")
-print(f"c.GenericOAuthenticator.claim_groups_key = {os.environ['OIDC_GROUPS_CLAIM']!r}")
+# oauthenticator 17 (TLJH 2.0): grupy z claimu wymagają manage_groups, inaczej hub nie startuje
+# („claim_groups_key requires manage_groups"); claim_groups_key jest przestarzały -> auth_state_groups_key
+print("c.GenericOAuthenticator.manage_groups = True")
+print(f"c.GenericOAuthenticator.auth_state_groups_key = {'oauth_user.' + os.environ['OIDC_GROUPS_CLAIM']!r}")
 allowed, admin = groups("OIDC_ALLOWED_GROUPS"), groups("OIDC_ADMIN_GROUPS")
-if allowed:
-    # posortowana lista (deterministycznie); allowed_groups i tak traktuje ją jak zbiór
-    print(f"c.GenericOAuthenticator.allowed_groups = {allowed!r}")
-else:
-    # brak grup: każdy uwierzytelniony w IdP ma dostęp — do zawężenia grupami (#18)
-    print("c.GenericOAuthenticator.allow_all = True")
+# validate_auth wymusiła niepuste grupy; allow_all jawnie wyłączony (P0 z audytu #18)
+assert allowed, "OIDC_ALLOWED_GROUPS puste"
+print("c.GenericOAuthenticator.allow_all = False")
+# posortowana lista (deterministycznie); allowed_groups i tak traktuje ją jak zbiór
+print(f"c.GenericOAuthenticator.allowed_groups = {allowed!r}")
 if admin:
     print(f"c.GenericOAuthenticator.admin_groups = {admin!r}")
 PY
     chmod 0600 "$AUTH_CONF" # zawiera client_secret
     log "uwierzytelnianie: OIDC (${OIDC_AUTHORIZE_URL})"
     ;;
+  entra)
+    # Konta huba bez zmian (u01, a01, stare konta nazwane): login wynika z rejestru przypisań, nie z claimu.
+    # Hasła Native zostają w bazie huba, więc powrót to AUTH_MODE=native (runbook RB-entra).
+    export ENTRA_TENANT_ID ENTRA_REQUIRED_ROLE ENTRA_ACCOUNTS_FILE OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_CALLBACK_URL
+    python3 - >"$AUTH_CONF" <<'PY'
+import os
+print("# Wygenerowane przez wlb-firstboot — nie edytować ręcznie. Uwierzytelnianie Entra ID (#18).")
+print("import sys")
+print("sys.path.insert(0, '/opt/wlb/hub')")
+print("from wlb_entra_auth import WlbEntraAuthenticator  # noqa: E402")
+print("c = get_config()  # noqa: F821")
+print("c.JupyterHub.authenticator_class = WlbEntraAuthenticator")
+print(f"c.WlbEntraAuthenticator.tenant_id = {os.environ['ENTRA_TENANT_ID'].lower()!r}")
+print(f"c.WlbEntraAuthenticator.client_id = {os.environ['OIDC_CLIENT_ID']!r}")
+print(f"c.WlbEntraAuthenticator.client_secret = {os.environ['OIDC_CLIENT_SECRET']!r}")
+print(f"c.WlbEntraAuthenticator.oauth_callback_url = {os.environ['OIDC_CALLBACK_URL']!r}")
+print(f"c.WlbEntraAuthenticator.required_role = {os.environ['ENTRA_REQUIRED_ROLE']!r}")
+print(f"c.WlbEntraAuthenticator.accounts_file = {os.environ['ENTRA_ACCOUNTS_FILE']!r}")
+print("c.WlbEntraAuthenticator.allow_all = False")
+print("c.WlbEntraAuthenticator.manage_groups = False")
+print("c.WlbEntraAuthenticator.refresh_pre_spawn = True  # rejestr sprawdzany także przed startem serwera")
+PY
+    chmod 0600 "$AUTH_CONF" # zawiera client_secret
+    log "uwierzytelnianie: Entra ID (tenant ${ENTRA_TENANT_ID}, rola ${ENTRA_REQUIRED_ROLE})"
+    ;;
   *)
-    die "AUTH_MODE musi być native albo oidc, jest '${AUTH_MODE}'"
+    die "AUTH_MODE musi być native, entra albo oidc, jest '${AUTH_MODE}'"
     ;;
 esac
 

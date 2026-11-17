@@ -32,8 +32,10 @@ obserwowalności. Uzasadnienie i macierz zagrożeń: [IMG-003](adr/IMG-003-zakre
 
 ## Model kont (stan obecny)
 
-- **Uwierzytelnianie:** Native Authenticator (MVP). `AUTH_MODE=native` w `lab.env`;
-  przełączenie na OIDC (Entra ID / Keycloak, SSO+MFA) planowane (#18/#57).
+- **Uwierzytelnianie:** Native Authenticator (MVP, `AUTH_MODE=native`) albo Microsoft Entra ID
+  (`AUTH_MODE=entra`, SSO + MFA po stronie Entra): Entra loguje na **te same** konta przez rejestr
+  przypisań `(tid, oid) -> konto` i wymaga roli aplikacji Laboratorium. Migracja, powrót do haseł
+  i odbieranie dostępu: [RB-entra](runbooks/RB-entra.md) (#18).
 - **Konta stanowiskowe:** Administrator Klienta `a01` (`HUB_ADMIN_USER`) i badacze
   `u01`…`uNN`, gdzie N = `RESEARCHER_ACCOUNTS` (0–64, domyślnie `RESEARCHERS_PER_VM`).
   Nazwy nie zawierają danych osobowych, ale to nazwy techniczne, które **są** powiązane
@@ -174,7 +176,7 @@ Najważniejsze:
 | `MONITORING_CIDR` | jeden adres `/32`, z którego wolno scrape'ować metryki VM (`:9100`); puste = brak ekspozycji (#22) |
 | `HUB_TLS` (+`_CERT`/`_KEY`) | TLS huba; `1` domyślnie (HTTPS/443). `0` tylko dev/izolowana sieć — dane RODO nie mogą iść jawnym tekstem |
 | `NTP_SERVERS` | wewnętrzne serwery czasu |
-| `AUTH_MODE` | `native` (MVP) albo `oidc` |
+| `AUTH_MODE` | `native` (MVP), `entra` (Entra ID: `ENTRA_*` + rejestr przypisań, [RB-entra](runbooks/RB-entra.md)) albo `oidc` (inny IdP, wymaga `OIDC_ALLOWED_GROUPS`) |
 | `RESEARCHER_PACKAGE_INSTALL` | `deny` / `mirror` (IMG-004) |
 
 Przy `HUB_TLS=1` firstboot **waliduje** certyfikat i klucz (para, ważność, prawa `0600`,

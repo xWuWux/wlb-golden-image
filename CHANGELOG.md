@@ -32,6 +32,19 @@ pierwszym Laboratorium na klastrze).
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+- **Logowanie przez Microsoft Entra ID (`AUTH_MODE=entra`, #18):** `WlbEntraAuthenticator`
+  (podklasa `AzureAdOAuthenticator`, oauthenticator 17 z TLJH 2.0) loguje na konto wskazane
+  w rejestrze przypisań `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`, root 0600, tylko
+  identyfikatory) i wymaga roli aplikacji Laboratorium (`ENTRA_REQUIRED_ROLE`). Claim osobowy
+  (UPN, e-mail) nie staje się loginem, a hub prosi tylko o zakres `openid`. Sprawdzane są tenant,
+  issuer, audience i ważność id_token. `allow_all` nie da się włączyć. Sesja jest związana z osobą: usunięcie
+  wiersza albo przekazanie konta kończy sesje i tokeny API poprzedniej osoby w ciągu 5 minut, bez restartu huba. Konta, dane i hasła Native się nie zmieniają,
+  więc migracja to rejestr i `AUTH_MODE=entra`, a powrót to `AUTH_MODE=native` (runbook `RB-entra`).
+  `wlb-firstboot` waliduje całość przed zmianą na VM. Wzór: `cloud-init/examples/lab-user-data-entra.yaml`.
+- **`AUTH_MODE=oidc` naprawiony (P0 z audytu #18):** bez `OIDC_ALLOWED_GROUPS` firstboot kończy
+  się błędem przed zmianą, zamiast generować `allow_all = True` (dostęp dla każdego użytkownika IdP).
+  Konfiguracja z grupami uruchamia się na oauthenticator 17: wcześniej hub nie startował
+  (`claim_groups_key requires manage_groups`). Teraz generowane jest `manage_groups` + `auth_state_groups_key`.
 
 - **Koniec losowych czerwonych bramki SIEM w etapie 5:** forwarding VM→testowy SIEM (rsyslog/TLS)
   jest asynchroniczny — zdarzenie śluzy `sluza_out.export_request` potrafiło dotrzeć sekundy po tym,

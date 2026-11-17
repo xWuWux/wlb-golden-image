@@ -279,6 +279,23 @@
     dest: /usr/local/sbin/wlb-hub-user
     mode: "0750"
 
+# Logowanie przez Entra ID (#18): authenticator i rejestr przypisań (tid, oid) -> konto. Nieaktywne, dopóki
+# wlb-firstboot nie wygeneruje 70-wlb-auth.py dla AUTH_MODE=entra; importuje je wtedy Python huba TLJH.
+- name: Katalog modułów huba WLB (#18)
+  ansible.builtin.file:
+    path: /opt/wlb/hub
+    state: directory
+    mode: "0755"
+
+- name: Moduły logowania Entra ID (#18)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/wlb/hub/{{ item }}
+    mode: "0644"
+  loop:
+    - wlb_entra_accounts.py
+    - wlb_entra_auth.py
+
 # --- Spójna kopia bazy huba przed snapshotem storage (#8) -----------------------------
 - name: Narzędzie do spójnej kopii bazy huba (#8)
   ansible.builtin.copy:
