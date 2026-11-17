@@ -1,0 +1,346 @@
+# Matryca kanałów eksportu/importu (#292, inkrement 1) — jedno źródło prawdy dla testów,
+# raportu CI (`build/ci-logs/channels-*/channels.json`) i dokumentacji.
+# Walidacja schematu: tests/unit/test_channels_matrix.py. Harness: tests/acceptance.d/46-kanaly-eksportu.sh.
+#
+# expected:
+#   denied     — polityka WLB wymaga odmowy. Asercja bramkuje TYLKO przy WLB_CHANNEL_GATING=1;
+#                bez gatingu niezgodność daje SKIP (nigdy fałszywy PASS — jak #138).
+#   allowed    — kanał dozwolony polityką; wpis z `control: true` jest kontrolą pozytywną grupy
+#                (jej błąd unieważnia asercje `denied` w tej samej grupie).
+#   known_open — ryzyko szczątkowe/poza zasięgiem testu; TYLKO raport, nigdy asercja (wymaga `why`).
+#
+# required:
+#   true       — test wymagany dla obrazu; przy WLB_CHANNEL_GATING=1 status fail lub error
+#                (w tym timeout 124 lub brak narzędzia 127) blokuje bramkę (kod błędu).
+#   false      — test opcjonalny/warunkowy (np. flavor-specific jak jamovi) lub known_open.
+#
+# probe.type: http | fs | network | version | capture
+# Grupa = surface (jupyter, jamovi, desktop, network, rstudio, client); owner = zespół odpowiedzialny.
+schema: wlb.channels/v1
+channels:
+  # --- Jupyter HTTP (4.x): API serwera notebooków przez Traefik ---
+  - id: JL-API-READ
+    direction: internal
+    surface: jupyter
+    expected: allowed
+    required: true
+    control: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents?content=0", expect_status: 200}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # Zapis notebooka/pliku w domu — ten sam endpoint, którego JupyterLab używa do edycji.
+  # To NIE dowodzi pochodzenia pliku (drag-and-drop uploadu nie da się odróżnić od zapisu — #292 §6).
+  - id: JL-SAVE
+    direction: internal
+    surface: jupyter
+    expected: allowed
+    required: true
+    probe:
+      type: http
+      method: PUT
+      path: "/user/{user}/api/contents/wlb-kanaly-probe.txt"
+      body: '{"type": "file", "format": "text", "content": "wlb-kanaly-probe"}'
+      expect_status: [200, 201]
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JL-FILES-DL
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/files/wlb-kanaly-probe.csv?download=1", expect_status: 403}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # /nbconvert/{format}/{path}?download=1 (NbconvertFileHandler w Jupyter Server) blokowane przez Traefik (403).
+  # /api/nbconvert to endpoint discovery (lista eksporterów, zwraca 200), nie eksportuje notatnika.
+  - id: JL-NBCONVERT
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/nbconvert/html/wlb-kanaly-probe.ipynb?download=1", expect_status: 403}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # Wektor #292 pkt 1.4: pobranie pełnej treści pliku przez Contents API z kodowaniem base64 (?content=1&format=base64).
+  # Całkowite zablokowanie /api/contents uniemożliwiłoby działanie JupyterLab (otwieranie/edycja notatników).
+  # Ograniczenie tego wektora wymaga dedykowanego ContentsManagera (#292 Faza 1) lub VDI/DLP (#18).
+  # Odnotowane jawnie jako known_open (raport ryzyka, nie obietnica zamknięcia).
+  - id: JL-CONTENTS-BASE64
+    direction: export
+    surface: jupyter
+    expected: known_open
+    required: false
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents/wlb-kanaly-probe.txt?content=1&format=base64", expect_status: 200}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+    why: >-
+      Contents API dostarcza treść pliku w base64 (?content=1&format=base64) bezpośrednio do
+      przeglądarki klienta w celu renderingu w JupyterLab. Blokada na poziomie reverse proxy
+      uniemożliwiłaby edycję notatników. Wektor wymaga ContentsManagera (Faza 1 #292) lub VDI (#18).
+
+  # Warianty ścieżek — każdy osobny wpis, inaczej jeden `..` daje fałszywe poczucie zamknięcia.
+  - id: JL-TRAVERSAL-DOTDOT
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents/../../etc/passwd?content=1", expect_status: 403}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JL-TRAVERSAL-ENCODED
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents/%2e%2e/%2e%2e/etc/passwd?content=1", expect_status: 403}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JL-TRAVERSAL-SLASH
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents//etc/passwd?content=1", expect_status: 403}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JL-TRAVERSAL-DOT
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents/./../../etc/passwd?content=1", expect_status: 403}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JL-TRAVERSAL-ABS
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents/%2Fetc%2Fpasswd?content=1", expect_status: 403}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # Symlink w domu badacza wskazujący poza korzeń ContentsManagera (do /etc/passwd).
+  - id: JL-TRAVERSAL-SYMLINK
+    direction: export
+    surface: jupyter
+    expected: denied
+    required: true
+    probe: {type: http, method: GET, path: "/user/{user}/api/contents/wlb-passwd-link?content=1", expect_status: 403}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # --- jamovi (Flatpak, 3.x): sandbox bwrap i jego widok systemu plików ---
+  # jamovi jest specyficzne dla flavora histologia — na obrazie bazowym probe zwraca brak Flatpaka (not_applicable/skip).
+  - id: JM-SANDBOX-HOME-READ
+    direction: internal
+    surface: jamovi
+    expected: allowed
+    required: false
+    control: true
+    probe: {type: fs, path: "~", operation: read, expect_exit: 0}
+    evidence: RV
+    owner: histologia
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JM-SLUIZA-IN-READ
+    direction: import
+    surface: jamovi
+    expected: allowed
+    required: false
+    probe: {type: fs, path: /sluza-in, operation: read, expect_exit: 0}
+    evidence: RV
+    owner: histologia
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JM-SLUIZA-OUT-WRITE
+    direction: export
+    surface: jamovi
+    expected: allowed
+    required: false
+    probe: {type: fs, path: /sluza-out, operation: write, expect_exit: 0}
+    evidence: RV
+    owner: histologia
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JM-ETC-SHADOW-READ
+    direction: export
+    surface: jamovi
+    expected: denied
+    required: false
+    probe: {type: fs, path: /etc/shadow, operation: read, expect_exit: nonzero}
+    evidence: RV
+    owner: histologia
+    test: acceptance/46-kanaly-eksportu
+
+  # Inny badacz na tej samej VM: /workspace jest w sandboxie, ale domy badaczy mają 0700.
+  - id: JM-U02-READ
+    direction: export
+    surface: jamovi
+    expected: denied
+    required: false
+    probe: {type: fs, path: "/workspace/jupyter-{other}", operation: read, expect_exit: nonzero}
+    evidence: RV
+    owner: histologia
+    test: acceptance/46-kanaly-eksportu
+
+  - id: JM-U02-WRITE
+    direction: import
+    surface: jamovi
+    expected: denied
+    required: false
+    probe: {type: fs, path: "/workspace/jupyter-{other}", operation: write, expect_exit: nonzero}
+    evidence: RV
+    owner: histologia
+    test: acceptance/46-kanaly-eksportu
+
+  # --- Pulpit (noVNC/jrdp, 4.1): system plików widziany przez sesję badacza ---
+  - id: DT-SLUIZA-OUT-WRITE
+    direction: export
+    surface: desktop
+    expected: allowed
+    required: true
+    control: true
+    probe: {type: fs, path: /sluza-out, operation: write, expect_exit: 0}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: DT-SLUIZA-IN-WRITE
+    direction: import
+    surface: desktop
+    expected: denied
+    required: true
+    probe: {type: fs, path: /sluza-in, operation: write, expect_exit: nonzero}
+    evidence: RV
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # Pin audytowanej wersji jrdp (#140/#277): zmiana wersji wymaga ponownego audytu kanałów
+  # (noVNC w 3.0.1 nie ma UI transferu plików). Niezgodność = FAIL zawsze, niezależnie od gatingu.
+  - id: DT-JRDP-VERSION
+    direction: internal
+    surface: desktop
+    expected: allowed
+    required: true
+    probe: {type: version, package: jupyter-remote-desktop-proxy, expect_version: "3.0.1"}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # --- Sieć (6.1): egress przez proxy z allowlistą i bezpośrednio (nftables) ---
+  - id: NET-PROXY-MIRROR
+    direction: export
+    surface: network
+    expected: allowed
+    required: true
+    control: true
+    probe: {type: network, via: proxy, target: mirror, expect_status: 200}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: NET-PROXY-EXTERNAL
+    direction: export
+    surface: network
+    expected: denied
+    required: true
+    probe: {type: network, via: proxy, target: "http://example.com/", expect_status: 403}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  - id: NET-DIRECT-IP
+    direction: export
+    surface: network
+    expected: denied
+    required: true
+    probe: {type: network, via: direct, target: "http://1.1.1.1/", expect_exit: nonzero}
+    evidence: V
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+
+  # --- RStudio (2.x): placeholder — fixture ścieżek transferu nie istnieje ---
+  # Capture mitmproxy i lista ścieżek upload/download/export to osobny inkrement (#292 PR-T3).
+  # Do tego czasu raportujemy ryzyko jako known_open (SKIP z właścicielem), nie udajemy PASS.
+  - id: RS-TRANSFER-PATHS
+    direction: export
+    surface: rstudio
+    expected: known_open
+    required: false
+    probe: {type: capture, tool: mitmproxy, fixture: tests/fixtures/rstudio-transfer-paths.txt}
+    evidence: R
+    owner: rstudio
+    test: acceptance/46-kanaly-eksportu
+    why: >-
+      Brak fixture `tests/fixtures/rstudio-transfer-paths.txt` — ścieżki upload/download/export
+      RStudio trzeba najpierw przechwycić mitmproxy na VM. Osobny inkrement #292 PR-T3; do tego
+      czasu kanał jest raportowany, ale nie asertowany (żadnego fałszywego PASS).
+
+  # --- Klient niezarządzany (przeglądarka / stacja badacza): raport ryzyka (known_open, brak asercji) ---
+  - id: CL-PRINT
+    direction: export
+    surface: client
+    expected: known_open
+    required: false
+    probe: {type: capture, tool: manual, fixture: none}
+    evidence: R
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+    why: >-
+      dane dostarczone do przegladarki badacza moga byc zapisane; pelna egzekucja wymaga VDI/DLP #18
+
+  - id: CL-SAVE-PAGE
+    direction: export
+    surface: client
+    expected: known_open
+    required: false
+    probe: {type: capture, tool: manual, fixture: none}
+    evidence: R
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+    why: >-
+      dane dostarczone do przegladarki badacza moga byc zapisane; pelna egzekucja wymaga VDI/DLP #18
+
+  - id: CL-CLIPBOARD
+    direction: export
+    surface: client
+    expected: known_open
+    required: false
+    probe: {type: capture, tool: manual, fixture: none}
+    evidence: R
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+    why: >-
+      dane dostarczone do przegladarki badacza moga byc zapisane; pelna egzekucja wymaga VDI/DLP #18
+
+  - id: CL-SCREENSHOT
+    direction: export
+    surface: client
+    expected: known_open
+    required: false
+    probe: {type: capture, tool: manual, fixture: none}
+    evidence: R
+    owner: platform
+    test: acceptance/46-kanaly-eksportu
+    why: >-
+      dane dostarczone do przegladarki badacza moga byc zapisane; pelna egzekucja wymaga VDI/DLP #18
