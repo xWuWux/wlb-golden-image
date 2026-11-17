@@ -12,6 +12,9 @@ require_vm
 shopt -s nullglob
 combined=$(mktemp)
 cat "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh >"$combined"
+# #292: WLB_CHANNEL_GATING=1 promuje niezgodności matrycy kanałów do FAIL (domyślnie SKIP, jak #138).
+channel_gating=
+if [[ ${WLB_CHANNEL_GATING:-0} == 1 ]]; then channel_gating=--channel-gating; fi
 # #149: program testowy trafia do VM razem z akceptacją, nie do obrazu produkcyjnego.
 {
   printf "\nif python3 - \"\$R1\" <<'WLB_RESOURCE_TEST'\n"
@@ -20,6 +23,7 @@ cat "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh >"$combin
   printf '\nsummary\n'
 } >>"$combined"
 remote_run "$combined" \
+  ${channel_gating:+--channel-gating} \
   ${WLB_TEST_NTP:+--ntp-sync} \
   ${WLB_TEST_PROXY:+--proxy-allowlist}
 rm -f "$combined"

@@ -546,6 +546,10 @@ jobs:
           # vars.WLB_LYNIS_BASELINE nadpisuje baseline (domyślnie 72).
           WLB_LYNIS_GATING: ${{ vars.WLB_LYNIS_GATING || '0' }}
           WLB_LYNIS_BASELINE: ${{ vars.WLB_LYNIS_BASELINE || '72' }}
+          # Bramka kanałów eksportu/importu (#292): domyślnie RAPORT (jak #138 — do walidacji KVM).
+          # vars.WLB_CHANNEL_GATING=1 promuje niezgodności `required` oraz awarie wymaganych sond do
+          # blokującego FAIL. Bez tej linii flaga była martwa (harness ma logikę, ale CI jej nie podawało).
+          WLB_CHANNEL_GATING: ${{ vars.WLB_CHANNEL_GATING || '0' }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

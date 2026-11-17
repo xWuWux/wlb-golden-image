@@ -278,6 +278,15 @@ acceptance() {
     "${SSH[@]}" 'sudo tar -C /tmp -cf - wlb-render-smoke 2>/dev/null' |
       tar -C "$LOGS/render-smoke-$logname" --strip-components=1 -xf - 2>/dev/null || true
   fi
+  # Kanały eksportu/importu (#292): fragment 46-kanaly-eksportu.sh pisze raport per flavor do
+  # /tmp/wlb-channels na VM. Kopiujemy przed stop-local, żeby tabela md (step summary) i JSON
+  # (artefakt) przetrwały. Raport jest nie-bramkujący — brak katalogu nie jest błędem.
+  if "${SSH[@]}" 'sudo test -d /tmp/wlb-channels' 2>/dev/null; then
+    mkdir -p "$LOGS/channels-$logname"
+    "${SSH[@]}" 'sudo tar -C /tmp -cf - wlb-channels 2>/dev/null' |
+      tar -C "$LOGS/channels-$logname" --strip-components=1 -xf - 2>/dev/null || true
+    chmod -R a+r "$LOGS/channels-$logname"
+  fi
   sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
   tests/stop-local.sh
@@ -298,6 +307,15 @@ acceptance() {
     grep -E '^(==|  (PASS|FAIL|SKIP)|Wynik)' "$LOGS/$logname.log" 2>/dev/null || echo "VM nie wystartowała — zob. artefakty ci-logs"
     echo '```'
   } | summary >/dev/null
+  # Tabela kanałów (#292) do step summary — ten sam raport, który jest w artefakcie JSON.
+  if [[ -f $LOGS/channels-$logname/channels.md ]]; then
+    {
+      echo
+      echo "### Kanały eksportu/importu (#292)"
+      echo
+      cat "$LOGS/channels-$logname/channels.md"
+    } | summary >/dev/null
+  fi
   return $rc
 }
 
