@@ -6,6 +6,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odświ
 _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odśwież: `python3 ci/mapa-testy.py`._
 _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-12). Odśwież: `python3 ci/mapa-testy.py`._
 _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-17). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
