@@ -76,7 +76,8 @@ if [ -x /opt/wlb/desktop/wlb-desktop-xstartup ]; then
     # absolutna MUSI przejść.
     if [ "$w43_has_localbin" -eq 0 ]; then
       W43_LOCAL=/usr/local/bin/wlb-314-tylko-lokalny
-      printf '#!/bin/sh\nexit 0\n' >"$W43_LOCAL"
+      # Skrypt-wrappery WLB mają linię `exec`; bez niej bramka słusznie uzna cel za nieistniejący.
+      printf '#!/bin/sh\nexec /bin/true "$@"\n' >"$W43_LOCAL"
       chmod 755 "$W43_LOCAL"
       printf '[Desktop Entry]\nType=Application\nName=Test\nExec=wlb-314-tylko-lokalny %%F\n' >"$W43_BAD"
       expect_fail "Bramka odrzuca polecenie istniejące tylko w /usr/local/bin (sedno #199, #314)" \
