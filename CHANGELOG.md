@@ -14,6 +14,8 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
@@ -33,6 +35,14 @@ pierwszym Laboratorium na klastrze).
   oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
   WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
   (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
+
+- **Koniec losowych czerwonych bramki SIEM w etapie 5:** forwarding VM→testowy SIEM (rsyslog/TLS)
+  jest asynchroniczny — zdarzenie śluzy `sluza_out.export_request` potrafiło dotrzeć sekundy po tym,
+  jak akceptacja w VM już przeszła, a `siem_delivery`/`siem_wazuh` sprawdzały log jednorazowo (wyścig;
+  pod obciążeniem/OOM bramka czerwieniła się losowo, mimo że dekoder/reguła w etapie 3.5 były OK).
+  Dodano polling na dotarcie realnego + podrobionego wpisu (≥2 wystąpienia) z deadline'em
+  (`WLB_SIEM_WAIT`, domyślnie 60 s) przed weryfikacją — `verify-log`/Wazuh pozostają jedynym wyrokiem,
+  to tylko cierpliwość, bez zmiany semantyki bramki.
 
 - **Koniec konfliktów mapy testów przy równoległych PR-ach:** `.gitattributes` oznacza
   `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany

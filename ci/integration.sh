@@ -319,7 +319,26 @@ acceptance() {
   return $rc
 }
 
+# Forwarding VM -> testowy SIEM (rsyslog/TLS) jest ASYNCHRONICZNY: zdarzenie śluzy
+# (sluza_out.export_request, realne + podrobione) potrafi dotrzeć sekundy po tym, jak akceptacja
+# w VM już przeszła. Jednorazowe sprawdzenie logu było wyścigiem — pod obciążeniem (OOM, wolny
+# runner) event nie zdążał i bramka czerwieniła się losowo, mimo że dekoder/reguła w etapie 3.5 OK.
+# Czekamy do deadline'u aż OBA wpisy (realny + podrobiony = ≥2 wystąpienia) dotrą; verify i tak
+# pozostaje jedynym wyrokiem — to tylko cierpliwość, nie zmiana semantyki bramki.
+siem_wait_event() {
+  local ev=$1 min=${2:-2} deadline=$((SECONDS + ${WLB_SIEM_WAIT:-60}))
+  while ((SECONDS < deadline)); do
+    if [[ -s $LOGS/siem.log ]] && (($(grep -c -- "$ev" "$LOGS/siem.log" 2>/dev/null || echo 0) >= min)); then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
 siem_delivery() {
+  # Daj asynchronicznemu forwardingowi dojść (|| true: timeout nie przesądza — verify orzeka niżej).
+  siem_wait_event sluza_out.export_request 2 || true
   [[ -s $LOGS/siem.log ]] || {
     echo "Odbiornik SIEM nie dostał żadnych zdarzeń"
     return 1
@@ -331,6 +350,7 @@ siem_delivery() {
 # Ten sam log, który dotarł do testowego SIEM, przez prawdziwy menedżer Wazuh (#17). Próbka w etapie 3.5
 # sprawdza wszystkie zdarzenia; tu — że dekodery nadążają za tym, co obraz faktycznie wysyła.
 siem_wazuh() {
+  siem_wait_event sluza_out.export_request 2 || true
   [[ -s $LOGS/siem.log ]] || return 1
   ci/wazuh-logtest.sh "$LOGS/siem.log" --expect-untrusted sluza_out.export_request
 }
