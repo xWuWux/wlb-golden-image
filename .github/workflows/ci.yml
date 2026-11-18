@@ -479,6 +479,14 @@ jobs:
         with:
           path: output/
           key: image-${{ github.run_id }}
+      # Locki i metadane z budowania (renv.lock, environment.lock.yml) — test dryfu i SBOM w jobach
+      # integracji czytają build/artifacts; cache obrazu przenosi tylko output/ (#317).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-artifacts
+          path: build/artifacts/
+          if-no-files-found: error
+          retention-days: 7
 
   integration:
     name: "5. Integracja (${{ matrix.flavor }})"
@@ -510,6 +518,12 @@ jobs:
           path: output/
           key: image-${{ github.run_id }}
           fail-on-cache-miss: true
+      # Te same locki z budowania, co w jobie 5a — bez nich lock_drift widzi pusty build/artifacts
+      # i zgłasza fałszywy dryf (FileNotFoundError renv.lock, #317).
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-artifacts
+          path: build/artifacts
       - name: Dostęp do KVM
         run: ci/enable-kvm.sh
       - name: QEMU i narzędzia obrazu
