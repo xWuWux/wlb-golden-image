@@ -166,3 +166,26 @@ print("VALID_OK")
   run grep -E '^Icon=input-mouse' "$MOUSE_DESKTOP"
   [ "$status" -eq 0 ]
 }
+
+@test "mouse-target.sh: przelicza geometrię target.json po zmianie ekranu (resize/reconnect, #277 review)" {
+  # jupyter-remote-desktop-proxy ustawia rfb.resizeSession=true — po resize ekran X zmienia
+  # rozmiar i target.json MUSI dostać świeże screen/button, nie tylko „plik istnieje".
+  # Regres (brak funkcji geometrii / pętla tylko '! -f', bez strażnika sourcowania) obala ten test.
+  unset WLB_E2E_SCREEN_GEOMETRY
+  run bash -c '
+    set -euo pipefail
+    source "$MOUSE_SCRIPT"
+    WID=""
+    export WLB_E2E_SCREEN_GEOMETRY=1024x768
+    read_screen; read_window; compute_button; write_target_json
+    w1=$(jq -r ".screen.w" "$WLB_E2E_MARKER_DIR/target.json")
+    bx1=$(jq -r ".button.x" "$WLB_E2E_MARKER_DIR/target.json")
+    export WLB_E2E_SCREEN_GEOMETRY=1920x1080
+    read_screen; read_window; compute_button; write_target_json
+    w2=$(jq -r ".screen.w" "$WLB_E2E_MARKER_DIR/target.json")
+    bx2=$(jq -r ".button.x" "$WLB_E2E_MARKER_DIR/target.json")
+    echo "w1=$w1 w2=$w2 bx1=$bx1 bx2=$bx2"
+    [ "$w1" = "1024" ] && [ "$w2" = "1920" ] && [ "$bx1" != "$bx2" ]
+  '
+  [ "$status" -eq 0 ]
+}
