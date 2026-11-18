@@ -329,3 +329,69 @@ def test_pre_spawn_uszkodzony_plik_stanu_nie_wywraca_spawnu(tmp_path, monkeypatc
     assert _call(calls, "wlb-usage-record") is None
     assert _call(calls, "wlb-session-log", "start") is not None
     assert spawner._wlb_session
+
+
+def test_wlb_ident_normalizuje_unit_name_bez_sufiksu(tmp_path, monkeypatch):
+    """#97/#318: spawner.unit_name w SystemdSpawner/TLJH nie zawiera .service (np. 'jupyter-tester1').
+    Hook musi znormalizować go do .service, aby scratch i stan były spójne z samplerem i testami."""
+    scratch_root = tmp_path / "scratch"
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("WLB_SCRATCH_ROOT", str(scratch_root))
+    ns, _ = load_hooks(state_dir, monkeypatch, now=10, monotonic=10.0)
+    ns["pwd"] = _fake_pwd(str(tmp_path / "home"), uid=10001)
+    _allow_any_uid(ns)
+    spawner = _spawner(unit_name="jupyter-tester1")  # bez .service
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    expected = str(scratch_root / "jupyter-tester1.service")
+    assert spawner.environment["TMPDIR"] == expected
+    assert os.path.isdir(expected)
+    assert (state_dir / "jupyter-tester1.service.json").is_file()
+
+    ns["wlb_post_stop_hook"](spawner)
+    assert not os.path.exists(expected)
+    assert not (state_dir / "jupyter-tester1.service.json").exists()
+
+
+def test_wlb_ident_wola_ensure_user_gdy_konto_jeszcze_nie_istnieje(tmp_path, monkeypatch):
+    """#97/#318: przy pierwszym spawnie użytkownika konto w systemie (/etc/passwd) jeszcze nie istnieje
+    (TLJH UserCreatingSpawner tworzy je dopiero w start()). Hook musi wywołać ensure_user,
+    aby poprawnie uzyskać UID badacza i utworzyć scratch."""
+    scratch_root = tmp_path / "scratch"
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("WLB_SCRATCH_ROOT", str(scratch_root))
+    ns, _ = load_hooks(state_dir, monkeypatch, now=20, monotonic=20.0)
+    _allow_any_uid(ns)
+
+    user_db = {}
+    called = []
+
+    class FakeTLJHUser:
+        @staticmethod
+        def ensure_user(name):
+            called.append(name)
+            user_db[name] = types.SimpleNamespace(pw_uid=10002, pw_gid=10002, pw_dir=str(tmp_path / "home"))
+
+    class FakePwd:
+        @staticmethod
+        def getpwnam(name):
+            if name in user_db:
+                return user_db[name]
+            raise KeyError(name)
+
+    ns["pwd"] = FakePwd
+    monkeypatch.setitem(os.sys.modules, "tljh", types.ModuleType("tljh"))
+    tljh_user_mod = types.ModuleType("tljh.user")
+    tljh_user_mod.ensure_user = FakeTLJHUser.ensure_user
+    monkeypatch.setitem(os.sys.modules, "tljh.user", tljh_user_mod)
+
+    spawner = _spawner(unit_name="jupyter-newuser")
+    spawner.user = types.SimpleNamespace(name="newuser")
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    assert called == ["jupyter-newuser"]
+    expected = str(scratch_root / "jupyter-newuser.service")
+    assert spawner.environment["TMPDIR"] == expected
+    assert os.path.isdir(expected)

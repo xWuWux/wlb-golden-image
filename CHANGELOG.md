@@ -19,12 +19,14 @@ pierwszym Laboratorium na klastrze).
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
   w `tests/unit/test_wlb_session_hook.py` dla domykania osieroconych sesji (`interrupted`)
   przy restarcie huba (rejestracja w `wlb-usage-record` z zachowaniem starego UUID, pusty `stop_wall`,
-  start nowej sesji z nowym UUID i odporność na uszkodzone pliki JSON). W `tests/lib/remote-common.sh`
-  dodano funkcję `hub_stop` zamykającą serwer badacza przez API JupyterHub. Rozszerzono test
-  akceptacyjny `tests/acceptance.d/50-hooki-sesji.sh` o pełny cykl życia E2E z realnym Hubem
-  (start serwera, uprawnienia scratch 0700 na tmpfs, emisja `session_start`, stop przez API huba,
-  weryfikacja usunięcia scratcha i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
-  z nowym identyfikatorem sesji).
+  start nowej sesji z nowym UUID i odporność na uszkodzone pliki JSON). W `ansible/roles/tljh/templates/80-wlb-session.py.j2`
+  znormalizowano nazwę jednostki (`.service`) oraz dodano obsługę `tljh.user.ensure_user` przy pierwszym spawnie
+  badacza, zapewniając poprawne utworzenie scratcha i emisję UID w `wlb-session-log`. W `tests/lib/remote-common.sh`
+  dodano funkcję `hub_stop` zamykającą serwer badacza przez API JupyterHub ze sprzątaniem tymczasowego tokenu API.
+  Rozszerzono test akceptacyjny `tests/acceptance.d/50-hooki-sesji.sh` o pełny cykl życia E2E z realnym Hubem
+  (start serwera, uprawnienia scratch 0700 na tmpfs, emisja `session_start`, asercja pliku-markera, stop przez API huba,
+  weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
+  z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
 
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —

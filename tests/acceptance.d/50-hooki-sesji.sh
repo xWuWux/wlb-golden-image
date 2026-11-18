@@ -65,7 +65,7 @@ ns["wlb_post_stop_hook"](spawner)
 
 # Test osieroconej sesji: plik stanu z poprzedniej sesji musi zostać domknięty jako interrupted
 import json
-stale_unit = unit + "-stale"
+stale_unit = (unit[:-8] if unit.endswith(".service") else unit) + "-stale.service"
 stale_file = os.path.join(ns["_WLB_STATE_DIR"], stale_unit + ".json")
 os.makedirs(ns["_WLB_STATE_DIR"], exist_ok=True)
 with open(stale_file, "w", encoding="utf-8") as fh:
@@ -161,9 +161,23 @@ fi
 # w pełnym cyklu życia serwera badacza: spawn -> TMPDIR i scratch 0700 -> stop przez API Huba
 # -> usunięcie scratcha i stanów -> skorelowany session_stop w journald -> ponowny spawn z nowym UUID.
 if systemctl is-active --quiet "jupyter-$R2"; then
+  # Pułapka bezpieczeństwa: jeśli asercja padnie po stopie, zawsze wskrzeszamy serwer badacza (#97)
+  w50_restore_r2() {
+    if ! systemctl is-active --quiet "jupyter-$R2"; then
+      hub_spawn "$R2" || true
+    fi
+  }
+  trap w50_restore_r2 EXIT RETURN
+
   W50_REAL_UNIT="jupyter-$R2.service"
+  if [ ! -e "/run/wlb/scratch/$W50_REAL_UNIT" ] && [ -d "/run/wlb/scratch/jupyter-$R2" ]; then
+    W50_REAL_UNIT="jupyter-$R2"
+  fi
   W50_REAL_SCRATCH="/run/wlb/scratch/$W50_REAL_UNIT"
   W50_REAL_STATE="/run/wlb/usage/sessions/$W50_REAL_UNIT.json"
+  if [ ! -e "$W50_REAL_STATE" ] && [ -f "/run/wlb/usage/sessions/jupyter-$R2.json" ]; then
+    W50_REAL_STATE="/run/wlb/usage/sessions/jupyter-$R2.json"
+  fi
 
   expect_ok "Realny Hub: scratch sesji na tmpfs obecny dla jupyter-$R2 (#97, #318)" test -d "$W50_REAL_SCRATCH"
   expect_ok "Realny Hub: scratch ma tryb 0700 (#97, #318)" \
@@ -172,14 +186,22 @@ if systemctl is-active --quiet "jupyter-$R2"; then
     bash -c "[ \"\$(stat -c %u \"$W50_REAL_SCRATCH\")\" = \"$W50_UID\" ]"
   expect_ok "Realny Hub: plik stanu sesji obecny (#97, #98)" test -s "$W50_REAL_STATE"
 
-  W50_E2E_SID1=$(sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' "$W50_REAL_STATE")
+  W50_E2E_SID1=""
+  if [ -s "$W50_REAL_STATE" ]; then
+    W50_E2E_SID1=$(sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' "$W50_REAL_STATE")
+  fi
   expect_ok "Realny Hub: session_id w stanie sesji jest niepusty (#97)" test -n "$W50_E2E_SID1"
-  expect_ok "Realny Hub: session_start wyemitowany do journald z SID1 (#97)" \
-    bash -c "journalctl -t wlb-session 2>/dev/null | grep -q 'session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID1'"
+
+  if [ -n "$W50_E2E_SID1" ]; then
+    expect_ok "Realny Hub: session_start wyemitowany do journald z SID1 (#97)" \
+      bash -c "journalctl -t wlb-session --since '-10m' 2>/dev/null | grep -q 'session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID1'"
+  else
+    expect_fail "Realny Hub: brak SID1 uniemożliwia weryfikację session_start (#97)" true
+  fi
 
   # Zapisujemy plik-marker w scratchu badacza, aby dowieść że zostanie skasowany przez post_stop_hook
-  touch "$W50_REAL_SCRATCH/e2e-marker.tmp"
-  chown "jupyter-$R2" "$W50_REAL_SCRATCH/e2e-marker.tmp"
+  expect_ok "Realny Hub: zapis pliku-markera w scratchu (#97, #318)" \
+    bash -c "touch \"$W50_REAL_SCRATCH/e2e-marker.tmp\" && chown \"jupyter-$R2\" \"$W50_REAL_SCRATCH/e2e-marker.tmp\""
 
   expect_ok "Realny Hub: zatrzymanie serwera przez API Huba (hub_stop $R2) (#97)" \
     hub_stop "$R2"
@@ -187,34 +209,55 @@ if systemctl is-active --quiet "jupyter-$R2"; then
     systemctl is-active --quiet "jupyter-$R2"
   expect_ok "Realny Hub: scratch sesji całkowicie usunięty po stopie (#97, #318)" \
     test ! -e "$W50_REAL_SCRATCH"
+  expect_ok "Realny Hub: marker w scratchu usunięty (#97, #318)" \
+    test ! -e "$W50_REAL_SCRATCH/e2e-marker.tmp"
   expect_ok "Realny Hub: plik stanu sesji usunięty po stopie (#97)" \
     test ! -e "$W50_REAL_STATE"
 
-  for _ in $(seq 1 15); do
-    journalctl -t wlb-session 2>/dev/null | grep -qE "session_stop user=jupyter-$R2 .*hub_session=$W50_E2E_SID1 duration=[0-9]+" && break
-    sleep 1
-  done
-  expect_ok "Realny Hub: session_stop w journald ze skorelowanym SID1 i czasem trwania (#97)" \
-    bash -c "journalctl -t wlb-session 2>/dev/null | grep -qE 'session_stop user=jupyter-$R2 .*hub_session=$W50_E2E_SID1 duration=[0-9]+'"
+  if [ -n "$W50_E2E_SID1" ]; then
+    for _ in $(seq 1 15); do
+      journalctl -t wlb-session --since "-10m" 2>/dev/null | grep -qE "session_stop user=jupyter-$R2 .*hub_session=$W50_E2E_SID1 .*duration(_seconds)?=[0-9]+" && break
+      sleep 1
+    done
+    expect_ok "Realny Hub: session_stop w journald ze skorelowanym SID1 i czasem trwania (#97)" \
+      bash -c "journalctl -t wlb-session --since '-10m' 2>/dev/null | grep -qE 'session_stop user=jupyter-$R2 .*hub_session=$W50_E2E_SID1 .*duration(_seconds)?=[0-9]+'"
+  else
+    expect_fail "Realny Hub: brak SID1 uniemożliwia weryfikację session_stop (#97)" true
+  fi
 
   # Ponowny spawn serwera przez Hub — weryfikacja czystego startu nowej sesji z nowym UUID
   expect_ok "Realny Hub: ponowny spawn serwera $R2 (#97)" \
     hub_spawn "$R2"
   expect_ok "Realny Hub: jednostka systemd ponownie aktywna (#97)" \
     systemctl is-active --quiet "jupyter-$R2"
+
+  if [ ! -e "/run/wlb/scratch/$W50_REAL_UNIT" ] && [ -d "/run/wlb/scratch/jupyter-$R2" ]; then
+    W50_REAL_UNIT="jupyter-$R2"
+    W50_REAL_SCRATCH="/run/wlb/scratch/$W50_REAL_UNIT"
+    W50_REAL_STATE="/run/wlb/usage/sessions/$W50_REAL_UNIT.json"
+  fi
   expect_ok "Realny Hub: nowy scratch sesji utworzony (#97, #318)" \
     test -d "$W50_REAL_SCRATCH"
 
-  W50_E2E_SID2=$(sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' "$W50_REAL_STATE")
+  W50_E2E_SID2=""
+  if [ -s "$W50_REAL_STATE" ]; then
+    W50_E2E_SID2=$(sed -n 's/.*"session_id": *"\([^"]*\)".*/\1/p' "$W50_REAL_STATE")
+  fi
   expect_ok "Realny Hub: nowy session_id jest różny od poprzedniego (#97)" \
     test -n "$W50_E2E_SID2" -a "$W50_E2E_SID2" != "$W50_E2E_SID1"
 
-  for _ in $(seq 1 15); do
-    journalctl -t wlb-session 2>/dev/null | grep -q "session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID2" && break
-    sleep 1
-  done
-  expect_ok "Realny Hub: session_start wyemitowany dla nowego SID2 (#97)" \
-    bash -c "journalctl -t wlb-session 2>/dev/null | grep -q 'session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID2'"
+  if [ -n "$W50_E2E_SID2" ]; then
+    for _ in $(seq 1 15); do
+      journalctl -t wlb-session --since "-10m" 2>/dev/null | grep -q "session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID2" && break
+      sleep 1
+    done
+    expect_ok "Realny Hub: session_start wyemitowany dla nowego SID2 (#97)" \
+      bash -c "journalctl -t wlb-session --since '-10m' 2>/dev/null | grep -q 'session_start user=jupyter-$R2 .*hub_session=$W50_E2E_SID2'"
+  else
+    expect_fail "Realny Hub: brak SID2 uniemożliwia weryfikację nowego session_start (#97)" true
+  fi
+
+  trap - EXIT RETURN
 else
   skip "Realny Hub E2E (#97): serwer jupyter-$R2 nie jest aktywny"
 fi

@@ -120,6 +120,16 @@ if u:
 ' "$user" 2>/dev/null || true)
     if [ -n "$tok" ]; then
       curl -s -o /dev/null -X DELETE -H "Authorization: token $tok" "$HUB/hub/api/users/$user/server"
+      /opt/tljh/hub/bin/python -c '
+import sys
+from jupyterhub.orm import APIToken
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+db = sessionmaker(bind=create_engine("sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"))()
+for t in db.query(APIToken).filter_by(note="hub_stop_token").all():
+    db.delete(t)
+db.commit()
+' 2>/dev/null || true
     fi
   fi
   for _ in $(seq 1 30); do
