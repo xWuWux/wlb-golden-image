@@ -40,6 +40,18 @@ def catalog(root: Path) -> dict:
             raise ValueError(f"{name}: missing selectors or mutations")
         if not all(ID.fullmatch(key) and isinstance(value, str) and value for key, value in group["consumers"].items()):
             raise ValueError(f"{name}: invalid consumer")
+        evidence = group.get("evidence")
+        if evidence is not None:
+            if evidence.keys() != group["consumers"].keys() or not set(evidence.values()) <= {
+                "mock-only",
+                "unix-transport",
+                "http-transport",
+                "https-transport",
+                "file-fixture",
+            }:
+                raise ValueError(f"{name}: incomplete boundary evidence")
+            if group["risk"] == "critical" and set(evidence.values()) == {"mock-only"}:
+                raise ValueError(f"{name}: critical boundary tested only with a mock")
         source = (root / group["source"]).read_text()
         seen = set()
         for key, old, new, marker in group["mutations"]:
@@ -133,7 +145,14 @@ def run_group(root: Path, name: str, group: dict, output: Path) -> list[dict]:
                     if status == "passed":
                         status = "survived"
             results.append(
-                {"contract": name, "source": group["source"], "mutation": key, "consumer": consumer, "status": status}
+                {
+                    "contract": name,
+                    "source": group["source"],
+                    "mutation": key,
+                    "consumer": consumer,
+                    "status": status,
+                    "evidence": group.get("evidence", {}).get(consumer, "contract"),
+                }
             )
             print(f"{prefix}: {status}", flush=True)
     return results
@@ -155,6 +174,12 @@ def main() -> int:
     summary = ["### Kontrakty — wykryte pary mutacja × konsument (wymagane 100% na plik)", ""]
     for source, states in sorted(files.items()):
         summary.append(f"- `{source}` — {states.count('killed')}/{len(states)}")
+    if any(r["evidence"] != "contract" for r in rows):
+        summary += ["", "### Granice zależności", "", "| Moduł | Konsument | Dowód |", "|---|---|---|"]
+        for source, consumer, evidence in sorted(
+            {(r["source"], r["consumer"], r["evidence"]) for r in rows if r["evidence"] != "contract"}
+        ):
+            summary.append(f"| `{source}` | {consumer} | {evidence} |")
     (args.output / "contracts-summary.md").write_text("\n".join(summary) + "\n")
     return int(any(row["status"] != "killed" for row in rows))
 

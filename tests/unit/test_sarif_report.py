@@ -579,7 +579,7 @@ def test_prepare_notyfikacja_error_nie_publikuje_a_warning_daje_clean(tmp_path):
     )
     manifest_err = sr.prepare(sca_err, out_err, summary_env(tmp_path / "err"))
     entry_err = manifest_err["reports"][0]
-    assert entry_err["outcome"] == "error"
+    assert entry_err["outcome"] == "error", "contract:scanner-error"  # 341
     assert entry_err["publish"] is False
     assert "notyfikacja level=error" in entry_err["reason"]
     assert not (out_err / "semgrep.sarif").exists()

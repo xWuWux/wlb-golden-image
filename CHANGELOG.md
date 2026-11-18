@@ -14,6 +14,8 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Granice zależności (#341)** — mutacje adapterów Wazuh, GitHub, HTTPS rejestru i raportów SARIF z opisem dowodu.
+
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
 
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)

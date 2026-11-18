@@ -17,3 +17,13 @@ przypadkami. Wynik 100% obejmuje wyłącznie te przypadki. Nie przyznajemy im wy
 Właścicielem operacyjnym katalogu jest rola utrzymania platformy. Nazwy konsumentów
 opisują faktyczne ścieżki kodu lub konfiguracje. Liczba wariantów nie jest liczbą
 niezależnych implementacji. Survivor wymaga sprawdzenia selektora, testu i osiągalności.
+
+## Granice zależności (#341)
+
+| Moduł | Test jednostkowy | Dowód poza atrapą i jego ograniczenie |
+|---|---|---|
+| `ci/wazuh_logtest_client.py` | Kontrolowany odczyt części ramki, potem EOF. | Para gniazd UNIX uruchamia rzeczywisty odczyt. FakeAnalysisd sprawdza sesję. Dekodery na właściwym Wazuh sprawdza `ci/wazuh-logtest.sh`. |
+| `ci/license_check.py` | FakeFetcher dostarcza dane parserom. | Produkcyjny fetch wykonuje dwa żądania po lokalnym HTTPS (503, potem 200) i weryfikuje certyfikat. Dane z testu nie potwierdzają dostępności publicznego rejestru. |
+| `ci/ci_telemetry.py` | Wstrzyknięty fetch oraz FakeGitHub przy generowaniu telemetrii. | Domyślny adapter czyta odpowiedź HTTP na loopback. Format API upstream i uprawnienia konta pozostają poza lokalnym testem. |
+| `ci/sarif_report.py` | Fixture SARIF z powiadomieniami o błędzie skanera. | Test czyta plik, sprawdza manifest i brak publikacji. Uruchomienie skanerów należy do etapu 3. |
+| `tests/desktop-e2e-novnc.py` | FakePage ocenia harness przeglądarki. | To kod testowy. Wynik funkcjonalny pulpitu pochodzi z testu przeglądarkowego na VM. Poza wynikiem mutacji modułów CI. |

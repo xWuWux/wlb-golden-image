@@ -5,6 +5,7 @@ import json
 import socket
 import struct
 import threading
+from unittest.mock import Mock
 
 import pytest
 
@@ -97,3 +98,26 @@ def test_main_sukces(sock_path, monkeypatch, capsys):
     captured = capsys.readouterr()
     assert len(captured.out.splitlines()) == 2
     assert "przetworzono 2 wierszy" in captured.err
+
+
+# --- kontrakt niepełnej ramki analysisd (#341) ---
+
+
+@pytest.mark.parametrize("transport", ["stream", "unix"])
+def test_incomplete_frame_is_an_error(transport: str):
+    def check(reader):
+        try:
+            result = client._recv_exact(reader, 4)
+        except client.LogtestError as exc:
+            result = str(exc)
+        assert result == "analysisd zamknął połączenie przed końcem odpowiedzi", "contract:truncated"
+
+    if transport == "stream":
+        check(Mock(recv=io.BytesIO(b"ab").read))
+    else:
+        reader, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        with reader, peer:
+            reader.settimeout(2)
+            peer.sendall(b"ab")
+            peer.shutdown(socket.SHUT_WR)
+            check(reader)
