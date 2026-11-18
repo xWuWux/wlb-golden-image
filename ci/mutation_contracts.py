@@ -12,9 +12,11 @@ import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from xml.etree import ElementTree
+from xml.etree.ElementTree import ParseError
 
 import yaml
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOG = Path("ci/mutations/abstractions.yml")
@@ -62,8 +64,8 @@ def verdict(rc: int, report: str, marker: str, bats: bool) -> str:
             return "killed"
         return "error"
     try:
-        cases = ElementTree.fromstring(report).findall(".//testcase")  # noqa: S314 - local pytest report
-    except ElementTree.ParseError:
+        cases = ElementTree.fromstring(report, forbid_dtd=True).findall(".//testcase")
+    except (ParseError, DefusedXmlException):
         return "error"
     if not cases:
         return "no-tests"

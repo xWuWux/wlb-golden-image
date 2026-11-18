@@ -51,3 +51,7 @@ def test_reviewed_matrix_has_both_languages_and_all_variants():
     assert all(set(groups[name]["consumers"]) == {"http", "https"} for name in ("hub-rules", "hub-rollback"))
     for suffix in (".py", ".bats"):
         assert sum(len(g["mutations"]) for g in groups.values() if g["test"].endswith(suffix)) >= 5
+
+
+def test_junit_rejects_doctype():
+    assert mc.verdict(0, "<!DOCTYPE testsuite><testsuite><testcase/></testsuite>", "value", False) == "error"
