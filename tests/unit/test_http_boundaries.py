@@ -40,6 +40,7 @@ def local_registry(statuses: list[int], tls: ssl.SSLContext | None = None) -> It
 
 
 def test_license_fetch_retries_verified_https(tmp_path: Path, monkeypatch):
+    # Transport HTTPS i ponowienie po 503 (#341).
     import license_check as lc
 
     cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
@@ -79,6 +80,7 @@ def test_license_fetch_retries_verified_https(tmp_path: Path, monkeypatch):
 
 @pytest.mark.parametrize("transport", ["callable", "http"])
 def test_github_run_request(transport: str, monkeypatch):
+    # Wstrzyknięty fetch i domyślny adapter HTTP (#341).
     import ci_telemetry as telemetry
 
     if transport == "http":

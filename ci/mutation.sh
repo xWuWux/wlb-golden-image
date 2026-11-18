@@ -14,6 +14,7 @@
 # mutanty równoważne, z uzasadnieniem) ORAZ wynik >= PYTHON_MUTATION_MIN. Progi podnosić, nie obniżać.
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
+export PATH="$TOOLS_DIR/venv-unit/bin:$PATH"
 require mutmut bats pytest python3
 
 PYTHON_MUTATION_MIN=${PYTHON_MUTATION_MIN:-85}

@@ -68,3 +68,7 @@ def test_critical_boundary_requires_evidence_for_each_consumer(tmp_path: Path, m
         config.write_text(yaml.safe_dump({"analysisd-frame": group}))
         with pytest.raises(ValueError, match=reason):
             mc.catalog(mc.ROOT)
+
+
+def test_junit_rejects_doctype():
+    assert mc.verdict(0, "<!DOCTYPE testsuite><testsuite><testcase/></testsuite>", "value", False) == "error"
