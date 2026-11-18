@@ -14,6 +14,8 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Zakres etapu 4b (#342)** — PR wybiera mutacje według zmienionych wejść, a wspólne i nieznane zmiany wykonują pełny zakres. Budżet obejmuje cały etap.
+
 - **Granice zależności (#341)** — mutacje adapterów Wazuh, GitHub, HTTPS rejestru i raportów SARIF z opisem dowodu.
 
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
