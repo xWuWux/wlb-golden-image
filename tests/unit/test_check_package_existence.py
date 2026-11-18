@@ -156,7 +156,8 @@ def test_default_fetch_status_and_transport_error(monkeypatch):
 
 
 def test_default_fetch_slow_anaconda_api_gets_longer_timeout(monkeypatch):
-    # pyarrow na api.anaconda.org odpowiada ~20-30 s; 10 s dawało fałszywy fail-closed.
+    # pyarrow na api.anaconda.org odpowiada 15-30 s (przy obciążeniu >45 s); 10 s dawało
+    # fałszywy fail-closed, a 45 s nadal okazjonalnie blokowało PR-y (#317).
     seen = {}
 
     def fake(_req, timeout):
@@ -165,10 +166,26 @@ def test_default_fetch_slow_anaconda_api_gets_longer_timeout(monkeypatch):
 
     monkeypatch.setattr(cpe.urllib.request, "urlopen", fake)
     assert cpe.default_fetch("https://api.anaconda.org/package/conda-forge/pyarrow") == 200
-    assert seen["timeout"] == 45.0
+    assert seen["timeout"] == 90.0
 
     assert cpe.default_fetch("https://pypi.org/pypi/pandas/json") == 200
     assert seen["timeout"] == 10.0
+
+
+def test_verify_conda_gets_extra_retry():
+    # api.anaconda.org: 3 przejściowe błędy, sukces dopiero w 4. próbie — bez dodatkowego
+    # retry dałoby to fałszywy fail-closed i blokadę PR-a (#317).
+    calls = {"n": 0}
+
+    def fetch(_url):
+        calls["n"] += 1
+        return 503 if calls["n"] < 4 else 200
+
+    pkg = Pkg(
+        "conda-forge", "pyarrow", "envs/python/environment.yml", "https://api.anaconda.org/package/conda-forge/pyarrow"
+    )
+    assert verify([pkg], fetch) == []
+    assert calls["n"] == 4
 
 
 def test_default_fetch_head_405_falls_back_to_get(monkeypatch):

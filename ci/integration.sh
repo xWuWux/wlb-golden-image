@@ -51,14 +51,18 @@ echo "Zasoby: host $CPUS CPU; VM $VM_CPUS vCPU / $VM_MEMORY MB; budowanie $BUILD
 SSH=(ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i build/test/id_ed25519 -p 2222 wlbadmin@127.0.0.1)
 
 build_image() {
-  if [[ ${REUSE_IMAGE:-0} == 1 && -f $IMAGE ]]; then
-    echo "Używam istniejącego obrazu $IMAGE"
-    return 0
-  fi
+  # Przygotowanie środowiska NIEZALEŻNE od budowy bazy: klucz SSH, packer init i metadane Git
+  # (GIT_COMMIT/…) muszą istnieć także przy REUSE_IMAGE=1 — flavory budują się packerem z
+  # -var git_commit=$GIT_COMMIT, więc pominięcie tego przy trafieniu cache dawało unbound variable
+  # (set -u) i brak zainicjowanego packera przy budowie wariantu.
   [[ -f build/packer_ed25519 ]] || ssh-keygen -q -t ed25519 -N '' -C wlb-packer-build -f build/packer_ed25519
-  rm -rf "output/$FULL"
   packer init packer/ >/dev/null
   image_provenance # GIT_COMMIT/GIT_DESCRIBE/GIT_DIRTY/BUILD_RUN do metadanych obrazu (#12a)
+  if [[ ${REUSE_IMAGE:-0} == 1 && -f $IMAGE ]]; then
+    echo "Używam istniejącego obrazu $IMAGE (baza z etapu 5a; środowisko przygotowane dla flavorów)"
+    return 0
+  fi
+  rm -rf "output/$FULL"
   # Tylko baza (wlb.qemu.wlb). Bez -only Packer buduje też flavory (wlb-memory, wlb-radiologia)
   # RÓWNOLEGLE z bazą — a te mają disk_image=true z base_image=output/wlb-general.qcow2
   # (placeholder) i padają natychmiast, bo bazy jeszcze nie ma. Flavory buduje się warstwowo
@@ -487,6 +491,10 @@ hardening_report() {
 # akceptację (adaptacyjne 70-radiologia + 40-pulpit wykryją flavor). Łapie błędy runtime (np. installer FSL).
 radiologia_flavor() {
   [[ ${WLB_BUILD_RADIOLOGIA:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == radiologia ]]; then
+      echo "BŁĄD: flavor 'radiologia' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_RADIOLOGIA=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
     echo "pominięto: brak etykiety build-radiologia ani zmiany plików flavora (#135)"
     return 0
   }
@@ -516,6 +524,10 @@ radiologia_flavor() {
 # i konwersję CSV->ODS na realnym obrazie.
 memory_flavor() {
   [[ ${WLB_BUILD_MEMORY:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == memory ]]; then
+      echo "BŁĄD: flavor 'memory' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_MEMORY=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
     echo "pominięto: brak etykiety build-memory ani zmiany plików flavora (#105)"
     return 0
   }
@@ -542,6 +554,10 @@ memory_flavor() {
 # jamovi-Flatpak i — kluczowo — start sandboxa bwrap (nieuprzywilejowane userns na utwardzonym jądrze).
 histologia_flavor() {
   [[ ${WLB_BUILD_HISTOLOGIA:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == histologia ]]; then
+      echo "BŁĄD: flavor 'histologia' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_HISTOLOGIA=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
     echo "pominięto: brak etykiety build-histologia ani zmiany plików flavora (#108)"
     return 0
   }
@@ -563,6 +579,19 @@ histologia_flavor() {
   WLB_E2E_DESKTOP=required acceptance "$his_img" acceptance-histologia
 }
 
+# Wariant cloud-init: mirror pakietów (#288 klasa 4, IMG-004/#16).
+# Weryfikuje konfigurację kuratorowanego mirrora PyPI/CRAN z testowym proxy_sink.py.
+acceptance_mirror() {
+  local img=${1:-$IMAGE}
+  local tmpl="$REPO_ROOT/tests/cloud-init/user-data-mirror.yaml"
+  [[ -f $tmpl ]] || {
+    echo "brak szablonu $tmpl — pomijam"
+    return 0
+  }
+  echo "== Akceptacja wariantu mirror (RESEARCHER_PACKAGE_INSTALL=mirror) =="
+  USER_DATA_TEMPLATE="$tmpl" acceptance "$img" acceptance-mirror
+}
+
 mkdir -p build/sca "$ARTIFACTS"
 if [[ ${1:-} == image-sca ]]; then
   # osobny krok CI: artefakty ostatniego budowania, niezależnie od daty w nazwie
@@ -577,17 +606,55 @@ if [[ ${1:-} == image-sca ]]; then
   finish
   exit
 fi
+
+if [[ ${1:-} == build-base || ${1:-} == build ]]; then
+  step "Budowanie obrazu bazowego $FULL"
+  build_image
+  endstep
+  finish
+  exit 0
+fi
+
+FLAVOR=${WLB_FLAVOR:-${1:-all}}
+echo "Uruchamiam testy integracji dla wariantu: $FLAVOR"
 step "Budowanie obrazu $FULL"
 build_image
 endstep
-run_check "Kryteria akceptacji MVP" acceptance
-run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
-run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
-run_check "Migracja na istniejącym dysku roboczym" migration
-run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
-run_check "Jedno jądro w obrazie (#9)" kernel_single
-run_check "Utwardzenie systemu (Lynis, raport; bramka z WLB_LYNIS_GATING=1)" hardening_report
-run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
-run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
-run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
+case $FLAVOR in
+  general)
+    run_check "Kryteria akceptacji MVP" acceptance
+    run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
+    run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
+    run_check "Migracja na istniejącym dysku roboczym" migration
+    run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror
+    run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+    run_check "Jedno jądro w obrazie (#9)" kernel_single
+    run_check "Utwardzenie systemu (Lynis, raport; bramka z WLB_LYNIS_GATING=1)" hardening_report
+    ;;
+  memory)
+    run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
+    ;;
+  histologia)
+    run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
+    ;;
+  radiologia)
+    run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
+    ;;
+  mirror)
+    run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror
+    ;;
+  all | *)
+    run_check "Kryteria akceptacji MVP" acceptance
+    run_check "Obserwowalność: zdarzenia z kontraktu w logu centralnym (SIEM)" siem_delivery
+    run_check "Wazuh: dekodery i reguły na logu z SIEM (#17)" siem_wazuh
+    run_check "Migracja na istniejącym dysku roboczym" migration
+    run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror
+    run_check "Dryf zamrożonych wersji (envs/*.lock vs obraz)" lock_drift
+    run_check "Jedno jądro w obrazie (#9)" kernel_single
+    run_check "Utwardzenie systemu (Lynis, raport; bramka z WLB_LYNIS_GATING=1)" hardening_report
+    run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
+    run_check "Flavor wlb-memory: build + akceptacja (#105)" memory_flavor
+    run_check "Flavor wlb-histologia: build + akceptacja (#108)" histologia_flavor
+    ;;
+esac
 finish

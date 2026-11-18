@@ -7,7 +7,7 @@ load helpers
 CHANGES="$REPO_ROOT/ci/changes.sh"
 
 # has_line WZORZEC — czy wyjście skryptu zawiera dokładnie taką linię klucz=wartość
-has_line() { echo "$output" | grep -qx "$1"; }
+has_line() { echo "$output" | grep -qxF "$1"; } # -F: linia klucz=wartość jest literałem (JSON z [ ] nie jest regexem)
 
 # repo_with_base PLIK... — tworzy repo git z bazowym commitem i zmianą podanych plików w HEAD;
 # ustawia $BASE na SHA bazy i przechodzi do repo (dla ścieżki push/doc_only).
@@ -40,6 +40,7 @@ repo_with_base() {
   has_line "image=false"
   has_line "perf=false"
   has_line "ephemeral=false"
+  has_line "flavors=[]" # brak etapu 5 -> pusta macierz flavorów (#317/P1-5)
 }
 
 @test "PR ze zmianą poza siecią, bez etykiety: bez etapu 5 (#86)" {
@@ -126,10 +127,22 @@ repo_with_base() {
 # --- schedule / workflow_dispatch ---
 
 @test "schedule nocny (NIGHTLY_CRON): pełny build 1–6" {
-  run env EVENT=schedule SCHEDULE="0 3 * * 2,5" bash "$CHANGES"
+  run env EVENT=schedule SCHEDULE="0 3 * * 2" bash "$CHANGES"
   [ "$status" -eq 0 ]
   has_line "image=true"
   has_line "perf=true"
+  has_line "radiologia=true"
+  has_line "memory=true"
+  has_line "histologia=true"
+  has_line 'flavors=["general", "radiologia", "memory", "histologia"]' # pełna macierz (#317/P1-5)
+}
+
+@test "ci.yml i changes.sh: NIGHTLY_CRON jest identyczny ze schedule w workflow" {
+  local workflow="$REPO_ROOT/.github/workflows/ci.yml"
+  local changes_cron
+  changes_cron=$(grep '^NIGHTLY_CRON=' "$CHANGES" | cut -d'"' -f2)
+  [ -n "$changes_cron" ]
+  grep -Fq -- "- cron: \"$changes_cron\"" "$workflow"
 }
 
 @test "schedule tygodniowy (inny cron): tylko etapy 1–4" {
@@ -143,6 +156,9 @@ repo_with_base() {
   [ "$status" -eq 0 ]
   has_line "image=true"
   has_line "perf=true"
+  has_line "radiologia=true"
+  has_line "memory=true"
+  has_line "histologia=true"
 }
 
 @test "śluza: PR i merge_group wymagają integracji bez etykiety (#149)" {
@@ -174,6 +190,18 @@ repo_with_base() {
   [ "$status" -eq 0 ]
   has_line "radiologia=true"
   has_line "image=true"
+  has_line 'flavors=["general", "radiologia"]' # tylko opt-in flavor + general (#317/P1-5)
+}
+
+@test "flavors: etap 5 obowiązkowy bez flavora -> macierz tylko general (#317/P1-5)" {
+  repo_with_base ansible/roles/storage/templates/60-resources.conf.j2
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=true"
+  has_line "radiologia=false"
+  has_line "memory=false"
+  has_line "histologia=false"
+  has_line 'flavors=["general"]' # nieopt-inowe flavory nie są jobem, zamiast przechodzić na pusto
 }
 
 @test "radiologia: zmiana spoza flavora nie wyzwala radiologii (#135)" {
