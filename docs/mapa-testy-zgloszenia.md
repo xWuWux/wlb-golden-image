@@ -285,6 +285,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 - `tests/unit/test_sarif_report.py` — `test_prepare_notyfikacja_error_nie_publikuje_a_warning_daje_clean`
 - `tests/unit/test_wazuh_logtest_client.py` — *kontrakt niepełnej ramki analysisd (#341)*
 
+### #342 — Testy mutacyjne: zakres przyrostowy po grafie zależności i budżet czasu etapu 4b  ·  _otwarte_
+- `tests/unit/test_mutation_plan.py` — `test_actual_reverse_inputs_and_conservative_fallback`, `test_git_plan_rename_delete_bad_ref_and_dirty_checkout`, `test_only_planned_commands_execute_and_failure_is_preserved`, `test_timeout_records_required_work_and_reaps_descendant`
+
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.

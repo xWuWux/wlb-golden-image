@@ -21,9 +21,14 @@ REPO_ROOT=${MUTATION_REPO_ROOT:-$(cd "$SELF_DIR/.." && pwd)}
 TABLE=${MUTATION_TABLE:-$REPO_ROOT/ci/mutations/bash-mutations.tsv}
 OUTPUT=""
 CHECK_ONLY=0
+SOURCE_FILTER=""
 while (($#)); do
   case $1 in
     --check) CHECK_ONLY=1 ;;
+    --source)
+      SOURCE_FILTER=${2:?--source wymaga ścieżki}
+      shift
+      ;;
     --output)
       OUTPUT=${2:?--output wymaga ścieżki}
       shift
@@ -98,6 +103,17 @@ for row in "${ROWS[@]}"; do
   }
 done
 ((errors == 0)) || exit 1
+if [[ -n $SOURCE_FILTER ]]; then
+  selected=()
+  for row in "${ROWS[@]}"; do
+    [[ ${row%%$'\t'*} == "$SOURCE_FILTER" ]] && selected+=("$row")
+  done
+  ((${#selected[@]})) || {
+    echo "BŁĄD: nieznane źródło $SOURCE_FILTER" >&2
+    exit 1
+  }
+  ROWS=("${selected[@]}")
+fi
 
 if ((CHECK_ONLY)); then
   echo "OK: ${#ROWS[@]} mutacji, każdy fragment występuje dokładnie raz"
@@ -128,7 +144,7 @@ for row in "${ROWS[@]}"; do
   [[ -z $filter ]] || bats_args=(-f "$filter" "$WORK/$test")
   # Baseline PRZED mutacją. Kolejność sprawdzeń jest istotna: najpierw liczba wybranych testów,
   # potem wynik — bats 1.13 bez dopasowania zwraca 0, a 1.14 zwraca 1, a komunikat ma być ten sam.
-  if timeout -k 5 60 bats --formatter tap "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
+  if timeout --foreground -k 5 60 bats --formatter tap "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
     baseline_rc=0
   else
     baseline_rc=$?
@@ -154,7 +170,7 @@ for row in "${ROWS[@]}"; do
     continue
   fi
   apply_mutation "$WORK/$file" "$old" "$new"
-  if timeout -k 5 60 bats --formatter tap "${bats_args[@]}" >"$WORK/bats.log" 2>&1; then
+  if timeout --foreground -k 5 60 bats --formatter tap "${bats_args[@]}" >"$WORK/bats.log" 2>&1; then
     result="**survived**"
     survived=$((survived + 1))
     echo "PRZEŻYŁ: $desc (mutacja: $old → $new)" >&2

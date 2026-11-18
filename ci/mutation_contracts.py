@@ -111,10 +111,10 @@ def run_test(work: Path, test: str, selector: str, marker: str, log: Path) -> st
             f"{test}::{selector}",
         ]
     )
-    # GNU timeout also signals descendants of the test. A timeout has its own status.
+    # The stage supervisor owns the process group and reaps remaining descendants.
     with log.open("w") as output:
         rc = subprocess.run(  # noqa: S603
-            ["timeout", "-k", "5", "60", *args],  # noqa: S607 - pinned CI tools on PATH
+            ["timeout", "--foreground", "-k", "5", "60", *args],  # noqa: S607 - pinned CI tools on PATH
             cwd=work,
             stdout=output,
             stderr=subprocess.STDOUT,
@@ -156,6 +156,8 @@ def run_group(root: Path, name: str, group: dict, output: Path) -> list[dict]:
                     "evidence": group.get("evidence", {}).get(consumer, "contract"),
                 }
             )
+            with (output / "pairs.jsonl").open("a") as journal:
+                journal.write(json.dumps(results[-1]) + "\n")
             print(f"{prefix}: {status}", flush=True)
     return results
 
@@ -163,9 +165,15 @@ def run_group(root: Path, name: str, group: dict, output: Path) -> list[dict]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "build/mutation")
+    parser.add_argument("--group", help="Run exactly one catalog group")
     args = parser.parse_args()
     groups = catalog(ROOT)
+    if args.group is not None:
+        if args.group not in groups:
+            parser.error(f"unknown contract: {args.group}")
+        groups = {args.group: groups[args.group]}
     args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / "pairs.jsonl").write_text("")
     rows = []
     for name, group in groups.items():
         rows.extend(run_group(ROOT, name, group, args.output))

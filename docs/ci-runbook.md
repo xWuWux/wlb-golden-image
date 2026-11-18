@@ -305,7 +305,7 @@ Zależność zablokowana constraint w `pyproject.toml` — wymaga zmiany constra
 ### Macierz kontraktów etapu 4b (#340)
 
 `make mutation` publikuje wynik każdej pary w `build/mutation/contracts.json`.
-Przy czerwonym wyniku znajdź logi `<kontrakt>.<mutacja>.<konsument>.{base,mutant}.log`.
+Przy czerwonym wyniku znajdź logi w katalogu `contracts/<kontrakt>/` o nazwach `<kontrakt>.<mutacja>.<konsument>.{base,mutant}.log`.
 Popraw najpierw baseline lub selektor. Przy `survived` sprawdź osiągalność zmienionego
 fragmentu i niezależną asercję efektu. Błąd procesu, timeout i pominięty test blokują bramkę.
 Wynik wymagany dla każdego pliku macierzy to 100% par. Zakres i odpowiedzialność opisuje
@@ -318,3 +318,21 @@ przypadek z rzeczywistym adapterem i lokalnym peerem. Porównaj wynik, ścieżk�
 ciąg bajtów lub zapisany manifest. Samo wywołanie atrapy nie wystarcza do oceny
 transportu. Błąd uruchomienia lokalnego peera blokuje baseline. Po zmianie testu
 uruchom ponownie `make mutation` i sprawdź wszystkie pary kontraktu.
+
+### Zakres i budżet mutacji (#342)
+
+Na PR etap 4b porównuje merge-base z aktualnym checkoutem testowanym w CI.
+`ci/mutation.sh --since <ref>` odtwarza selekcję lokalnie po zacommitowaniu zmian.
+`make mutation`, push do main, merge queue, harmonogramy i workflow ręczny wykonują pełny zakres.
+Zmieniony plik testowy wybiera wszystkie cele, które z niego korzystają. Selektor czyta
+`setup.cfg`, tabelę Bash i katalog kontraktów. Zmiana wspólnego kontraktu, selektora,
+nieznanej ścieżki, brak historii, pusty diff lub lokalne zmiany prowadzą do pełnego przebiegu.
+Zmiany nazw dostarczają obie ścieżki. Nowe zależności dopisz do wejść kontraktu.
+
+`MUTATION_MAX_SECONDS` to dodatnia liczba całkowita sekund, domyślnie 1080.
+Jest to limit roboczy z rezerwą 120 s do zewnętrznego strażnika CI, do kalibracji na
+runnerze. Nie stanowi docelowego SLO. Timeout albo brak wykonania wymaganego celu
+oznacza niepowodzenie. Stan i czas celu sprawdź w `build/mutation/selection.json`.
+`omitted` zawiera cele poza planem. `not_started` dotyczy pozycji wymaganych.
+Log adaptera jest w `<id celu>/run.log`, a ukończone pary w
+`contracts/<kontrakt>/pairs.jsonl`. Pominiętym celom nie przypisujemy wyniku mutacji.
