@@ -661,21 +661,34 @@ EOF
   [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
 }
 
-@test "awaria restartu nftables przy otwieraniu huba zamyka bramkę (trap, #251)" {
+contract_rollback() { # TLS: awaria drugiego restartu nftables
+  echo "HUB_TLS=$1" >>"$SANDBOX/etc/wlb/lab.env"
   cat >"$STUBS/systemctl" <<'EOF'
 #!/usr/bin/env bash
 echo "systemctl $*" >>"$CALLS"
 # restart zawodzi TYLKO przy próbie otwarcia (reguła huba obecna w pliku);
 # zamknięcie w trap EXIT (bez reguły) ma się udać.
 if [[ $* == "restart nftables" ]] && grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$WLB_ROOT/etc/nftables.conf"; then
+  echo attempted-open >>"$CALLS"
   exit 1
 fi
 EOF
   chmod +x "$STUBS/systemctl"
-  run "$FIRSTBOOT"
-  [ "$status" -ne 0 ]
-  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
+  if "$FIRSTBOOT"; then return 1; fi
+  called -x attempted-open
+  [ -s "$SANDBOX/etc/nftables.conf" ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf" || { echo 'contract:rollback'; return 1; }
   [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "wycofanie reguły firstboot HTTP" {
+  # #251, #340
+  contract_rollback 0
+}
+
+@test "wycofanie reguły firstboot HTTPS" {
+  # #251, #340
+  contract_rollback 1
 }
 
 @test "awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)" {
@@ -1219,4 +1232,30 @@ hub_env() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/50-wlb-lab.py"; }
     [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
     refute called 'wlb-monitoring'
   done
+}
+
+# contract_rules TLS HUB_PORTS: wspólna kontrola wyniku firstboot dla dwóch wariantów.
+contract_rules() {
+  local tls=$1 ports=$2 nftcfg="$SANDBOX/etc/nftables.conf"
+  echo "HUB_TLS=$tls" >>"$SANDBOX/etc/wlb/lab.env"
+  "$FIRSTBOOT"
+  [ -s "$SANDBOX/var/lib/wlb/firstboot.done" ]
+  local input egress
+  input=$(sed -n '/^    chain input {$/,/^    }$/p' "$nftcfg")
+  egress=$(sed -n '/^    chain researcher_egress {$/,/^    }$/p' "$nftcfg")
+  grep -Fxq '        type filter hook input priority filter; policy drop;' <<<"$input"
+  grep -Fxq "        ip saddr 10.10.1.0/24 tcp dport $ports accept" <<<"$input" || { echo 'contract:hub-port'; return 1; }
+  grep -Fxq '        ip saddr 10.10.0.0/24 tcp dport 22 accept' <<<"$input" || { echo 'contract:ssh-port'; return 1; }
+  grep -Fxq '        ip daddr 10.20.0.10 tcp dport 3128 accept' <<<"$egress" || { echo 'contract:proxy-port'; return 1; }
+  [ -s "$SANDBOX/var/lib/wlb/audit-config.requested" ] || { echo 'contract:audit-marker'; return 1; }
+}
+
+@test "kontrakt reguł firstboot HTTP" {
+  # #340
+  contract_rules 0 80
+}
+
+@test "kontrakt reguł firstboot HTTPS" {
+  # #340
+  contract_rules 1 '{ 80, 443 }'
 }

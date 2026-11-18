@@ -14,7 +14,7 @@
 # mutanty równoważne, z uzasadnieniem) ORAZ wynik >= PYTHON_MUTATION_MIN. Progi podnosić, nie obniżać.
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
-require mutmut bats python3
+require mutmut bats pytest python3
 
 PYTHON_MUTATION_MIN=${PYTHON_MUTATION_MIN:-85}
 MUTMUT_MAX_CHILDREN=${MUTMUT_MAX_CHILDREN:-4}
@@ -42,5 +42,6 @@ bash_mutations() {
 
 run_check "Mutacje Pythona (mutmut, próg ${PYTHON_MUTATION_MIN}%)" python_mutations
 run_check "Mutacje powłoki (każda mutacja musi zostać zabita)" bash_mutations
+run_check "Kontrakty: każda para mutacja × konsument" python3 ci/mutation_contracts.py --output "$MUT"
 cat "$MUT"/*-summary.md 2>/dev/null | summary >/dev/null || true
 finish

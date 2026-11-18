@@ -301,3 +301,12 @@ Czas z runbookiem: ~8 min (wcześniej ~30 min diagnozy).
 **Kiedy nie stosować.** CVE jest świeże, a fixu nie ma na `main` — utwórz PR z bumpem zależności.
 Zależność zablokowana constraint w `pyproject.toml` — wymaga zmiany constraint-u. Podatności w
 `renv.lock` — `renv::update()`, inne pliki. Podatności w pakietach conda — `conda update` + `conda-lock`.
+
+### Macierz kontraktów etapu 4b (#340)
+
+`make mutation` publikuje wynik każdej pary w `build/mutation/contracts.json`.
+Przy czerwonym wyniku znajdź logi `<kontrakt>.<mutacja>.<konsument>.{base,mutant}.log`.
+Popraw najpierw baseline lub selektor. Przy `survived` sprawdź osiągalność zmienionego
+fragmentu i niezależną asercję efektu. Błąd procesu, timeout i pominięty test blokują bramkę.
+Wynik wymagany dla każdego pliku macierzy to 100% par. Zakres i odpowiedzialność opisuje
+[macierz kontraktów](mutation-abstractions.md).
