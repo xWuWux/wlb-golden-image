@@ -128,7 +128,7 @@ for row in "${ROWS[@]}"; do
   [[ -z $filter ]] || bats_args=(-f "$filter" "$WORK/$test")
   # Baseline PRZED mutacją. Kolejność sprawdzeń jest istotna: najpierw liczba wybranych testów,
   # potem wynik — bats 1.13 bez dopasowania zwraca 0, a 1.14 zwraca 1, a komunikat ma być ten sam.
-  if bats "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
+  if timeout -k 5 60 bats --formatter tap "${bats_args[@]}" >"$WORK/baseline.log" 2>&1; then
     baseline_rc=0
   else
     baseline_rc=$?
@@ -140,7 +140,7 @@ for row in "${ROWS[@]}"; do
     report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | **zły filtr** |"
     continue
   fi
-  if ((baseline_rc != 0)); then
+  if ((baseline_rc != 0)) || grep -Eiq '^ok [0-9]+ .* # skip' "$WORK/baseline.log"; then
     echo "BŁĄD: baseline czerwony przed mutacją ($desc):" >&2
     tail -n 5 "$WORK/baseline.log" >&2
     errors=1
@@ -154,14 +154,20 @@ for row in "${ROWS[@]}"; do
     continue
   fi
   apply_mutation "$WORK/$file" "$old" "$new"
-  if bats "${bats_args[@]}" >"$WORK/bats.log" 2>&1; then
+  if timeout -k 5 60 bats --formatter tap "${bats_args[@]}" >"$WORK/bats.log" 2>&1; then
     result="**survived**"
     survived=$((survived + 1))
     echo "PRZEŻYŁ: $desc (mutacja: $old → $new)" >&2
     tail -n 5 "$WORK/bats.log" >&2
   else
-    result="killed"
-    killed=$((killed + 1))
+    rc=$?
+    if [[ $rc == 1 ]] && grep -qx '1\.\.1' "$WORK/bats.log" && grep -q '^not ok 1 ' "$WORK/bats.log"; then
+      result="killed"
+      killed=$((killed + 1))
+    else
+      result="error (bats rc=$rc)"
+      errors=1
+    fi
   fi
   report+=$'\n'"| $desc | \`$file\` | \`$test\`${filter:+ (-f \`$filter\`)} | $result |"
   cp "$REPO_ROOT/$file" "$WORK/$file" # przywrócenie przed kolejną mutacją

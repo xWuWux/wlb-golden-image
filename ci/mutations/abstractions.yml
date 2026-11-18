@@ -1,0 +1,45 @@
+# Each consumer runs independently against every mutation in its contract.
+deployment-values:
+  owner: platforma
+  risk: critical
+  source: ci/deployment_vars.py
+  test: tests/unit/test_deployment_vars.py
+  inputs: [tests/unit/conftest.py]
+  consumers:
+    env-example: test_active_deployment_values[env-example]
+    cloud-init-base: test_active_deployment_values[cloud-init-base]
+    cloud-init-optional: test_active_deployment_values[cloud-init-optional]
+  mutations:
+    # [stable ID, unique source fragment, replacement, expected assertion marker]
+    - [inline-comment, 'value = value[: match.start()]', 'value = value[match.end() :]', active-values]
+    - [quotes, 'value = value[1:-1]', 'value = value[1:]', active-values]
+    - [spaces, 'value = value.strip()', 'value = value.lstrip()', active-values]
+    - [active-over-template, 'known is None or (known.commented and not entry.commented)', 'known is None', active-values]
+    - [first-active, '(known.commented and not entry.commented)', 'not entry.commented', active-values]
+
+hub-rules:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/lab_config/files/wlb-firstboot
+  test: tests/unit/wlb-firstboot.bats
+  inputs: [tests/unit/helpers.bash]
+  consumers:
+    http: "kontrakt reguł firstboot HTTP"
+    https: "kontrakt reguł firstboot HTTPS"
+  mutations:
+    - [hub-ports, 'tcp dport ${hub_dports} accept', 'tcp dport 8080 accept', hub-port]
+    - [ssh-port, 'tcp dport 22 accept', 'tcp dport 2222 accept', ssh-port]
+    - [egress-port, 'tcp dport $port accept', 'tcp dport 9 accept', proxy-port]
+    - [audit-marker, 'date -Is >"$AUDIT_READY"', 'date -Is >"$AUDIT_READY.tmp"', audit-marker]
+
+hub-rollback:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/lab_config/files/wlb-firstboot
+  test: tests/unit/wlb-firstboot.bats
+  inputs: [tests/unit/helpers.bash]
+  consumers:
+    http: "wycofanie reguły firstboot HTTP"
+    https: "wycofanie reguły firstboot HTTPS"
+  mutations:
+    - [rollback-condition, 'if [[ $HUB_OPENED == 1 && ! -s $DONE ]]; then', 'if [[ $HUB_OPENED == 1 && -s $DONE ]]; then', rollback]

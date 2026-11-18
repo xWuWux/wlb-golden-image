@@ -6,7 +6,7 @@
 # Dodając mutację, sprawdź lokalnie:
 #   ci/mutation-bash.sh --check && ci/mutation-bash.sh
 ansible/roles/lab_config/files/wlb-firstboot	[[ ${1:-0} == 1 ]]	[[ ${1:-0} != 1 ]]	tests/unit/wlb-firstboot.bats	HUB_TLS=0	reguła huba fazy 2 nigdy nie dołączana — hub zamknięty mimo gotowości (#18)
-ansible/roles/lab_config/files/wlb-firstboot	HUB_OPENED=1	HUB_OPENED=0	tests/unit/wlb-firstboot.bats	awaria restartu nftables	flaga otwarcia bramki nigdy nie ustawiona — trap nie zamknie huba (#251)
+ansible/roles/lab_config/files/wlb-firstboot	HUB_OPENED=1	HUB_OPENED=0	tests/unit/wlb-firstboot.bats	wycofanie reguły firstboot HTTPS	flaga otwarcia bramki nigdy nie ustawiona — trap nie zamknie huba (#251)
 ansible/roles/lab_config/files/wlb-firstboot	date -Is >"$DONE.tmp" || die "nie udało się zapisać znacznika ukończenia (firstboot.done)"	date -Is >"$DONE.tmp" || true	tests/unit/wlb-firstboot.bats	awaria po otwarciu	brak fail-closed po nieudanym zapisie firstboot.done (#251)
 ansible/roles/lab_config/files/wlb-firstboot	mv "$DONE.tmp" "$DONE"	mv "$DONE.tmp" "$DONE.x"	tests/unit/wlb-firstboot.bats	pełna konfiguracja	znacznik ukończenia nie trafia do firstboot.done — firstboot nieidempotentny
 ansible/roles/desktop/files/wlb-apparmor-enforce	((before == 0))	((before != 0))	tests/unit/wlb-apparmor-enforce.bats	brak profili	odwrócony warunek wczesnego wyjścia sweepu AppArmor (#65)

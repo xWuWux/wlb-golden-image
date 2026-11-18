@@ -230,7 +230,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 - `tests/unit/wlb-sluza-out-mover.bats` — `#208: blad zapisu potwierdzenia nie przerywa przyjecia`, `#208: nazwa wpisu z niedozwolonymi znakami jest zakodowana w potwierdzeniu`, `#208: odrzucenie tworzy tylko powód — bez potwierdzenia`, `#208: potwierdzenie nie duplikuje sie i nie zostawia plikow tymczasowych`, `#208: przyjęty katalog dostaje potwierdzenie z liczbą plików, rozmiarem i sha256-inventory`, `#208: przyjęty pojedynczy plik — potwierdzenie z jednym plikiem i jego rozmiarem`, *#208: pozytywne potwierdzenie przyjęcia do kolejki (receipt)*
 
 ### #251 — [P0] Firstboot udostępnia hub przed finalizacją kont i audytu, także po awarii  ·  _otwarte_
-- `tests/unit/wlb-firstboot.bats` — `awaria finalizacji audytu nie otwiera portu huba ani nie publikuje firstboot.done (#251)`, `awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)`, `awaria restartu nftables przy otwieraniu huba zamyka bramkę (trap, #251)`, `firstboot otwiera hub po gotowości kont i finalizacji audytu (#251)`
+- `tests/unit/wlb-firstboot.bats` — `awaria finalizacji audytu nie otwiera portu huba ani nie publikuje firstboot.done (#251)`, `awaria po otwarciu huba, przed firstboot.done, zamyka bramkę (trap, #251)`, `firstboot otwiera hub po gotowości kont i finalizacji audytu (#251)`, `wycofanie reguły firstboot HTTP`, `wycofanie reguły firstboot HTTPS`
 
 ### #257 — [P0][ci] Code scanning nieaktywny, mimo że CI produkuje SARIF (semgrep/checkov)  ·  _otwarte_
 - `tests/unit/scan-status.bats` — `czysty skan: kod 0 zapisany (#257)`, `katalog raportów tworzony, gdy go nie ma (#257)`, `kod wyjścia skanera zapisany i przekazany dalej, także znaleziska (#257)`, `skaner zabity przed zakończeniem: brak pliku .exit, czyli not_run, nie clean (#257)`, `stary raport i status usunięte przed skanem — awaria nie zostawia poprzedniego wyniku (#257)`
@@ -275,6 +275,10 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 
 ### #314 — Testy: kafelek pulpitu ↔ Exec ↔ realne uruchomienie (2 warstwy)  ·  _otwarte_
 - `tests/acceptance.d/43-kafelki-exec.sh` — `Bramka akceptuje ten sam cel przez ścieżkę absolutną (fixture, #314)`, `Bramka odrzuca polecenie istniejące tylko w /usr/local/bin (sedno #199, #314)`, `Bramka wykrywa absolutny nieistniejący Exec (test negatywny, #314)`, `Bramka wykrywa względny/nieistniejący Exec (test negatywny, #314)`, `Kafelek pulpitu: Exec istnieje i jest wykonywalny na PATH sesji (#314)`, `Kafelki wlb-*.desktop: brak na tym obrazie (#314)`, `PATH sesji wyprowadzony z realnego źródła (proces/jednostka sesji, nie stała, #314)`, `Realny PATH sesji zawiera /usr/bin (#314)`, *Kafelki pulpitu: Exec → istniejący, wykonywalny cel (#314)*
+
+### #340 — Testy mutacyjne: kontrakty abstrakcji i polimorfizm implementacji (etap 4b)  ·  _otwarte_
+- `tests/unit/test_deployment_vars.py` — *wartości aktywne w przykładach wdrożenia (#340)*
+- `tests/unit/wlb-firstboot.bats` — `kontrakt reguł firstboot HTTP`, `kontrakt reguł firstboot HTTPS`, `wycofanie reguły firstboot HTTP`, `wycofanie reguły firstboot HTTPS`
 
 ## Uwagi
 
