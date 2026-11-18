@@ -3,6 +3,7 @@
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
 _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-12). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -253,6 +254,9 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 ### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
 - `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
 
+### #271 — Lokalny PostgreSQL + klient GUI bazy (DBeaver / pgAdmin) w standardzie laboratorium  ·  _otwarte_
+- `tests/unit/test_check_package_existence.py` — `test_parse_linux_allowlist_skips_out_of_archive`
+
 ### #277 — E2E pulpitu: sterowanie input (Playwright → noVNC) nie dociera — focus canvasu / Pointer Events  ·  _otwarte_
 - `tests/desktop-e2e-novnc.py` — *canvas: wspólne wykrycie elementu (jrdp/noVNC, także shadow DOM)*
 
@@ -272,6 +276,12 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 ### #318 — Sprzątanie scratch sesji w post_stop_hook (scratch-only, deny-lista /workspace+śluza) — z #97  ·  _otwarte_
 - `tests/acceptance.d/50-hooki-sesji.sh` — `Emiter sesji trafia do journala z tagiem wlb-session (#97)`, `Kolejka .wlb-export-queue nietknięta (deny-lista, #318)`, `Plik-świadek w /workspace przeżywa sprzatanie (deny-lista, #318)`, `Reaping display-scoped (#318): brak pulpitu/xauth — sprawdzone testami jednostkowymi`, `Reaping display: gniazdo X usunięte dla zwalnianego UID (#318)`, `Reaping display: lock X usunięty (#318)`, `Reaping display: plik .vnc spoza wzorca nietknięty (#318)`, `Reaping display: plik .vnc/*.pid usunięty (#318)`, `post_stop usuwa scratch w całości (katalog z podkatalogiem, #318)`, `pre_spawn tworzy scratch per-unit na tmpfs i ustawia TMPDIR sesji (#318)`, `scratch należy do UID badacza (10000-59999, #318)`, `xauth: wpis :77 usunięty, plik .Xauthority zachowany (#318)`, `Ścieżka spoza allowlisty nietknięta (test negatywny, #318)`
 - `tests/unit/test_wlb_session_hook.py` — `test_denylista_obejmuje_workspace_i_podsciezki`, `test_fail_secure_sprzatanie_nie_wywraca_stopu`, `test_post_stop_usuwa_scratch_rekurencyjnie`, `test_pre_spawn_tworzy_scratch_i_ustawia_TMPDIR`, `test_reap_display_usuwa_tylko_artefakty_wlasciciela`, `test_scratch_nie_powstaje_gdy_sciezka_jest_z_denylisty`, `test_sprzatanie_pomijane_dla_uid_spoza_zakresu`
+
+### #288 — Testy: domknięcie 5 klas — CIS, izolacja u01, idempotencja Ansible, macierz flavorów, UI JupyterLab  ·  _otwarte_
+- `tests/acceptance-remote.sh` — `Brak binariów SUID/SGID w /workspace (#288)`, `Brak groźnych file-capabilities (sys_admin/setuid/dac_override/ptrace) (#288)`, `Capabilities: brak getcap (libcap2-bin) na obrazie (#288)`, `Egress ICMP do zewnętrznego IP odrzucony (#288)`, `Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)`, `Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)`, `Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)`, `Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)`, `Egress: researcher_egress kończy się reject — default-deny (#288)`, `Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)`, `Eskalacja pkexec: brak pkexec/polkit w środowisku badacza (#288)`, `Eskalacja: /etc/cron.d niezapisywalny dla badacza (#288)`, `Eskalacja: pkexec nie podnosi uprawnień badacza (#288)`, `Obejście pobierania metodą $w6b_m odrzucone 403 (#288)`, `Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)`, *6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2)*, `Żaden plik SUID nie jest zapisywalny przez badacza (#288)`
+
+### #314 — Testy: kafelek pulpitu ↔ Exec ↔ realne uruchomienie (2 warstwy)  ·  _otwarte_
+- `tests/acceptance.d/43-kafelki-exec.sh` — `Bramka akceptuje ten sam cel przez ścieżkę absolutną (fixture, #314)`, `Bramka odrzuca polecenie istniejące tylko w /usr/local/bin (sedno #199, #314)`, `Bramka wykrywa absolutny nieistniejący Exec (test negatywny, #314)`, `Bramka wykrywa względny/nieistniejący Exec (test negatywny, #314)`, `Kafelek pulpitu: Exec istnieje i jest wykonywalny na PATH sesji (#314)`, `Kafelki wlb-*.desktop: brak na tym obrazie (#314)`, `PATH sesji wyprowadzony z realnego źródła (proces/jednostka sesji, nie stała, #314)`, `Realny PATH sesji zawiera /usr/bin (#314)`, *Kafelki pulpitu: Exec → istniejący, wykonywalny cel (#314)*
 
 ## Uwagi
 
