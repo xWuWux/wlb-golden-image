@@ -9,7 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from channel_receiver import MAX_PAYLOAD_BYTES, receive_canary, transfer_matches  # noqa: E402
+from channel_receiver import MAX_PAYLOAD_BYTES, receive_canary, transfer_matches
 
 
 class CanaryReceiverTests(unittest.TestCase):
@@ -74,7 +74,7 @@ class CanaryReceiverTests(unittest.TestCase):
                 conn.sendall(b"POST /canary HTTP/1.0\r\nContent-Length: 99\r\n\r\nabc")
                 while conn.recv(4096):
                     pass
-            receipt, = receiver.snapshot()
+            (receipt,) = receiver.snapshot()
             self.assertEqual(receipt.bytes_received, 3)
             self.assertFalse(receipt.complete)
 

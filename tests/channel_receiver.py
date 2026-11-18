@@ -38,9 +38,7 @@ class Receiver:
 
 
 @contextmanager
-def receive_canary(
-    host: str = "127.0.0.1", *, read_timeout: float = 1.0
-) -> Iterator[Receiver]:
+def receive_canary(host: str = "127.0.0.1", *, read_timeout: float = 1.0) -> Iterator[Receiver]:
     """Serve bounded POST payloads until context exit.
 
     host is an explicitly chosen test interface, never a production destination.
@@ -124,6 +122,4 @@ def receive_canary(
 
 def transfer_matches(receipts: tuple[Receipt, ...], payload: bytes) -> bool:
     """Accept exactly one complete transfer of the expected synthetic payload."""
-    return len(receipts) == 1 and receipts[0] == Receipt(
-        len(payload), hashlib.sha256(payload).hexdigest(), True
-    )
+    return len(receipts) == 1 and receipts[0] == Receipt(len(payload), hashlib.sha256(payload).hexdigest(), True)
