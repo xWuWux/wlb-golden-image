@@ -33,6 +33,8 @@ Fragmenty z pytania częściowo różnią się od scalonego runbooka #297. W szc
 
 ## Model procesu do uzgodnienia
 
+[Wniosek] Granica WLB obejmuje VM i zatwierdzony obszar przeglądu Kontrolera. Podgląd poza VM wymaga osobno autoryzowanego transferu do tego obszaru, praw dostępu, retencji i rejestracji. Obszar przeglądu nie jest docelowym odbiorcą eksportu. Test zero bajtów przed zgodami dotyczy odbiornika końcowego. Osobna próba sprawdza, że dane do przeglądu trafiają wyłącznie do uprawnionej strefy i osoby. Bez potwierdzenia tej granicy zdalnego podglądu nie można uznać za dopuszczony.
+
 [Wniosek] Rozdzielić niezmienny pakiet v1, decyzje osób i stan operacji publikacji. Nie dodawać pól do v1 ad hoc.
 
 1. Badacz przygotowuje wynik i zgłasza gotowość według uzgodnionego #33. Przyjęcie nadaje request_id i tworzy prywatny pakiet.
