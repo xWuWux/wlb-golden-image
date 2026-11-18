@@ -280,6 +280,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-16). Odświ
 - `tests/unit/test_deployment_vars.py` — *wartości aktywne w przykładach wdrożenia (#340)*
 - `tests/unit/wlb-firstboot.bats` — `kontrakt reguł firstboot HTTP`, `kontrakt reguł firstboot HTTPS`, `wycofanie reguły firstboot HTTP`, `wycofanie reguły firstboot HTTPS`
 
+### #341 — Testy mutacyjne: szczelność granic DI/mocków — fake nie może udawać produktu  ·  _otwarte_
+- `tests/unit/test_http_boundaries.py` — `test_github_run_request`, `test_license_fetch_retries_verified_https`
+- `tests/unit/test_sarif_report.py` — `test_prepare_notyfikacja_error_nie_publikuje_a_warning_daje_clean`
+- `tests/unit/test_wazuh_logtest_client.py` — *kontrakt niepełnej ramki analysisd (#341)*
+
 ## Uwagi
 
 - **Mapa pokazuje testy z jawnym znacznikiem `#NN`.** Wiele zachowań jest pokrytych testami bez odwołania do zgłoszenia (pełny zestaw jednostkowy bats/pytest w `tests/unit/`, akceptacja e2e w `tests/acceptance-remote.sh`, migracja w `tests/migration-remote.sh`). Brak wiersza nie znaczy „brak testu”, lecz „brak znacznika” — przy nowych poprawkach dodawaj `#NN` w tytule/sekcji testu, aby trafił do mapy.

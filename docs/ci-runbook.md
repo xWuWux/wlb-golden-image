@@ -310,3 +310,11 @@ Popraw najpierw baseline lub selektor. Przy `survived` sprawdź osiągalność z
 fragmentu i niezależną asercję efektu. Błąd procesu, timeout i pominięty test blokują bramkę.
 Wynik wymagany dla każdego pliku macierzy to 100% par. Zakres i odpowiedzialność opisuje
 [macierz kontraktów](mutation-abstractions.md).
+
+### Survivor na granicy zależności (#341)
+
+Sprawdź pole `evidence` przy parze w `contracts.json`. Przy `mock-only` odtwórz
+przypadek z rzeczywistym adapterem i lokalnym peerem. Porównaj wynik, ścieżkę żądania,
+ciąg bajtów lub zapisany manifest. Samo wywołanie atrapy nie wystarcza do oceny
+transportu. Błąd uruchomienia lokalnego peera blokuje baseline. Po zmianie testu
+uruchom ponownie `make mutation` i sprawdź wszystkie pary kontraktu.

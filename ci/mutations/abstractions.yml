@@ -43,3 +43,51 @@ hub-rollback:
     https: "wycofanie reguły firstboot HTTPS"
   mutations:
     - [rollback-condition, 'if [[ $HUB_OPENED == 1 && ! -s $DONE ]]; then', 'if [[ $HUB_OPENED == 1 && -s $DONE ]]; then', rollback]
+
+analysisd-frame:
+  owner: platforma
+  risk: critical
+  source: ci/wazuh_logtest_client.py
+  test: tests/unit/test_wazuh_logtest_client.py
+  inputs: [tests/unit/conftest.py]
+  consumers:
+    stub: test_incomplete_frame_is_an_error[stream]
+    socketpair: test_incomplete_frame_is_an_error[unix]
+  evidence: {stub: mock-only, socketpair: unix-transport}
+  mutations:
+    - [early-eof, 'raise LogtestError("analysisd zamknął połączenie przed końcem odpowiedzi")', 'return buf', truncated]
+
+github-run:
+  owner: platforma
+  risk: normal
+  source: ci/ci_telemetry.py
+  test: tests/unit/test_http_boundaries.py
+  inputs: [tests/unit/conftest.py]
+  consumers:
+    injected: test_github_run_request[callable]
+    loopback: test_github_run_request[http]
+  evidence: {injected: mock-only, loopback: http-transport}
+  mutations:
+    - [resource-path, 'self.get(f"actions/runs/{run_id}")', 'self.get(f"actions/jobs/{run_id}")', run-path]
+
+license-registry:
+  owner: platforma
+  risk: critical
+  source: ci/license_check.py
+  test: tests/unit/test_http_boundaries.py
+  inputs: [tests/unit/conftest.py]
+  consumers: {https: test_license_fetch_retries_verified_https}
+  evidence: {https: https-transport}
+  mutations:
+    - [retry, 'if not transient(e) or attempt == attempts - 1:', 'if attempt == 0 or not transient(e):', retry]
+
+sarif-notification:
+  owner: platforma
+  risk: critical
+  source: ci/sarif_report.py
+  test: tests/unit/test_sarif_report.py
+  inputs: [tests/unit/conftest.py]
+  consumers: {manifest: test_prepare_notyfikacja_error_nie_publikuje_a_warning_daje_clean}
+  evidence: {manifest: file-fixture}
+  mutations:
+    - [notification, 'if notification.get("level") == "error":', 'if notification.get("level") == "fatal":', scanner-error]
