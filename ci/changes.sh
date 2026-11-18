@@ -18,9 +18,9 @@ EVENT=${EVENT:-push}
 LABELS=${LABELS:-[]}
 SCHEDULE=${SCHEDULE:-}
 BASE=${BASE:-}
-# Nocny pełny build jest chwilowo WYŁĄCZONY (zakomentowany w on.schedule w ci.yml). Przy włączaniu
-# ustaw tutaj dokładnie ten sam cron, który odkomentujesz w ci.yml (github.event.schedule zwraca napis crona).
-NIGHTLY_CRON="0 3 * * 2,5"          # dopóki w ci.yml nie ma tego crona, ta gałąź nigdy się nie wyzwala
+# Nocny pełny build (wtorki 03:00 UTC). Przy zmianie
+# ustaw tutaj dokładnie ten sam cron, który jest w on.schedule w ci.yml (github.event.schedule zwraca napis crona).
+NIGHTLY_CRON="0 3 * * 2"            # wt. nocny pełny build; musi dokładnie zgadzać się ze schedule w ci.yml
 INTEGRATION_LABEL="run-integration" # etykieta PR wymuszająca etap 5 na żądanie
 
 # Pliki czysto tekstowe pakowane do obrazu, bez wpływu na jego DZIAŁANIE: strona pomocy Launchera i inne
@@ -121,6 +121,9 @@ case $EVENT in
   schedule)
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && radiologia=true
     ;;
+  workflow_dispatch)
+    radiologia=true # ręczny pełny matrix flavorów (#288)
+    ;;
 esac
 [[ $radiologia == true ]] && image=true
 
@@ -133,6 +136,9 @@ case $EVENT in
     ;;
   schedule)
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && memory=true
+    ;;
+  workflow_dispatch)
+    memory=true # ręczny pełny matrix flavorów (#288)
     ;;
 esac
 [[ $memory == true ]] && image=true
@@ -147,8 +153,29 @@ case $EVENT in
   schedule)
     [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && histologia=true
     ;;
+  workflow_dispatch)
+    histologia=true # ręczny pełny matrix flavorów (#288)
+    ;;
 esac
 [[ $histologia == true ]] && image=true
+
+# Dynamiczna macierz flavorów etapu 5: tylko warianty, które REALNIE się zbudują i przetestują.
+# general jest zawsze (gdy image=true — bazowa akceptacja MVP); memory/histologia/radiologia dołączają
+# wyłącznie przy opt-in. Dzięki temu job w macierzy = job, który faktycznie buduje — brak fałszywego
+# zielonego z gałęzi „pominięto" (#317/P1-5). Nieopt-inowy flavor NIE istnieje jako job, zamiast przechodzić
+# na pusto — i nie obciąża budżetu GitHub Actions.
+flavors_list=()
+[[ $image == true ]] && flavors_list+=(general)
+[[ $radiologia == true ]] && flavors_list+=(radiologia)
+[[ $memory == true ]] && flavors_list+=(memory)
+[[ $histologia == true ]] && flavors_list+=(histologia)
+# JSON budujemy w czystym bashu (bez zależności od pythona — spójny format ", " jak json.dumps);
+# nazwy flavorów to kontrolowane literały [a-z], więc nie trzeba escapować.
+flavors_json="["
+for _f in "${flavors_list[@]}"; do
+  [[ $flavors_json == "[" ]] && flavors_json+="\"$_f\"" || flavors_json+=", \"$_f\""
+done
+flavors_json+="]"
 
 perf=false
 { has_label perf || [[ ${IN_PERF:-false} == true ]]; } && perf=true
@@ -163,5 +190,6 @@ echo "image=$image"
 echo "radiologia=$radiologia"
 echo "memory=$memory"
 echo "histologia=$histologia"
+echo "flavors=$flavors_json"
 echo "perf=$perf"
 echo "ephemeral=$ephemeral"

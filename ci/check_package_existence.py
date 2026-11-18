@@ -97,10 +97,11 @@ class Finding:
 
 def default_fetch(url: str, timeout: float = 10.0) -> int:
     """Zwraca kod HTTP (0 = błąd transportu/timeout). Nie czyta treści — tylko istnienie."""
-    # API Anaconda dla dużych pakietów (np. pyarrow) odpowiada 20-30 s. Krótszy timeout dawał
-    # fałszywe "rejestr nieosiągalny" (fail-closed); reszta rejestrów odpowiada < 2 s.
+    # API Anaconda dla dużych pakietów (np. pyarrow) odpowiada 20-30 s, a przy obciążeniu
+    # przekraczało 45 s — fałszywe "rejestr nieosiągalny" (fail-closed) blokowało PR-y (#317).
+    # 90 s pokrywa zmierzony rozrzut (15-30 s) z zapasem na wolniejszy runner CI.
     if "api.anaconda.org" in url:
-        timeout = max(timeout, 45.0)
+        timeout = max(timeout, 90.0)
     req = urllib.request.Request(url, method="HEAD", headers=_UA)
     try:
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
@@ -381,10 +382,15 @@ def parse_linux(root: Path, skipped: list[str] | None = None) -> list[Pkg]:
     return out
 
 
+def _retries_for(url: str) -> int:
+    """Conda-forge (api.anaconda.org) bywa chwilowo 5xx przy dużych pakietach — jeden retry więcej."""
+    return 4 if "api.anaconda.org" in url else 3
+
+
 def verify(pkgs: list[Pkg], fetch: Fetch) -> list[Finding]:
     findings: list[Finding] = []
     for pkg in pkgs:
-        result = exists(pkg.url, fetch)
+        result = exists(pkg.url, fetch, retries=_retries_for(pkg.url))
         if result is True:
             continue
         if result is None:
