@@ -2,7 +2,7 @@
 
 Dokument śledzi, które testy pilnują rozwiązania z poszczególnych zgłoszeń, żeby po każdym PR było widać, że **stare i nowe funkcjonalności nadal działają** (wymóg regresji dla Tier 4, DoD #46/#52). Zasada: patrz [CONTRIBUTING.md](../CONTRIBUTING.md) — „każda poprawka = test regresji”.
 
-_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odśwież: `python3 ci/mapa-testy.py`._
+_Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-19). Odśwież: `python3 ci/mapa-testy.py`._
 
 ## Pokrycie wg zgłoszeń
 
@@ -57,6 +57,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odświ
 - `tests/acceptance-remote.sh` — `Manifest i integralność kopii w kolejce (#20)`
 - `tests/migration-remote.sh` — `Manifest i kopia przeżywają wymianę VM (#20)`
 - `tests/unit/test_wlb_export_snapshot.py` — *#20: integralność kopii, manifest, wyścigi i awarie*
+- `tests/unit/wlb-export.bats` — `wlb-export list: pokazuje wniosek z metadanymi (#20)`, `wlb-export list: wpis legacy (bez manifestu v1) oznaczony, nie ukryty (#20)`, `wlb-export show: zweryfikowany deskryptor po request_id, bez treści/nazw plików (#20)`, `wlb-export stage: kopiuje zweryfikowany payload do staged, kolejka nietknięta (#20)`, `wlb-export stage: nie nadpisuje istniejącego staged (retencja ręczna, #20)`, `wlb-export staged-clear: usuwa staged pliki (#20)`, `wlb-export verify: poprawny pakiet -> exit 0 (#20)`, `wlb-export: list/show/verify NIE modyfikują kolejki (inwariant read-only, #20)`, `wlb-export: nieznany request_id -> błąd niezerowy (fail-closed, #20)`
 - `tests/unit/wlb-sluza-out-mover.bats` — `#20: niedozwolony element zatrzymuje cały katalog w kwarantannie`, `#20: suma katalogu odtwarzalna przez weryfikator po przeniesieniu pakietu`
 
 ### #22 — Metryki VM (np. node_exporter, /hub/metrics) — wybór systemu monitoringu  ·  _otwarte_
@@ -218,9 +219,11 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odświ
 - `tests/acceptance.d/55-python-prefiks.sh` — *Wersjonowany prefiks środowiska Pythona (#193, M0)*
 
 ### #199 — wlb-radiologia: wrappery neuro poza PATH sesji XFCE; fsl.sh powiela wpis w PATH  ·  _scalone_
+- `tests/acceptance.d/43-kafelki-exec.sh` — `Bramka odrzuca polecenie istniejące tylko w /usr/local/bin (sedno #199, #314)`, `Fixture #199: PATH sesji zawiera /usr/local/bin na tym flavorze — premisa flavor-specific (#314)`, `Kafelek pulpitu: Exec istnieje i jest wykonywalny na PATH sesji (#314)`, `Realny PATH sesji nie zawiera /usr/local/bin (fakt z warstwy jrdp, #199/#202)`, `Realny PATH sesji zawiera /usr/bin (#314)`, *Kafelki pulpitu: Exec → istniejący, wykonywalny cel (#314)*
 - `tests/acceptance.d/45-memory.sh` — `LibreOffice obecny (binarka)`
 - `tests/acceptance.d/47-histologia.sh` — `Kafelek jamovi wskazuje flatpak run absolutnie (Exec, #199)`, `jamovi zainstalowany w Flatpak (systemowo)`
 - `tests/acceptance.d/70-radiologia.sh` — `Kafelek 3DSlicer wskazuje Slicer (Exec)`, `Kafelek FSL wskazuje wrapper absolutnie (Exec, #199)`, `Kafelek FSLeyes wskazuje wrapper absolutnie (Exec, #199)`, `fsl.sh w pełni idempotentny: 2. źródłowanie nie zmienia PATH (#199)`, `Środowisko FSL (profile.d/fsl.sh)`
+- `tests/unit/kafelki-exec.bats` — `PATH sesji nie zawiera /usr/local/bin i zawiera /usr/bin (#199/#202)`
 
 ### #200 — wlb-radiologia: soft z pierwszego wdrożenia — MRtrix3 (dwidenoise/mp-pca) + czytnik PDF  ·  _scalone_
 - `tests/acceptance.d/70-radiologia.sh` — `3DSlicer na PATH (Slicer)`, `Czytnik PDF evince na PATH (#200)`, `Kafelek czytnika PDF w menu (#200)`, `MRtrix3 dwidenoise na PATH (#200)`, `MRtrix3 dwidenoise uruchamia się (-version, #200)`, *Dodatkowe narzędzia (MRtrix3, czytnik PDF, #200)*
@@ -272,12 +275,12 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-18). Odświ
 ### #292 — Wynoszenie i wnoszenie plików poza śluzą: JupyterLab API, RStudio Files, jamovi Flatpak i kanały klienta  ·  _otwarte_
 - `tests/acceptance.d/46-kanaly-eksportu.sh` — *Kanały eksportu/importu (#292 — matryca tests/channels.yaml)*, *RStudio: known_open (brak fixture ścieżek) — tylko raport, nie asercja*, *Self-test harnessu kanałów (#292)*
 
+### #314 — Testy: kafelek pulpitu ↔ Exec ↔ realne uruchomienie (2 warstwy)  ·  _otwarte_
+- `tests/acceptance.d/43-kafelki-exec.sh` — `Bramka akceptuje ten sam cel przez ścieżkę absolutną (fixture, #314)`, `Bramka odrzuca polecenie istniejące tylko w /usr/local/bin (sedno #199, #314)`, `Bramka wykrywa absolutny nieistniejący Exec (test negatywny, #314)`, `Bramka wykrywa względny/nieistniejący Exec (test negatywny, #314)`, `Fixture #199: PATH sesji zawiera /usr/local/bin na tym flavorze — premisa flavor-specific (#314)`, `Kafelek pulpitu: Exec istnieje i jest wykonywalny na PATH sesji (#314)`, `Kafelki wlb-*.desktop: brak na tym obrazie (#314)`, `PATH sesji wyprowadzony z realnego środowiska procesu serwera/jednostki (#314)`, `Realny PATH sesji zawiera /usr/bin (#314)`, *Kafelki pulpitu: Exec → istniejący, wykonywalny cel (#314)*
+
 ### #318 — Sprzątanie scratch sesji w post_stop_hook (scratch-only, deny-lista /workspace+śluza) — z #97  ·  _otwarte_
 - `tests/acceptance.d/50-hooki-sesji.sh` — `Emiter sesji trafia do journala z tagiem wlb-session (#97)`, `Kolejka .wlb-export-queue nietknięta (deny-lista, #318)`, `Plik-świadek w /workspace przeżywa sprzatanie (deny-lista, #318)`, `Realny Hub: marker w scratchu usunięty (#97, #318)`, `Realny Hub: nowy scratch sesji utworzony (#97, #318)`, `Realny Hub: scratch ma tryb 0700 (#97, #318)`, `Realny Hub: scratch należy do badacza $R2 (#97, #318)`, `Realny Hub: scratch sesji całkowicie usunięty po stopie (#97, #318)`, `Realny Hub: scratch sesji na tmpfs obecny dla jupyter-$R2 (#97, #318)`, `Realny Hub: zapis pliku-markera w scratchu (#97, #318)`, `Reaping UID-scoped: <host>:77.pid/.log usunięte dla DISPLAY 77 (#318)`, `Reaping UID-scoped: plik .vnc spoza wzorca DISPLAY nietknięty (#318)`, `Reaping UID-scoped: plik badacza keepme.log przeżył (nie blanket *.log, #318)`, `Reaping display-scoped (#318): brak pulpitu/xauth — sprawdzone testami jednostkowymi`, `Reaping display: gniazdo X usunięte dla zwalnianego UID (#318)`, `Reaping display: lock X usunięty (#318)`, `post_stop usuwa scratch w całości (katalog z podkatalogiem, #318)`, `pre_spawn tworzy scratch per-unit na tmpfs i ustawia TMPDIR sesji (#318)`, `scratch należy do UID badacza (10000-59999, #318)`, `xauth: wpis :77 usunięty, plik .Xauthority zachowany (#318)`, *Pełny E2E cykl życia z realnym Hubem (#97, #318)*, `Ścieżka spoza allowlisty nietknięta (test negatywny, #318)`
 - `tests/unit/test_wlb_session_hook.py` — `test_denylista_obejmuje_workspace_i_podsciezki`, `test_fail_secure_sprzatanie_nie_wywraca_stopu`, `test_post_stop_usuwa_scratch_rekurencyjnie`, `test_pre_spawn_tworzy_scratch_i_ustawia_TMPDIR`, `test_reap_display_usuwa_tylko_artefakty_wlasciciela`, `test_scratch_nie_powstaje_gdy_sciezka_jest_z_denylisty`, `test_sprzatanie_pomijane_dla_uid_spoza_zakresu`, `test_wlb_ident_normalizuje_unit_name_bez_sufiksu`, `test_wlb_ident_wola_ensure_user_gdy_konto_jeszcze_nie_istnieje`
-
-### #314 — Testy: kafelek pulpitu ↔ Exec ↔ realne uruchomienie (2 warstwy)  ·  _otwarte_
-- `tests/acceptance.d/43-kafelki-exec.sh` — `Bramka akceptuje ten sam cel przez ścieżkę absolutną (fixture, #314)`, `Bramka odrzuca polecenie istniejące tylko w /usr/local/bin (sedno #199, #314)`, `Bramka wykrywa absolutny nieistniejący Exec (test negatywny, #314)`, `Bramka wykrywa względny/nieistniejący Exec (test negatywny, #314)`, `Kafelek pulpitu: Exec istnieje i jest wykonywalny na PATH sesji (#314)`, `Kafelki wlb-*.desktop: brak na tym obrazie (#314)`, `PATH sesji wyprowadzony z realnego źródła (proces/jednostka sesji, nie stała, #314)`, `Realny PATH sesji zawiera /usr/bin (#314)`, *Kafelki pulpitu: Exec → istniejący, wykonywalny cel (#314)*
 
 ### #340 — Testy mutacyjne: kontrakty abstrakcji i polimorfizm implementacji (etap 4b)  ·  _otwarte_
 - `tests/unit/test_deployment_vars.py` — *wartości aktywne w przykładach wdrożenia (#340)*
