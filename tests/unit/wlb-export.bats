@@ -102,3 +102,49 @@ _queue_hash() {
   [ "$status" -eq 0 ]
   [ ! -e "$STAGING/$UUID" ]
 }
+
+# --- Regresje z krytycznego review #354 (pi, pullrequestreview-5976420028) ---
+
+@test "wlb-export staged-clear: odmawia traversalu '../' — nie usuwa katalogów poza staging (#354)" {
+  mkdir -p "$STAGING"
+  mkdir -p "$SANDBOX/ofiara"
+  printf 'nie-ruszaj\n' >"$SANDBOX/ofiara/plik" # STAGING=$SANDBOX/staging, więc ../ofiara wskazuje poza
+  run python3 "$CLI" staged-clear "../ofiara"
+  [ "$status" -ne 0 ]                 # _parse_uuid odrzuca PRZED zbudowaniem ścieżki
+  [ -e "$SANDBOX/ofiara/plik" ]       # katalog poza staging nietknięty
+}
+
+@test "wlb-export staged-clear: pusty argument nie usuwa CAŁEGO staging (#354)" {
+  python3 "$CLI" stage "$UUID" >/dev/null
+  [ -e "$STAGING/$UUID" ]
+  run python3 "$CLI" staged-clear ""
+  [ "$status" -ne 0 ]
+  [ -e "$STAGING/$UUID" ]             # staging i jego zawartość nietknięte
+}
+
+@test "wlb-export list: pomija dowiązanie w kolejce (manifest spoza kolejki nie jest czytany) (#354)" {
+  outside_uuid=$(python3 -c 'import uuid; print(uuid.uuid4())')
+  python3 "$SNAP" create "$SANDBOX/wynik.csv" "$SANDBOX/poza-pkg" wynik.csv "$outside_uuid" >/dev/null
+  ln -s "$SANDBOX/poza-pkg" "$QUEUE/20990101T000000Z_dowiazanie"
+  run python3 "$CLI" list
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"$outside_uuid"* ]]               # manifest spoza kolejki NIE odczytany
+  [[ "$output" != *"20990101T000000Z_dowiazanie"* ]] # wpis-dowiązanie pominięty
+}
+
+@test "wlb-export list: manifest z entries:string / requester:string nie wywraca listy (#354)" {
+  d="$QUEUE/20260202T000000Z_malformed"
+  mkdir -p "$d"
+  printf '{"schema_version":1,"request_id":"x","entries":"nie-lista","requester":"tez-string"}' >"$d/manifest.json"
+  run python3 "$CLI" list
+  [ "$status" -eq 0 ]            # brak AttributeError/TypeError
+  [[ "$output" == *"$UUID"* ]]  # prawidłowy wpis nadal widoczny
+}
+
+@test "wlb-export stage: nazwa staged jest KANONICZNYM UUID (brak surowego wejścia w ścieżce) (#354)" {
+  braces="{$UUID}" # ten sam UUID w formie z klamrami — _parse_uuid kanonizuje do gołego UUID
+  run python3 "$CLI" stage "$braces"
+  [ "$status" -eq 0 ]
+  [ -e "$STAGING/$UUID" ]      # kanoniczny, nie surowe wejście
+  [ ! -e "$STAGING/$braces" ]
+}

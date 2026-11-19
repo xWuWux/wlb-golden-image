@@ -104,18 +104,26 @@ def cmd_list() -> int:
         return 1
     rows = []
     for entry in sorted(QUEUE.iterdir()):
-        if not entry.is_dir() or entry.name.startswith("."):
+        # is_symlink PRZED is_dir: dowiązanie w kolejce nie może wskazać manifestu spoza niej
+        # (is_dir/O_NOFOLLOW chronią tylko ostatni komponent, nie katalog-dowiązanie).
+        if entry.is_symlink() or not entry.is_dir() or entry.name.startswith("."):
             continue
         manifest = _read_manifest_meta(entry)
         if manifest is None:
             rows.append((entry.name, "LEGACY", "", "", "", "nieweryfikowalny"))
             continue
-        files = [e for e in manifest.get("entries", []) if e.get("type") == "file"]
-        total = sum(int(e.get("size", 0)) for e in files)
+        # Manifest przeszedł tylko kontrolę schema_version — pola mogą mieć zły typ (entries:string,
+        # requester:string). Twarde strażniki typów: `list` nie może wywrócić się na dowolnym wejściu.
+        raw_entries = manifest.get("entries")
+        entries = raw_entries if isinstance(raw_entries, list) else []
+        files = [e for e in entries if isinstance(e, dict) and e.get("type") == "file"]
+        total = sum(int(e.get("size", 0)) for e in files if isinstance(e.get("size"), int))
+        requester = manifest.get("requester")
+        username = requester.get("username", "?") if isinstance(requester, dict) else "?"
         rows.append(
             (
                 str(manifest.get("request_id", "?")),
-                str(manifest.get("requester", {}).get("username", "?")),
+                str(username),
                 str(manifest.get("created_at", "?")),
                 str(len(files)),
                 str(total),
@@ -163,7 +171,8 @@ def cmd_stage(request_id: str) -> int:
     Nie podejmuje decyzji o eksporcie — przygotowuje plik do ręcznego scp. Retencja staged RĘCZNA
     (staged-clear). Loguje zdarzenie export_staged (authpriv → SIEM).
     """
-    dest = STAGING / request_id
+    canonical = str(_parse_uuid(request_id))  # kanoniczny UUID: nazwa staged bez traversalu
+    dest = STAGING / canonical
     if dest.exists():
         print(
             f"stage przerwane — staged {dest} już istnieje (użyj staged-clear, retencja ręczna)",
@@ -174,28 +183,50 @@ def cmd_stage(request_id: str) -> int:
         sha = bundle.manifest_sha256
         STAGING.mkdir(parents=True, exist_ok=True)
         dest.mkdir(parents=True)
-        # fd-relative kopia payloadu z PRZYPIĘTEGO pakietu (bez ponownego otwierania ścieżki) + weryfikacja
-        SNAP.inventory_at(bundle.package_fd, "payload", dest / "payload")
-    if os.geteuid() == 0 and ADMIN != "root":
-        shutil.chown(dest, user=ADMIN)
-        for child in dest.rglob("*"):
-            shutil.chown(child, user=ADMIN)
+        try:
+            # fd-relative kopia payloadu z PRZYPIĘTEGO pakietu (bez ponownego otwierania ścieżki).
+            entries = SNAP.inventory_at(bundle.package_fd, "payload", dest / "payload")
+            # Integralność treści: digest SKOPIOWANEGO payloadu musi równać się digestowi ZWERYFIKOWANEMU
+            # przy resolve. fd-pinned zamyka podmianę ścieżki, ale nie podmianę TREŚCI między verify a
+            # kopią — ta asercja ją wykrywa (reprodukcja z review #354) i odrzuca staged.
+            if SNAP.payload_digest(entries) != bundle.payload_digest:
+                raise ValueError("payload-zmieniony-po-weryfikacji")
+        except BaseException:
+            shutil.rmtree(dest, ignore_errors=True)  # żaden niezweryfikowany bajt nie zostaje staged
+            raise
+    # Właściciel staged = operator, aby mógł scp z WŁASNEGO konta SSH. Domyślny root zostawiał pliki
+    # nieczytelne dla operatora (cały sens stage). WLB_EXPORT_ADMIN nadpisuje jawnie; inaczej SUDO_USER.
     operator = os.environ.get("SUDO_USER", os.environ.get("USER", "root"))
-    _log(f"export_staged request_id={request_id} sha256={sha} operator={operator} dest={dest}")
-    print(f"OK: staged {request_id} w {dest}")
-    print(f"   skopiuj na swoją maszynę (scp), potem sprzątnij: wlb-export staged-clear {request_id}")
+    owner = ADMIN if ADMIN != "root" else operator
+    if os.geteuid() == 0 and owner and owner != "root":
+        shutil.chown(dest, user=owner)
+        for child in dest.rglob("*"):
+            shutil.chown(child, user=owner)
+    _log(f"export_staged request_id={canonical} sha256={sha} operator={operator} owner={owner} dest={dest}")
+    print(f"OK: staged {canonical} w {dest} (właściciel={owner})")
+    print(f"   skopiuj na swoją maszynę (scp), potem sprzątnij: wlb-export staged-clear {canonical}")
     return 0
 
 
 def cmd_staged_clear(request_id: str) -> int:
-    """Usuwa staged pliki wniosku (retencja ręczna — operator sprząta po scp)."""
-    dest = STAGING / request_id
+    """Usuwa staged pliki wniosku (retencja ręczna — operator sprząta po scp).
+
+    request_id jest KANONIZOWANY przez _parse_uuid PRZED zbudowaniem ścieżki. Chroni przed
+    traversalem ('staged-clear ../ofiara' usuwał katalog poza staging) i pustym argumentem
+    ('staged-clear ""' usuwał CAŁY staging) — oba zgłoszone w review #354.
+    """
+    canonical = str(_parse_uuid(request_id))
+    dest = STAGING / canonical
+    # Belt-and-suspenders: po kanonizacji rodzic MUSI być STAGING, a dest nie może być dowiązaniem.
+    if dest.parent != STAGING or dest.is_symlink():
+        print(f"odmowa: nieprawidłowa ścieżka staged dla {request_id}", file=sys.stderr)
+        return 2
     if not dest.exists():
-        print(f"(brak staged dla {request_id})")
+        print(f"(brak staged dla {canonical})")
         return 0
     shutil.rmtree(dest)
-    _log(f"export_staged_cleared request_id={request_id} dest={dest}")
-    print(f"OK: usunięto staged {request_id}")
+    _log(f"export_staged_cleared request_id={canonical} dest={dest}")
+    print(f"OK: usunięto staged {canonical}")
     return 0
 
 
