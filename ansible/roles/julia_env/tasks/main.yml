@@ -70,6 +70,11 @@
     mode: "0644"
   when: (julia_env_dir ~ '/Manifest.toml') is file
 
+- name: Sprawdź obecność wygenerowanego Manifestu Julii (#288 — idempotencja za proxy testowym)
+  ansible.builtin.stat:
+    path: "{{ julia_project_dir }}/Manifest.toml.generated"
+  register: julia_env_manifest_file
+
 - name: Instalacja środowiska Julii i kernela IJulia (pierwsze budowanie trwa długo)
   # Sonda różnicy zamiast maskowania (#288): Pkg.instantiate/precompile REALNIE pracuje, więc
   # changed liczymy z hash Manifest.toml.generated przed/po — no-op nie zmienia pliku, realna
@@ -96,6 +101,7 @@
   retries: 3
   delay: 30
   changed_when: "'JULIA_MANIFEST_CHANGED' in julia_env_install.stdout"
+  when: not (julia_env_manifest_file.stat.exists | default(false))
 
 - name: Pobierz Manifest Julii do artefaktów budowania
   ansible.builtin.fetch:

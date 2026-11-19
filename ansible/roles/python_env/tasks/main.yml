@@ -1,3 +1,14 @@
+# M0 (#193) dotyczy WYŁĄCZNIE nowo budowanego obrazu, nie działającej VM badacza.
+# TLJH instaluje swój prefiks pod /opt/tljh/user; zwykłe mv nie relokuje conda.
+# Klon używa mechanizmu conda i docelowego prefiksu; przed publikacją weryfikujemy importy.
+# Drugi przebieg playbooka na zbudowanej VM nie może modyfikować środowiska użytkowników: gdy prefiks jest już
+# dowiązaniem wersjonowanym, instalacja i blok M0 są no-op (#288, klasa 3).
+- name: "Czy prefiks Pythona jest już wersjonowany (#193, #288)"
+  ansible.builtin.stat:
+    path: /opt/tljh/user
+    follow: false
+  register: python_env_user_present
+
 - name: Wybór pliku środowiska (lock ma pierwszeństwo)
   ansible.builtin.set_fact:
     python_env_src: "{{ python_env_lock_file if python_env_lock_file is file else python_env_file }}"
@@ -30,6 +41,9 @@
   # conda przy braku zmian wypisuje „All requested packages already installed”; tylko realna
   # instalacja ma być changed — inaczej bramka idempotencji (#288) pada na no-opie.
   changed_when: "'All requested packages already installed' not in python_env_update.stdout"
+  when:
+    - not (python_env_user_present.stat.islnk | default(false))
+    - not (wlb_firstboot_completed | default(false) | bool)
 
 # #179: TLJH/pip pozostawił dist-info 2.14.2 obok wersji 2.14.1 z conda.
 # Nie zmieniamy locka ani kodu pakietu. Niejednoznaczna własność zatrzymuje build.
@@ -38,6 +52,9 @@
     src: reconcile_pydantic.py
     dest: /opt/wlb/envs/python/reconcile_pydantic.py
     mode: "0644"
+  when:
+    - not (python_env_user_present.stat.islnk | default(false))
+    - not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Odizoluj nieaktualne metadane pydantic przed eksportem
   ansible.builtin.command:
@@ -47,10 +64,16 @@
       - /opt/wlb/envs/python/stale-metadata
   register: python_env_metadata
   changed_when: (python_env_metadata.stdout | from_json).changed
+  when:
+    - not (python_env_user_present.stat.islnk | default(false))
+    - not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Pokaż wynik porządkowania metadanych
   ansible.builtin.debug:
     var: python_env_metadata.stdout
+  when:
+    - not (python_env_user_present.stat.islnk | default(false))
+    - not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Zamrożenie wersji (conda env export) — zapis tylko przy realnej zmianie locka
   ansible.builtin.shell: |
@@ -69,6 +92,9 @@
     executable: /bin/bash
   register: python_env_lock_export
   changed_when: "'LOCK_CHANGED' in python_env_lock_export.stdout"
+  when:
+    - not (python_env_user_present.stat.islnk | default(false))
+    - not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Zapisz przebieg instalacji środowiska (diagnostyka migracji menedżerów pakietów)
   ansible.builtin.copy:
@@ -82,6 +108,9 @@
     mode: "0644"
   # Log diagnostyczny zmienia się przy każdym przebiegu (output condy) — to nie stan systemu (#288).
   changed_when: false
+  when:
+    - not (python_env_user_present.stat.islnk | default(false))
+    - not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Pobierz lock do artefaktów budowania
   ansible.builtin.fetch:
@@ -96,17 +125,6 @@
     dest: "{{ wlb_artifacts_dir }}/conda-env-update.log"
     flat: true
   changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)
-
-# M0 (#193) dotyczy WYŁĄCZNIE nowo budowanego obrazu, nie działającej VM badacza.
-# TLJH instaluje swój prefiks pod /opt/tljh/user; zwykłe mv nie relokuje conda.
-# Klon używa mechanizmu conda i docelowego prefiksu; przed publikacją weryfikujemy importy.
-# Drugi przebieg playbooka na zbudowanej VM nie może przełączać huba w tło: gdy prefiks jest już
-# dowiązaniem wersjonowanym, blok M0 jest no-op (#288, klasa 3).
-- name: "Czy prefiks Pythona jest już wersjonowany (#193, #288)"
-  ansible.builtin.stat:
-    path: /opt/tljh/user
-    follow: false
-  register: python_env_user_present
 
 - name: Przygotuj wersjonowany prefiks Pythona w budowanym obrazie (#193)
   when:

@@ -112,6 +112,11 @@
     mode: "0644"
   loop: [install-r-env.R, hades-packages.txt, renv.lock]
 
+- name: Sprawdź obecność wygenerowanego locka R (#288 — idempotencja za proxy testowym)
+  ansible.builtin.stat:
+    path: /opt/wlb/envs/r/renv.lock.generated
+  register: r_env_installed_lock
+
 - name: Instalacja pakietów R (HADES, IRkernel) — pierwsze budowanie trwa długo
   # Sonda różnicy (#288): renv::restore REALNIE pracuje; changed liczymy z hash wygenerowanego
   # renv.lock.generated przed/po — no-op nie zmienia locka, realna instalacja tak.
@@ -135,6 +140,7 @@
   retries: 3
   delay: 30
   changed_when: "'R_LOCK_CHANGED' in r_env_install.stdout"
+  when: not (r_env_installed_lock.stat.exists | default(false))
 
 - name: Pobierz renv.lock do artefaktów budowania
   ansible.builtin.fetch:
