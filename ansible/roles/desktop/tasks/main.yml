@@ -3,9 +3,14 @@
 # logowanie, proxowanie, idle culling i twardy limit 12 h (§9.5) idą przez Hub.
 # Rola nakładana warstwowo na gotowy obraz wlb-general (playbook desktop.yml), nie w site.yml bazy.
 
-- name: Pakiety pulpitu (XFCE minimalny, TigerVNC, noVNC, websockify)
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Pakiety pulpitu (XFCE minimalny, TigerVNC, noVNC, websockify)
+  ansible.builtin.apt:
     name:
       - xfce4 # sesja + panel + menedżer okien (bez xfce4-goodies — za ciężkie na PoC)
       - xterm # terminal na pulpicie
@@ -38,7 +43,9 @@
   until: desktop_proxy_install is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  # pip z tym samym pinem wypisuje „Requirement already satisfied”; changed tylko przy realnej
+  # instalacji — inaczej bramka idempotencji (#288) pada na no-opie.
+  changed_when: "'Successfully installed' in desktop_proxy_install.stdout"
 
 # Ubuntu 24.04 ładuje vncserver-config-mandatory jako Perl, nie listę argumentów.
 # Polityka dotyczy wrappera, a nie uruchomienia Xtigervnc bezpośrednio (#106).

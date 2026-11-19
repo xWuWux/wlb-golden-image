@@ -16,6 +16,18 @@ pierwszym Laboratorium na klastrze).
 
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
 
+- **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
+  w `tests/unit/test_wlb_session_hook.py` dla domykania osieroconych sesji (`interrupted`)
+  przy restarcie huba (rejestracja w `wlb-usage-record` z zachowaniem starego UUID, pusty `stop_wall`,
+  start nowej sesji z nowym UUID i odporność na uszkodzone pliki JSON). W `ansible/roles/tljh/templates/80-wlb-session.py.j2`
+  znormalizowano nazwę jednostki (`.service`) oraz dodano obsługę `tljh.user.ensure_user` przy pierwszym spawnie
+  badacza, zapewniając poprawne utworzenie scratcha i emisję UID w `wlb-session-log`. W `tests/lib/remote-common.sh`
+  dodano funkcję `hub_stop` zamykającą serwer badacza przez API JupyterHub ze sprzątaniem tymczasowego tokenu API.
+  Rozszerzono test akceptacyjny `tests/acceptance.d/50-hooki-sesji.sh` o pełny cykl życia E2E z realnym Hubem
+  (start serwera, uprawnienia scratch 0700 na tmpfs, emisja `session_start`, asercja pliku-markera, stop przez API huba,
+  weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
+  z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
@@ -165,6 +177,24 @@ pierwszym Laboratorium na klastrze).
   istniejący cel (m.in. `fsleyes`/`fsl` przez `FSLDIR`). Do tego **obowiązkowy test negatywny**:
   kopia kafelka ze złym `Exec` musi dać FAIL. Headless i deterministyczna → bramkuje etap 5 (`ko`).
   Parser w `tests/lib/kafelki-exec.sh`, testy jednostkowe `tests/unit/kafelki-exec.bats` (15).
+
+- **Idempotencja Ansible w etapie 5 (#288, klasa 3):** po pierwszym provisioningu VM drugi przebieg
+  `ansible/site.yml` jest uruchamiany na tej samej maszynie, a PLAY RECAP musi dać **changed=0**
+  (bramka `ci/idempotency.py`, testy `tests/unit/test_idempotency.py`). Żeby bramka była realna,
+  przejrzano taski raportujące zmianę przy każdym przebiegu: cache apt wydzielony do osobnego
+  tasku z `changed_when: false` (9 miejsc — bezsporny no-op cache'a), a taski, które **realnie
+  pracują**, raportują changed przez **sondę różnicy** (hash pliku przed/po), nie przez maskowanie:
+  Julia (`Manifest.toml.generated`), pakiety R (`renv.lock.generated`), `R CMD javareconf`
+  (`/etc/R/Renviron.site`), `flatpak override` (plik overrides/<app>), `pip` („Successfully
+  installed”), `conda env update` („All requested packages already installed”). Eksport locka
+  condy zapisuje plik tylko przy `cmp` różnicy, a `fetch`/log diagnostyczny condy to kopie
+  artefaktów, nie stan VM. Strefa czasowa używa modułu `timezone`. Blok wersjonowanego prefiksu
+  Pythona (#193) jest pomijany, gdy prefiks jest już dowiązaniem — inaczej drugi przebieg
+  przełączałby hub.
+  **Koszt obserwowalności (znana granica):** sonda widzi tylko zmiany plików, które hashuje —
+  np. samo precompile Julii bez zmiany Manifestu albo zmiana cache'ów w `JULIA_DEPOT_PATH` nie
+  zostanie zaraportowana jako `changed`; bramka pilnuje no-opu playbooka, nie pełnego stanu
+  wewnętrznego narzędzi.
 
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje

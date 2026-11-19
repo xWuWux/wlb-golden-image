@@ -234,3 +234,164 @@ def test_sprzatanie_pomijane_dla_uid_spoza_zakresu(tmp_path, monkeypatch):
     ns["wlb_post_stop_hook"](_spawner())
 
     assert scratch.exists(), "uid spoza zakresu 10000-59999 nie może nic usuwać"
+
+
+def test_pre_spawn_domyka_osierocona_sesje_jako_interrupted(tmp_path, monkeypatch):
+    """#97/#98: pre_spawn wykrywa stary plik stanu (np. po awaryjnym restarcie huba),
+    domyka poprzednią sesję jako 'interrupted:<source>' przez wlb-usage-record ze starym session_id,
+    po czym uruchamia nową sesję ze świeżym session_id i nowym plikiem stanu."""
+    state_file = tmp_path / "jupyter-tester1.service.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "session_id": "sess-orphaned-99",
+                "start_wall": 1_234_567,
+                "lab_source": "spawner_env",
+            }
+        ),
+        encoding="utf-8",
+    )
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=1_235_000, monotonic=100.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    # 1. Poprzednia sesja domknięta jako interrupted
+    rec = _call(calls, "wlb-usage-record")
+    assert rec is not None, "powinien powstać rekord interrupted dla osieroconej sesji"
+    # argumenty: [prog, unit, sid, lab, start, stop, duration, status]
+    assert rec[1] == "jupyter-tester1.service"
+    assert rec[2] == "sess-orphaned-99", "rekord musi dotyczyć starego session_id"
+    assert rec[3] == "lab-x"
+    assert rec[4] == "1234567"
+    assert rec[5] == "", "stop_wall pusty (null w rekordzie, nie epocha 1970)"
+    assert rec[6] == "", "duration pusty"
+    assert rec[7] == "interrupted:spawner_env"
+
+    # 2. Nowa sesja startuje z unikalnym session_id
+    assert spawner._wlb_session != "sess-orphaned-99"
+    start_call = _call(calls, "wlb-session-log", "start")
+    assert start_call is not None
+    assert start_call[4] == spawner._wlb_session
+
+    # 3. Plik stanu na dysku został nadpisany nową sesją
+    new_state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert new_state["session_id"] == spawner._wlb_session
+    assert new_state["start_wall"] == 1_235_000
+    assert new_state["lab_source"] == "spawner_env"
+
+
+def test_pre_spawn_osierocona_sesja_bez_start_wall_przekazuje_pusty_czas(tmp_path, monkeypatch):
+    """#97/#98: brak start_wall w osieroconym stanie -> pusty argument w wywołaniu wlb-usage-record,
+    nigdy '0' czy 'None' udające czas."""
+    state_file = tmp_path / "jupyter-tester1.service.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "session_id": "sess-no-start",
+                "lab_source": "spawner_env",
+            }
+        ),
+        encoding="utf-8",
+    )
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=2_000_000, monotonic=200.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    rec = _call(calls, "wlb-usage-record")
+    assert rec is not None
+    assert rec[2] == "sess-no-start"
+    assert rec[4] == "", "brak start_wall to pusty string -> null w JSON"
+    assert rec[7] == "interrupted:spawner_env"
+
+
+def test_pre_spawn_czysta_sesja_nie_wywoluje_interrupted(tmp_path, monkeypatch):
+    """#97: pierwszy start sesji (brak pliku stanu) nie woła wlb-usage-record interrupted."""
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=1_000_000, monotonic=50.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    assert _call(calls, "wlb-usage-record") is None
+    assert _call(calls, "wlb-session-log", "start") is not None
+
+
+def test_pre_spawn_uszkodzony_plik_stanu_nie_wywraca_spawnu(tmp_path, monkeypatch):
+    """#97: uszkodzony/niepełny JSON w stanie sesji jest ignorowany (fail-secure),
+    nie blokuje startu nowego serwera."""
+    (tmp_path / "jupyter-tester1.service.json").write_text("{ niepoprawny json ...", encoding="utf-8")
+    ns, calls = load_hooks(tmp_path, monkeypatch, now=1_000_000, monotonic=50.0)
+    spawner = _spawner()
+
+    ns["wlb_pre_spawn_hook"](spawner)  # nie rzuca błędu
+
+    assert _call(calls, "wlb-usage-record") is None
+    assert _call(calls, "wlb-session-log", "start") is not None
+    assert spawner._wlb_session
+
+
+def test_wlb_ident_normalizuje_unit_name_bez_sufiksu(tmp_path, monkeypatch):
+    """#97/#318: spawner.unit_name w SystemdSpawner/TLJH nie zawiera .service (np. 'jupyter-tester1').
+    Hook musi znormalizować go do .service, aby scratch i stan były spójne z samplerem i testami."""
+    scratch_root = tmp_path / "scratch"
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("WLB_SCRATCH_ROOT", str(scratch_root))
+    ns, _ = load_hooks(state_dir, monkeypatch, now=10, monotonic=10.0)
+    ns["pwd"] = _fake_pwd(str(tmp_path / "home"), uid=10001)
+    _allow_any_uid(ns)
+    spawner = _spawner(unit_name="jupyter-tester1")  # bez .service
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    expected = str(scratch_root / "jupyter-tester1.service")
+    assert spawner.environment["TMPDIR"] == expected
+    assert os.path.isdir(expected)
+    assert (state_dir / "jupyter-tester1.service.json").is_file()
+
+    ns["wlb_post_stop_hook"](spawner)
+    assert not os.path.exists(expected)
+    assert not (state_dir / "jupyter-tester1.service.json").exists()
+
+
+def test_wlb_ident_wola_ensure_user_gdy_konto_jeszcze_nie_istnieje(tmp_path, monkeypatch):
+    """#97/#318: przy pierwszym spawnie użytkownika konto w systemie (/etc/passwd) jeszcze nie istnieje
+    (TLJH UserCreatingSpawner tworzy je dopiero w start()). Hook musi wywołać ensure_user,
+    aby poprawnie uzyskać UID badacza i utworzyć scratch."""
+    scratch_root = tmp_path / "scratch"
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("WLB_SCRATCH_ROOT", str(scratch_root))
+    ns, _ = load_hooks(state_dir, monkeypatch, now=20, monotonic=20.0)
+    _allow_any_uid(ns)
+
+    user_db = {}
+    called = []
+
+    class FakeTLJHUser:
+        @staticmethod
+        def ensure_user(name):
+            called.append(name)
+            user_db[name] = types.SimpleNamespace(pw_uid=10002, pw_gid=10002, pw_dir=str(tmp_path / "home"))
+
+    class FakePwd:
+        @staticmethod
+        def getpwnam(name):
+            if name in user_db:
+                return user_db[name]
+            raise KeyError(name)
+
+    ns["pwd"] = FakePwd
+    monkeypatch.setitem(os.sys.modules, "tljh", types.ModuleType("tljh"))
+    tljh_user_mod = types.ModuleType("tljh.user")
+    tljh_user_mod.ensure_user = FakeTLJHUser.ensure_user
+    monkeypatch.setitem(os.sys.modules, "tljh.user", tljh_user_mod)
+
+    spawner = _spawner(unit_name="jupyter-newuser")
+    spawner.user = types.SimpleNamespace(name="newuser")
+
+    ns["wlb_pre_spawn_hook"](spawner)
+
+    assert called == ["jupyter-newuser"]
+    expected = str(scratch_root / "jupyter-newuser.service")
+    assert spawner.environment["TMPDIR"] == expected
+    assert os.path.isdir(expected)
