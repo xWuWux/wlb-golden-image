@@ -11,7 +11,7 @@ tokenów API/OAuth należących do kont (w tym tokenów serwerów) oraz niewykor
 w /workspace się nie zmieniają.
 
 Wymaga roota. Baza: c.JupyterHub.db_url (10-wlb.py); WLB_HUB_DB_URL nadpisuje ścieżkę,
-WLB_SYSTEMCTL — polecenie systemctl (testy), --no-hub-control pomija stop/start (testy na bazie).
+--no-hub-control pomija stop/start (testy na bazie).
 Kod 0: odwołano (albo baza jeszcze nie istnieje); 1: błąd — stan nie jest potwierdzony, hub zostaje
 zatrzymany (fail-secure), żeby stare poświadczenia nie zadziałały.
 """
@@ -19,7 +19,6 @@ zatrzymany (fail-secure), żeby stare poświadczenia nie zadziałały.
 import argparse
 import os
 import re
-import shlex
 import subprocess
 import sys
 
@@ -30,6 +29,9 @@ from sqlalchemy.orm import Session
 DEFAULT_DB_URL = "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
 LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
 HUB_UNIT = "jupyterhub.service"
+# stała, nie zmienna środowiskowa: polecenie uruchamiane jako root nie może pochodzić z otoczenia (testy
+# podmieniają atrybut modułu)
+SYSTEMCTL = ["/usr/bin/systemctl"]
 LOCK_TIMEOUT = 30
 
 
@@ -49,9 +51,8 @@ def _engine(url):
 
 
 def _systemctl(*args):
-    cmd = shlex.split(os.environ.get("WLB_SYSTEMCTL", "systemctl")) + list(args)
-    # argv bez powłoki; polecenie ze stałej albo WLB_SYSTEMCTL ustawianego przez roota w testach
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)  # noqa: S603  # nosec B603
+    # argv bez powłoki ze stałego polecenia i stałych argumentów (login sprawdzony przez LOGIN_RE)
+    subprocess.run([*SYSTEMCTL, *args], check=True, stdout=subprocess.DEVNULL)  # noqa: S603  # nosec B603
 
 
 def revoke(url, login=None):

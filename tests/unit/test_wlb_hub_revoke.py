@@ -105,7 +105,7 @@ def test_kolejnosc_stop_hub_serwery_odwolanie_start(tool, hub, tmp_path, monkeyp
     stub = tmp_path / "systemctl"
     stub.write_text(f'#!/bin/sh\necho "$*" >>{log}\n')
     stub.chmod(0o755)
-    monkeypatch.setenv("WLB_SYSTEMCTL", str(stub))
+    monkeypatch.setattr(tool, "SYSTEMCTL", [str(stub)])
     assert tool.main(["--user", "u01"]) == 0
     assert log.read_text().splitlines() == [
         "stop jupyterhub.service",
@@ -119,7 +119,7 @@ def test_kolejnosc_stop_hub_serwery_odwolanie_start(tool, hub, tmp_path, monkeyp
 
 def test_blad_zatrzymania_nie_odwoluje_i_nie_startuje_huba(tool, hub, tmp_path, monkeypatch, capsys):
     url, state = hub
-    monkeypatch.setenv("WLB_SYSTEMCTL", "false")
+    monkeypatch.setattr(tool, "SYSTEMCTL", ["false"])
     assert tool.main(["--all"]) == 1
     assert "odwołanie niepotwierdzone, hub zostaje zatrzymany" in capsys.readouterr().err
     assert token_valid(url, state["u01"]["token"])  # bez zatrzymania huba baza nie jest zmieniana
@@ -130,7 +130,7 @@ def test_blad_startu_huba_po_odwolaniu(tool, hub, tmp_path, monkeypatch, capsys)
     stub = tmp_path / "systemctl"
     stub.write_text('#!/bin/sh\n[ "$1" = start ] && exit 1\nexit 0\n')
     stub.chmod(0o755)
-    monkeypatch.setenv("WLB_SYSTEMCTL", str(stub))
+    monkeypatch.setattr(tool, "SYSTEMCTL", [str(stub)])
     assert tool.main(["--all"]) == 1
     assert not token_valid(url, state["u01"]["token"])
     assert "hub nie wystartował" in capsys.readouterr().err
