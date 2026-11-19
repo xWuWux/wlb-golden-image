@@ -101,6 +101,9 @@ rstudio_rsession_proxy_spec: jupyter-rsession-proxy
 # W site.yml gated (jak RStudio); flavor wlb-memory nakłada rolę warstwowo przez desktop.yml.
 wlb_desktop_enabled: false
 desktop_proxy_spec: jupyter-remote-desktop-proxy
+# Target in-session dla testów E2E (#277). Instalowany TYLKO w profilach/buildach testowych,
+# domyślnie wyłączony (obraz produkcyjny badacza nie ma fixture ani launcherów E2E).
+wlb_enable_e2e_target: false
 
 # --- jamovi (Flatpak, flavor wlb-histologia, #108) --------------------------------
 # jamovi dla Linuksa jest TYLKO jako Flatpak (brak apt/tarballa) — rola histo_apps instaluje go z Flathub
