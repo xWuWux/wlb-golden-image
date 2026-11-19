@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="acceptance-stage5" tests="3" failures="1" skipped="1" time="1.234">
+  <testcase name="AppArmor włączony (aa-enabled)" time="0.045"/>
+  <testcase name="Dropin GRUB 60-wlb-apparmor.cfg istnieje" time="0.012">
+    <failure message="test -f /etc/default/grub.d/60-wlb-apparmor.cfg exited with 1"/>
+  </testcase>
+  <testcase name="Faktyczne wylogowanie po limicie sesji — test ręczny" time="0.000">
+    <skipped message="test ręczny (zob. README)"/>
+  </testcase>
+</testsuite>

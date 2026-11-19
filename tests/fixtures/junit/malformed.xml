@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="acceptance-stage5" tests="2">
+  <testcase name="niepełny test" time="0.01">
+    <failure message="przerwany
