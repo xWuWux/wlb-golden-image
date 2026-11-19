@@ -151,3 +151,24 @@ def test_main_zwraca_jeden_przy_rozbieznosci(repo, capsys):
 def test_main_zwraca_zero_przy_zgodnosci(capsys):
     assert dv.main(["--root", str(REPO_ROOT)]) == 0
     assert "zgodne" in capsys.readouterr().out
+
+
+# --- wartości aktywne w przykładach wdrożenia (#340) ---
+
+
+@pytest.mark.parametrize("consumer", ["env-example", "cloud-init-base", "cloud-init-optional"])
+def test_active_deployment_values(tmp_path: Path, consumer: str):
+    import yaml
+
+    content = '#AUTH_MODE=native\nAUTH_MODE="oidc"   # operator\nAUTH_MODE=native\nSIEM_PORT=6514   \n'
+    if consumer == "env-example":
+        values = dv.parse_env(content)
+    else:
+        name = dv.USERDATA_EXAMPLE if consumer == "cloud-init-base" else "cloud-init/examples/oidc.yaml"
+        path = tmp_path / name
+        path.parent.mkdir(parents=True)
+        path.write_text(yaml.safe_dump({"write_files": [{"path": "/etc/wlb/lab.env", "content": content}]}))
+        values = dv.userdata_labenv(tmp_path)
+    assert values == {"AUTH_MODE": dv.Entry("oidc", False), "SIEM_PORT": dv.Entry("6514", False)}, (
+        "contract:active-values"
+    )
