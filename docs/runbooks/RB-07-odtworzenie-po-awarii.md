@@ -45,22 +45,104 @@ Dysk systemowy jest jednorazowy. Odtwarzamy VM z obrazu i **ponownie podłączam
 
 ### RB-07b — baza huba uszkodzona (dysk roboczy OK)
 
-Objaw: hub nie wstaje albo konta/hasła nie działają, ale pliki w `/workspace` są. Odtwarzamy przy **zatrzymanym** hubie, żeby nie nadpisać kopii bieżącym (uszkodzonym) stanem. Pełna procedura: `docs/runbook-kopia-bazy-huba.md`.
+Objaw: hub nie wstaje albo konta/hasła nie działają, ale pliki w `/workspace` są. Odtwarzamy przy **zatrzymanym** hubie i **zatrzymanym** timerze kopii zapasowych, żeby nie nadpisać kopii bieżącym (uszkodzonym) stanem. Pełna procedura: `docs/runbook-kopia-bazy-huba.md`.
+
+#### Podstawowa ścieżka odtworzenia (jedno źródło prawdy: `wlb-hub-db-restore`)
+
+Do odtworzenia bazy służy skrypt `/usr/local/sbin/wlb-hub-db-restore` (#288, #306). Zapewnia on atomową podmianę bazy, weryfikację spójności przed zatrzymaniem usług, zabezpieczenie bieżącego stanu do katalogu dowodowego oraz automatyczny rollback w razie błędu.
+
+```bash
+# Odtworzenie z najnowszej spójnej kopii w /workspace/.wlb-hub/backup/:
+/usr/local/sbin/wlb-hub-db-restore
+
+# Lub odtworzenie ze wskazanej kopii (np. ze snapshotu storage):
+/usr/local/sbin/wlb-hub-db-restore --from /workspace/.wlb-hub/backup/jupyterhub-20261119T100000Z.sqlite
+```
+
+**Interfejs CLI i zmienne środowiskowe:**
+- `wlb-hub-db-restore [--from PLIK] [--no-start]`
+  - `--from PLIK` — ścieżka do pliku kopii (domyślnie najnowsza poprawna kopia z `BACKUP_DIR`).
+  - `--no-start` — pomija uruchomienie huba po odtworzeniu (np. przed inspekcją offline).
+- Zmienne środowiskowe (z wartościami domyślnymi):
+  - `HUB_DB` (`/workspace/.wlb-hub/jupyterhub.sqlite`) — lokalizacja bazy huba.
+  - `BACKUP_DIR` (`/workspace/.wlb-hub/backup`) — katalog z kopiami zapasowymi.
+  - `FORENSIC_DIR` (`/workspace/.wlb-hub/przed-odtworzeniem`) — katalog dowodowy na stan sprzed odtworzenia.
+  - `HUB_UNIT` (`jupyterhub`) — nazwa jednostki systemd huba.
+  - `TIMER_UNIT` (`wlb-hub-db-backup.timer`) — timer cyklicznych kopii bazy.
+  - `DB_OWNER` (`root:root`) — uprawnienia właściciela bazy.
+  - `HUB_API_URL` (`http://127.0.0.1/hub/api`) — URL sondy zdrowia huba po restarcie.
+- Kody wyjścia:
+  - `0` — sukces (baza odtworzona, spójna, hub odpowiada na API).
+  - `2` — błędne użycie (nieprawidłowe opcje CLI).
+  - `3` — brak spójnej kopii (brak zmian w systemie, hub i timer nietknięte).
+  - `4` — nie można zatrzymać huba (hub nadal aktywny).
+  - `5` — nieudana podmiana bazy / błąd spójności po podmianie (automatyczny rollback).
+  - `6` — hub nie wystartował lub nie odpowiada na API w zadanym czasie (automatyczny rollback).
+
+> [!WARNING]
+> **RPO i spójność kont po odtworzeniu (do 1h utraty zmian):**
+> Odtworzenie bazy przywraca stan z momentu wykonania wybranej kopii. Oznacza to, że:
+> - Konta utworzone po wykonaniu kopii nie będą istniały w bazie (wymagają ponownego założenia).
+> - Konta usunięte lub zablokowane po wykonaniu kopii **zostaną przywrócone jako aktywne**!
+> - Hasła zmienione po wykonaniu kopii zostaną cofnięte do stanu sprzed kopii.
+> **Wymagane działanie operatora:** Po zakończeniu procedury odtworzenia operator ma obowiązek uzgodnić listę kont i przypisane role z autorytatywnym rejestrem źródłowym (wnioski o dostęp, system IAM / BP-VL) i natychmiast zablokować lub usunąć konta, które nie powinny mieć dostępu.
+
+#### Awaryjna procedura ręczna (manual fallback)
+
+Jeśli skrypt `wlb-hub-db-restore` jest niedostępny, należy ściśle wykonać poniższe kroki (zachowując zabezpieczenie dowodowe i zatrzymanie timera):
 
 ```bash
 BK=/workspace/.wlb-hub/backup
 DB=/workspace/.wlb-hub/jupyterhub.sqlite
 
-LATEST=$(ls -1 "$BK"/jupyterhub-*.sqlite | sort | tail -1); echo "$LATEST"
-sqlite3 "$LATEST" 'PRAGMA integrity_check;'                       # ma zwrócić: ok
+# 1. Wybór najnowszej kopii przez find (nie ls) i weryfikacja spójności PRZED zatrzymaniem usług:
+LATEST=$(find "$BK" -maxdepth 1 -type f -name 'jupyterhub-*.sqlite' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -1 | cut -d' ' -f2-)
+[[ -n "$LATEST" ]] || { echo "BŁĄD: brak kopii w $BK" >&2; exit 1; }
 
+# Pusta baza w SQLite daje 'ok' na PRAGMA integrity_check, dlatego test -s jest obowiązkowy:
+test -s "$LATEST" || { echo "BŁĄD: kopia $LATEST jest pusta" >&2; exit 1; }
+[[ $(sqlite3 "$LATEST" 'PRAGMA integrity_check;' 2>/dev/null) == ok ]] || { echo "BŁĄD: niespójna kopia" >&2; exit 1; }
+
+# 2. Zatrzymanie huba oraz timera kopii (timer nie może wystartować w trakcie podmiany):
 systemctl stop jupyterhub
-# 2a. Usuń stary WAL/SHM: bez tego SQLite doklei dziennik do odtworzonej bazy
-#     i „spójna” kopia może w praktyce wrócić uszkodzona.
-rm -f "$DB-wal" "$DB-shm"
-cp -a "$DB" "$DB.przed-odtworzeniem-$(date -u +%Y%m%dT%H%M%SZ)"
-install -m 0600 -o root -g root "$LATEST" "$DB"
+systemctl stop wlb-hub-db-backup.timer
+
+# 3. Zabezpieczenie dowodowe PRZED podmianą — przeniesienie bazy i dzienników (nigdy nie rm!):
+# Usuwanie plików przed podmianą jest zabronione. SQLite doklei stary -wal, -shm lub -journal do nowej bazy,
+# niszcząc jej spójność, dlatego wszystkie pliki stanu przenosimy atomowo do katalogu dowodowego:
+FORENSIC="/workspace/.wlb-hub/przed-odtworzeniem/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$FORENSIC"
+chmod 0700 "$FORENSIC"
+for ext in "" "-wal" "-shm" "-journal"; do
+  [[ -f "$DB$ext" ]] && mv -f "$DB$ext" "$FORENSIC/"
+done
+
+# 4. Atomowa instalacja kopii z weryfikacją sumy sha256 i testem spójności:
+part="$DB.part"
+install -m 0600 -o root -g root "$LATEST" "$part"
+sync
+[[ $(sha256sum "$part" | cut -d' ' -f1) == $(sha256sum "$LATEST" | cut -d' ' -f1) ]] || {
+  rm -f "$part"
+  echo "BŁĄD: rozbieżność sum sha256" >&2
+  # Rollback:
+  for f in "$FORENSIC"/*; do [[ -e "$f" ]] && mv -f "$f" "$(dirname "$DB")/"; done
+  systemctl start wlb-hub-db-backup.timer
+  exit 1
+}
+mv -f "$part" "$DB"
+test -s "$DB" && [[ $(sqlite3 "$DB" 'PRAGMA integrity_check;' 2>/dev/null) == ok ]] || {
+  echo "BŁĄD: odtworzona baza niespójna" >&2
+  # Rollback:
+  rm -f "$DB" "$DB-wal" "$DB-shm" "$DB-journal"
+  for f in "$FORENSIC"/*; do [[ -e "$f" ]] && mv -f "$f" "$(dirname "$DB")/"; done
+  systemctl start wlb-hub-db-backup.timer
+  exit 1
+}
+
+# 5. Uruchomienie huba i timera oraz weryfikacja API:
 systemctl start jupyterhub
+systemctl start wlb-hub-db-backup.timer
+curl -sf -o /dev/null http://127.0.0.1/hub/api && echo "hub OK"
 ```
 
 > Nieudana **aktualizacja obrazu** (rollback) ma własny punkt powrotu `jupyterhub.sqlite.pre-<wersja>` — patrz **RB-05**, nie ta procedura.
@@ -114,5 +196,5 @@ systemctl is-active jupyterhub wlb-hub-db-backup.timer
 - Kolejka eksportu: `RB-eksport-kolejka.md`.
 - Zamknięcie Laboratorium / trwałe usunięcie: `RB-08` (#13, IMG-006).
 - Incydent nieudanego odtworzenia: `RB-09`.
-- Testy (żywa VM): `tests/acceptance-remote.sh` sekcja 9 i `tests/acceptance.d/80-dr-odtworzenie-bazy.sh` (DR drill — próba odtworzenia po uszkodzeniu bazy, #288), `tests/migration-remote.sh` (wymiana obrazu z zachowaniem bazy).
+- Testy (żywa VM): `tests/acceptance-remote.sh` sekcja 9 i `tests/acceptance.d/99-dr-odtworzenie-bazy.sh` (DR drill — próba odtworzenia po uszkodzeniu bazy, #288), `tests/migration-remote.sh` (wymiana obrazu z zachowaniem bazy).
 - DoD: #49 (scenariusz odtworzenia), #61 (kopia przed snapshotem).

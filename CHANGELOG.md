@@ -28,6 +28,18 @@ pierwszym Laboratorium na klastrze).
   weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
   z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
 
+- **Procedura DR i odtwarzanie bazy huba (`wlb-hub-db-restore`, #306, #288):** aktualizacja runbooków
+  `docs/runbooks/RB-07-odtworzenie-po-awarii.md` (RB-07b) oraz `docs/runbook-kopia-bazy-huba.md`:
+  wywołanie skryptu `/usr/local/sbin/wlb-hub-db-restore` jako jednego źródła prawdy procedury DR
+  (opcje CLI `--from`, `--no-start`, zmienne środowiskowe, kody wyjścia 0–6); ujednolicenie procedury
+  awaryjnej/fallbacku na wyszukiwanie kopii przez `find` (odporne na format i spacje), sprawdzanie niepustości
+  kopii (`test -s`) przed `integrity_check`, zabezpieczenie dowodowe (`mv` bazy i dzienników `-wal`, `-shm`,
+  `-journal` do katalogu dowodowego) przed jakąkolwiek podmianą, zatrzymanie timera `wlb-hub-db-backup.timer`
+  oraz procedura rollbacku w razie niepowodzenia. Dodano ostrzeżenie operacyjne dotyczące okna RPO (do 1h)
+  i konieczności uzgodnienia przywróconych/usuniętych kont z autorytatywnym rejestrem źródłowym. Zarejestrowano
+  skrypty `wlb-hub-db-backup` i `wlb-hub-db-restore` w `SHELL_SCRIPTS` (`ci/common.sh`) oraz zdeduplikowano wpisy
+  #288 w mapie testów (`99-dr-odtworzenie-bazy.sh`).
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**

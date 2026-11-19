@@ -18,6 +18,8 @@ SHELL_SCRIPTS=(
   ansible/roles/lab_config/files/wlb-firstboot
   ansible/roles/storage/files/wlb-sluza-out-mover
   ansible/roles/monitoring/files/wlb-monitoring
+  ansible/roles/tljh/files/wlb-hub-db-backup
+  ansible/roles/tljh/files/wlb-hub-db-restore
 )
 BATS_FILES=(tests/unit/*.bats tests/unit/helpers.bash)
 PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/storage/files/wlb-export-snapshot)
