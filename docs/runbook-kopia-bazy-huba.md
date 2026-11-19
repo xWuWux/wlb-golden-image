@@ -146,6 +146,6 @@ razem z resztą `/workspace` — użyj skryptu `wlb-hub-db-restore --from <ście
 ## Powiązania
 
 - Test odtworzenia (żywa VM): `tests/acceptance-remote.sh` sekcja 9 i `tests/acceptance.d/99-dr-odtworzenie-bazy.sh` (DR drill po uszkodzeniu bazy, #288); testy jednostkowe skryptu:
-  `tests/unit/wlb-hub-db-backup.bats`.
+  `tests/unit/wlb-hub-db-restore.bats` (restore) i `tests/unit/wlb-hub-db-backup.bats` (kopia).
 - Migracja/wymiana obrazu z zachowaniem bazy: `tests/migration-remote.sh`.
 - DoD: domyka częściowo #61 (kopia przed snapshotem) i uzupełnia #49 (scenariusz odtworzenia).

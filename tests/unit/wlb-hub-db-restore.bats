@@ -27,8 +27,11 @@ setup() {
   export HUB_API_URL="http://127.0.0.1/hub/api"
 
   # Stuby: systemctl zawsze OK; curl domyślnie OK (hub odpowiada). Testy negatywne nadpisują.
+  # sleep 0, bo skrypt czeka do 60 s na API — bez tego test negatywny trwałby minutę
+  # i przekraczał limit 60 s harnessu mutacji (etap 4b).
   stub systemctl 0
   stub curl 0
+  stub sleep 0
 }
 
 # czysta kopia z rozpoznawalną zawartością (a01, u01) — to, co ma trafić do bazy po odtworzeniu

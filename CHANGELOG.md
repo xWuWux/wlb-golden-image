@@ -38,7 +38,10 @@ pierwszym Laboratorium na klastrze).
   oraz procedura rollbacku w razie niepowodzenia. Dodano ostrzeżenie operacyjne dotyczące okna RPO (do 1h)
   i konieczności uzgodnienia przywróconych/usuniętych kont z autorytatywnym rejestrem źródłowym. Zarejestrowano
   skrypty `wlb-hub-db-backup` i `wlb-hub-db-restore` w `SHELL_SCRIPTS` (`ci/common.sh`) oraz zdeduplikowano wpisy
-  #288 w mapie testów (`99-dr-odtworzenie-bazy.sh`).
+  #288 w mapie testów (`99-dr-odtworzenie-bazy.sh`). Testy: `tests/unit/wlb-hub-db-restore.bats` (7 przypadków,
+  w tym kontrola negatywna — brak powrotu huba daje exit 6 i rollback), `tests/fixtures/sqlite_hot_journal.py`
+  + `tests/unit/test_sqlite_hot_journal.py` (prawdziwy gorący `-journal`) oraz 4 mutacje w
+  `ci/mutations/bash-mutations.tsv`.
 
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
@@ -204,14 +207,6 @@ pierwszym Laboratorium na klastrze).
   Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
   a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
   (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
-- **DR drill bazy huba (#288):** fragment akceptacji `tests/acceptance.d/80-dr-odtworzenie-bazy.sh`
-  waliduje runbook **RB-07b** na żywej VM: kontrola pozytywna (hub API + logowanie u01) → świeża
-  kopia na żądanie → stop huba → uszkodzenie `jupyterhub.sqlite` (stary WAL/SHM usunięty) →
-  kopia bezpieczeństwa → `install` z najnowszej kopii (`0600 root:root`) → start huba →
-  logowanie **u01 i a01 starym hasłem** + zgodność liczby kont z kopią. Do tego test jednostkowy
-  `wlb-hub-db-backup.bats` i krok **`rm -f "$DB-wal" "$DB-shm"`** w obu runbookach — bez niego
-  SQLite doklei stary dziennik do odtworzonej bazy.
-
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
