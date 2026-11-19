@@ -472,6 +472,9 @@ def resolve_request(queue: Path, request_id: UUID) -> VerifiedBundle:
                         else:
                             has_invalid = True
                         continue
+                    except OSError:
+                        has_invalid = True
+                        continue
                     scan_bytes += len(raw)
                     if scan_bytes > MAX_SCAN_MANIFEST_BYTES:
                         raise SnapshotError("limit_exceeded")
@@ -517,6 +520,9 @@ def resolve_request(queue: Path, request_id: UUID) -> VerifiedBundle:
         except SnapshotError:
             _close_matches(matches)
             raise
+        except OSError as error:
+            _close_matches(matches)
+            raise SnapshotError("source_changed") from error
         if verified != manifest:
             _close_matches(matches)
             raise SnapshotError("source_changed")

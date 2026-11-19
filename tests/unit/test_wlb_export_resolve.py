@@ -361,3 +361,12 @@ def test_resolve_rejects_scan_byte_limit(snapshot, tmp_path, monkeypatch):
     monkeypatch.setattr(snapshot, "MAX_SCAN_MANIFEST_BYTES", 1)
     with pytest.raises(snapshot.SnapshotError, match="limit_exceeded"):
         snapshot.resolve_request(queue, REQUEST_ID)
+
+
+def test_resolve_maps_missing_payload_to_stable_error(snapshot, tmp_path):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    bundle, _ = make_bundle(snapshot, queue, "package")
+    (bundle / "payload").unlink()
+    with pytest.raises(snapshot.SnapshotError, match="source_changed"):
+        snapshot.resolve_request(queue, REQUEST_ID)
