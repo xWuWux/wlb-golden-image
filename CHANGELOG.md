@@ -14,10 +14,32 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
+
+- **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
+  w `tests/unit/test_wlb_session_hook.py` dla domykania osieroconych sesji (`interrupted`)
+  przy restarcie huba (rejestracja w `wlb-usage-record` z zachowaniem starego UUID, pusty `stop_wall`,
+  start nowej sesji z nowym UUID i odporność na uszkodzone pliki JSON). W `ansible/roles/tljh/templates/80-wlb-session.py.j2`
+  znormalizowano nazwę jednostki (`.service`) oraz dodano obsługę `tljh.user.ensure_user` przy pierwszym spawnie
+  badacza, zapewniając poprawne utworzenie scratcha i emisję UID w `wlb-session-log`. W `tests/lib/remote-common.sh`
+  dodano funkcję `hub_stop` zamykającą serwer badacza przez API JupyterHub ze sprzątaniem tymczasowego tokenu API.
+  Rozszerzono test akceptacyjny `tests/acceptance.d/50-hooki-sesji.sh` o pełny cykl życia E2E z realnym Hubem
+  (start serwera, uprawnienia scratch 0700 na tmpfs, emisja `session_start`, asercja pliku-markera, stop przez API huba,
+  weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
+  z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+
+- **Koniec losowych czerwonych bramki SIEM w etapie 5:** forwarding VM→testowy SIEM (rsyslog/TLS)
+  jest asynchroniczny — zdarzenie śluzy `sluza_out.export_request` potrafiło dotrzeć sekundy po tym,
+  jak akceptacja w VM już przeszła, a `siem_delivery`/`siem_wazuh` sprawdzały log jednorazowo (wyścig;
+  pod obciążeniem/OOM bramka czerwieniła się losowo, mimo że dekoder/reguła w etapie 3.5 były OK).
+  Dodano polling na dotarcie realnego + podrobionego wpisu (≥2 wystąpienia) z deadline'em
+  (`WLB_SIEM_WAIT`, domyślnie 60 s) przed weryfikacją — `verify-log`/Wazuh pozostają jedynym wyrokiem,
+  to tylko cierpliwość, bez zmiany semantyki bramki.
 
 - **Koniec konfliktów mapy testów przy równoległych PR-ach:** `.gitattributes` oznacza
   `docs/mapa-testy-zgloszenia.md merge=union` — ten generowany plik (`ci/mapa-testy.py`) dotykany
