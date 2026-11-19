@@ -70,3 +70,42 @@ PY
 expect_ok "WlbEntraAuthenticator na oauthenticator z TLJH: przypisanie, rola, odmowy, sesja (#18)" \
   "$HUB_PY" "$entra_tmp/probe.py" "$entra_tmp/entra-accounts"
 rm -rf "$entra_tmp"
+
+if [[ $AUTH_MODE == native ]]; then
+  # Przegląd #330: odwołanie sprawdzane przez prawdziwy hub (HTTP), nie przez wywołanie metody. To samo
+  # narzędzie wywołuje wlb-firstboot przy zmianie AUTH_MODE (--all); tu na jednym koncie, żeby nie
+  # unieważniać sesji innych testów.
+  echo "== Odwołanie poświadczeń konta przez hub (wlb-hub-revoke, #18) =="
+  home_code() { curl -s -o /dev/null -w '%{http_code}' -b "/tmp/wlb-test-$1.jar" "$HUB/hub/home"; }
+  api_code() { curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $1" "$HUB/hub/api/user"; }
+  hub_login "$R1" "${PW[$R1]}" >/dev/null
+  hub_login "$R2" "${PW[$R2]}" >/dev/null
+  hub_spawn "$R2" || true
+  revoke_token=$(
+    /opt/tljh/hub/bin/python3 - "$R2" <<'PY'
+import sys
+from jupyterhub import orm
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+with Session(create_engine("sqlite:////workspace/.wlb-hub/jupyterhub.sqlite")) as db:
+    user = db.query(orm.User).filter_by(name=sys.argv[1]).one()
+    print(user.new_api_token(note="test odwołania #18"))
+    db.commit()
+PY
+  )
+  expect_ok "Przed odwołaniem: ciasteczko konta działa (#18)" test "$(home_code "$R2")" = 200
+  expect_ok "Przed odwołaniem: token API konta działa (#18)" test "$(api_code "$revoke_token")" = 200
+  expect_ok "Przed odwołaniem: serwer konta działa (#18)" systemctl is-active --quiet "jupyter-$R2"
+  expect_ok "wlb-hub-revoke --user odwołuje poświadczenia konta (#18)" /usr/local/sbin/wlb-hub-revoke --user "$R2"
+  for _ in $(seq 1 60); do
+    curl -sf -o /dev/null "$HUB/hub/api" && break
+    sleep 2
+  done
+  expect_ok "Hub wraca po odwołaniu (#18)" curl -sf -o /dev/null "$HUB/hub/api"
+  expect_fail "Po odwołaniu: stare ciasteczko nie otwiera huba (#18)" test "$(home_code "$R2")" = 200
+  expect_ok "Po odwołaniu: stary token API odrzucony (#18)" test "$(api_code "$revoke_token")" = 403
+  expect_fail "Po odwołaniu: serwer konta zatrzymany — trwające połączenia zamknięte (#18)" \
+    systemctl is-active --quiet "jupyter-$R2"
+  expect_ok "Odwołanie nie dotyka innych kont (#18)" test "$(home_code "$R1")" = 200
+  expect_ok "Konto i hasło Native bez zmian po odwołaniu (#18)" test "$(hub_login "$R2" "${PW[$R2]}")" = 302
+fi

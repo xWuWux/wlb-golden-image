@@ -20,22 +20,38 @@ Wejście wymaga **obu** warunków:
 2. roli aplikacji Laboratorium (`ENTRA_REQUIRED_ROLE`, np. `WLB.Lab.lab-histologia01`) w tokenie.
 
 Inne sytuacje kończą się odmową z tym samym komunikatem („Brak dostępu do tego Laboratorium WLB”).
-Przyczyna trafia do dziennika huba z `oid`. `oid` to pseudonim osoby, czyli dana osobowa w rozumieniu RODO,
-ale bez imienia, UPN ani e-maila. `allow_all`, `allowed_users` ani uprawnienia administratora nie omijają
+Przyczyna trafia do dziennika huba jako kod (`WLB Entra: kod=…`, punkt 7) z pseudonimem osoby (`oid`)
+**albo** pseudonimem konta (`konto=` — 12 znaków skrótu SHA-256 loginu), nigdy z loginem i nigdy z oboma
+naraz. To pseudonimizacja, nie anonimizacja: `oid` i skrót są danymi osobowymi w rozumieniu RODO.
+Standardowe wpisy JupyterHub (np. „User '…' not allowed”, ścieżki `/user/<login>`) zawierają login —
+ten moduł ich nie zmienia. `allow_all`, `allowed_users` ani uprawnienia administratora nie omijają
 tych warunków. Hub prosi o zakresy `openid profile`, bo Entra wysyła `oid` dopiero z `profile`. Imię i UPN
 z tego zakresu są odrzucane zaraz po odczycie tokenu.
 
 **Konto raz powiązane z osobą nie przechodzi na inną.** Pierwsze udane logowanie zapisuje trwałe
 powiązanie konta z `(tid, oid)` w `/workspace/.wlb-hub/entra-bindings` (obok bazy huba, root, `0600`).
 Jeśli rejestr później wskaże na tym koncie inną osobę, jej logowanie zostanie odrzucone. Bezpieczne
-przekazanie konta wymaga odwołania poświadczeń poprzedniej osoby (#102 D3), a takiej procedury jeszcze nie ma.
-Nowej osobie przydziel wolne konto `uNN`.
+przekazanie konta (#102 D3) jeszcze nie istnieje; nowej osobie przydziel wolne konto `uNN`.
+
+Plik powiązań zakłada `wlb-firstboot` przy przejściu na Entra. **Brak pliku w trakcie pracy wstrzymuje
+logowanie i odświeżanie sesji** (kod `POWIAZANIA_BRAK`), bo pusty plik pozwoliłby następcy przejąć konto
+poprzedniej osoby. Odtwarzanie i świadoma reinicjalizacja: punkt 7.
+
+**Zmiana sposobu logowania odwołuje wszystkie poświadczenia.** Gdy `AUTH_MODE` różni się od trybu z poprzedniego
+przebiegu (`/workspace/.wlb-hub/auth-mode`), `wlb-firstboot` przed otwarciem huba uruchamia
+`wlb-hub-revoke --all`:
+- zatrzymuje hub i wszystkie serwery kont, co zamyka trwające połączenia notebooka, terminala i noVNC;
+- nadaje każdemu kontu nowy `cookie_id`, więc dotychczasowe ciasteczka przestają pasować;
+- usuwa tokeny API i OAuth kont (także tokeny serwerów) oraz niewykorzystane kody OAuth;
+- uruchamia hub.
+
+Dzięki temu po migracji native → entra żadne ciasteczko ani token z logowania hasłem nie przechodzi, także
+po pierwszym logowaniu tej samej osoby przez Entra. Tokeny usług huba (np. culler) zostają. Błąd odwołania
+przerywa `wlb-firstboot`, a hub zostaje zatrzymany.
 
 **Co robi zmiana rejestru, a czego nie robi.** Zmiana rejestru blokuje nowe logowania i żądania do huba
 podlegające odświeżeniu: ciasteczko lub token API starsze niż `auth_refresh_age` (5 min) oraz start serwera.
-Taka zmiana **nie** jest trwałym odwołaniem poświadczeń. Nie usuwa ciasteczek ani tokenów z bazy huba
-i nie zamyka trwających połączeń z serwerem badacza (notebook, terminal, noVNC), które mają własną pamięć
-podręczną uwierzytelnienia. Pełne odcięcie wymaga zatrzymania serwera (punkt 6).
+Sama zmiana rejestru **nie** odwołuje poświadczeń i nie zamyka połączeń. Robi to `wlb-hub-revoke` (punkt 6).
 
 **Konta się nie zmieniają.** Konto systemowe `jupyter-<konto>`, UID, katalog `/workspace/jupyter-<konto>`,
 baza huba i rola Administratora Klienta (`a01`, IMG-003) są te same co przy logowaniu hasłem. Rejestr
@@ -102,19 +118,20 @@ Warunki:
 Zapora WLB ogranicza ruch wychodzący tylko kontom badaczy. Jeśli sieć Laboratorium wymaga proxy, ustal to
 przed migracją.
 
-1. **Okno serwisowe.** Uprzedź badaczy i poproś o zapisanie pracy. W panelu huba **zatrzymaj wszystkie
-   serwery**, co zamyka trwające połączenia. Sesje zalogowane hasłem nie mają powiązania z Entra, więc
-   po przełączeniu są odrzucane przy odświeżeniu, ale ich poświadczenia pozostają w bazie huba.
+1. **Okno serwisowe.** Uprzedź badaczy i poproś o zapisanie pracy. Przełączenie (krok 5) zatrzyma
+   wszystkie serwery kont i odwoła wszystkie sesje i tokeny: niezapisana praca w otwartych notebookach przepadnie.
 2. W Entra przypisz osoby do roli Laboratorium (punkt 1.4) i odczytaj ich `oid`.
    Każdą osobę przypisz do konta, którego **dotąd używała**. Nowym osobom przydziel wolne konta.
 3. Zapisz rejestr: `sudo install -m 0600 -o root -g root entra-accounts /etc/wlb/entra-accounts` i sprawdź go (punkt 2).
 4. W `/etc/wlb/lab.env` ustaw `AUTH_MODE=entra` i zmienne z punktu 3 (zachowaj kopię poprzedniego pliku).
-5. `sudo wlb-firstboot --force`. Przebieg na krótko zamyka port huba. Konta, dane i hasła Native się nie zmieniają.
+5. `sudo wlb-firstboot --force`. Przebieg na krótko zamyka port huba, odwołuje poświadczenia wszystkich kont
+   (`zmiana native -> entra — odwołano ciasteczka i tokeny` w dzienniku) i zakłada pusty plik powiązań.
+   Konta, dane i hasła Native się nie zmieniają.
 6. Weryfikacja:
    - strona logowania pokazuje „Sign in with Microsoft Entra ID”,
    - logowanie testowe konta z rejestru kończy się sukcesem i MFA zostaje wymuszone (log logowań Entra),
    - osoba bez roli albo bez wpisu dostaje odmowę,
-   - `sudo journalctl -u jupyterhub | grep 'WLB Entra'` pokazuje przyczyny odmów (tylko `oid`).
+   - `sudo journalctl -u jupyterhub | grep 'WLB Entra'` pokazuje kody przyczyn odmów (punkt 7).
 7. Gdy produkcyjne Laboratoria aktualizują się automatycznie z `labEnv`, dopisz te zmienne i rejestr do seeda.
    Kroki 1–2 i 6 wykonaj tak samo przy wymianie obrazu.
 
@@ -123,7 +140,8 @@ przed migracją.
 1. **Najpierw** zresetuj hasła Native kont, którym w międzyczasie odebrano dostęp (`sudo wlb-hub-user <konto>`).
    Bez tego osoba usunięta z rejestru odzyska dostęp starym hasłem.
 2. W `/etc/wlb/lab.env` ustaw `AUTH_MODE=native` (lub przywróć kopię) i uruchom `sudo wlb-firstboot --force`.
-   Plik `70-wlb-auth.py` zostaje usunięty i hub wraca do Native Authenticatora.
+   Plik `70-wlb-auth.py` zostaje usunięty, sesje i tokeny z logowania przez Entra są odwołane
+   (`wlb-hub-revoke --all`), a hub wraca do Native Authenticatora.
 3. Badacze logują się dotychczasowymi hasłami albo nowymi, wydanymi w kroku 1.
 
 Rejestr i powiązania można zostawić, bo w trybie `native` nie są używane. Ponowne przejście na `entra`
@@ -134,32 +152,53 @@ korzysta z tych samych powiązań. Hasła Native usuwa się osobnym krokiem, po 
 | Co | Gdzie | Efekt |
 |---|---|---|
 | Usunięcie wiersza z rejestru | `/etc/wlb/entra-accounts` | blokuje nowe logowania oraz żądania do huba podlegające odświeżeniu (ciasteczko/token API po 5 min, start serwera) |
-| Zatrzymanie serwera konta | panel huba | zamyka trwające połączenia notebooka, terminala i noVNC |
+| `sudo wlb-hub-revoke --user <konto>` | VM | odwołuje ciasteczka i tokeny konta, zatrzymuje jego serwer (zamyka połączenia); hub restartuje się na kilka sekund |
 | Odebranie roli / blokada w Entra | Entra | blokuje **następne** logowanie; nie dotyka trwającej sesji |
 
-Pełne odcięcie osoby to wszystkie trzy kroki: usunięcie wiersza, zatrzymanie serwera i odebranie roli.
-Nie ma tu gwarantowanego czasu odwołania wszystkich poświadczeń. Procedura z potwierdzeniem odwołania
-(ciasteczka, tokeny API i OAuth serwera) to zakres #102 D3. Do jej wdrożenia konta odebranego **nie**
-przekazuje się innej osobie: jej logowanie i tak zostanie zablokowane (punkt „Jak to działa”).
+Pełne odcięcie osoby: usunięcie wiersza, potem `wlb-hub-revoke --user <konto>` (narzędzie kończy się kodem 0
+dopiero po zapisaniu odwołania w bazie huba), a w Entra odebranie roli. Kolejność ma znaczenie: bez usunięcia
+wiersza osoba zaloguje się ponownie. Konta odebranego **nie** przekazuje się innej osobie: jej logowanie
+zostanie zablokowane przez powiązanie (procedura przekazania to #102 D3).
 
 ## 7. Diagnoza (`journalctl -u jupyterhub`)
 
-| Komunikat | Przyczyna |
+Wpisy mają postać `WLB Entra: kod=<KOD> [oid=…|konto=<skrót>] [szczegół]`. Skrót konta dla znanego loginu:
+`printf %s u01 | sha256sum | cut -c1-12`.
+
+| Kod | Przyczyna |
 |---|---|
-| `brak przypisania konta dla oid=…` | brak wiersza w rejestrze dla tej osoby |
-| `oid=… (konto …) bez roli aplikacji …` | osoba nie ma roli Laboratorium w Entra albo ma rolę innego Laboratorium |
-| `odrzucony id_token (niezgodne: …)` | `oid`: brak claimu (zakres `profile`?); `tid`/`iss`/`aud`: inny tenant lub aplikacja; `exp`: przeterminowany token lub zegar VM (NTP) |
-| `konto … powiązane z inną osobą — przekazanie konta wymaga procedury #102 D3` | rejestr wskazuje nową osobę na koncie używanym wcześniej przez kogoś innego; przydziel wolne konto |
-| `rejestr przypisań niepoprawny, logowanie wstrzymane` | błąd w rejestrze, szczegóły w tym samym wpisie; nikt nie wejdzie do czasu poprawki |
-| `nieczytelne powiązania …` / `niepoprawny format …` | uszkodzony `/workspace/.wlb-hub/entra-bindings`; logowanie wstrzymane, przywróć z kopii dysku roboczego |
-| `konto … bez ważnego przypisania w rejestrze — żądanie odrzucone` (INFO) | żądanie sesji usuniętego z rejestru konta albo sesji sprzed migracji |
+| `BRAK_PRZYPISANIA` (oid) | brak wiersza w rejestrze dla tej osoby |
+| `BRAK_ROLI` (oid) | osoba nie ma roli Laboratorium w Entra albo ma rolę innego Laboratorium |
+| `TOKEN_ODRZUCONY` | `oid`: brak claimu (zakres `profile`?); `tid`/`iss`/`aud`: inny tenant lub aplikacja; `exp`: przeterminowany token lub zegar VM (NTP) |
+| `KONTO_INNEJ_OSOBY` (oid) | rejestr wskazuje nową osobę na koncie powiązanym z kimś innym; przydziel wolne konto |
+| `PRZYPISANIE_ZMIENIONE` (oid) | rejestr zmienił się w trakcie logowania; zaloguj ponownie |
+| `REJESTR_NIEPOPRAWNY` | błąd w rejestrze, szczegóły w tym samym wpisie; nikt nie wejdzie do czasu poprawki |
+| `POWIAZANIA_BRAK` | brak `/workspace/.wlb-hub/entra-bindings` — patrz niżej; logowanie i odświeżanie wstrzymane |
+| `POWIAZANIA_NIECZYTELNE` / `POWIAZANIA_ZAPIS` | uszkodzony plik powiązań albo brak miejsca/praw przy zapisie; logowanie wstrzymane |
+| `POWIAZANO` (konto, INFO) | pierwsze logowanie Entra na konto |
+| `SESJA_ODRZUCONA` (konto, INFO) | żądanie sesji konta bez wiersza w rejestrze albo bez powiązania |
+| `BRAK_KONFIGURACJI_ROLI` | brak `required_role` w konfiguracji |
+
+**Brak pliku powiązań.** `wlb-firstboot` w trybie entra odmawia pracy, jeśli w poprzednim przebiegu Laboratorium
+też było w trybie entra, a pliku nie ma. Pusty plik pozwoliłby następcy przejąć konto, którego poświadczenia nie
+zostały odwołane. Do wyboru:
+1. **Odtworzenie** pliku z kopii dysku roboczego **razem z bazą huba** (ten sam punkt w czasie). Kopia samej bazy
+   (`wlb-hub-db-backup`) nie zawiera powiązań.
+2. **Świadoma reinicjalizacja:** `sudo WLB_ENTRA_REINIT=1 wlb-firstboot --force`. Odwołuje poświadczenia wszystkich
+   kont, a stary plik (jeśli jest) zachowuje jako `entra-bindings.przed-reinit-<data>`. Pierwsze logowanie każdej
+   osoby wiąże jej konto na nowo, zgodnie z bieżącym rejestrem. Przed reinicjalizacją sprawdź rejestr wobec
+   rejestru organizacyjnego, bo przypisania wejdą w życie bez historii.
 
 ## Ograniczenia i odbiór
 
-- **Testy w repozytorium to testy modułowe authenticatora** z podstawioną odpowiedzią punktu `token`
-  (`tests/unit/test_wlb_entra.py`, `tests/acceptance.d/68-entra.sh` na oauthenticatorze zainstalowanym przez TLJH).
-  Callback, `state` i PKCE, polityka Conditional Access, sesje HTTP i WebSocket wymagają osobnych testów
-  integracyjnych z tenantem testowym. Lista scenariuszy odbioru jest w IMG-011.
+- **Testy w repozytorium:**
+  - authenticator: testy modułowe z podstawioną odpowiedzią punktu `token` (`tests/unit/test_wlb_entra.py`,
+    także na oauthenticatorze zainstalowanym przez TLJH w `tests/acceptance.d/68-entra.sh`);
+  - odwołanie poświadczeń: na prawdziwej bazie JupyterHub (`tests/unit/test_wlb_hub_revoke.py`) i przez
+    działający hub na VM: ciasteczko, token API i serwer konta przed i po `wlb-hub-revoke` (etap 5, `68-entra.sh`).
+
+  Nie są testowane: callback z `state` i PKCE na prawdziwym IdP, polityka Conditional Access i pełny przepływ
+  logowania Entra przez przeglądarkę. Lista scenariuszy odbioru jest w IMG-011.
 - Podpis id_token nie jest weryfikowany lokalnie, tak jak w `AzureAdOAuthenticator`. Przyjmujemy zaufanie
   do kanału zwrotnego: token pochodzi bezpośrednio z punktu `token` Entra po TLS. Hub sprawdza tenant,
   issuer, audience i ważność. To założenie zaufania wymaga oceny przy odbiorze.

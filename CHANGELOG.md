@@ -45,6 +45,13 @@ pierwszym Laboratorium na klastrze).
   haseł kont z odebranym dostępem (runbook `RB-entra`). Testy są modułowe (podstawiona odpowiedź tokenu);
   odbiór z tenantem testowym opisuje IMG-011.
   `wlb-firstboot` waliduje całość przed zmianą na VM. Wzór: `cloud-init/examples/lab-user-data-entra.yaml`.
+- **Odwołanie poświadczeń przy zmianie sposobu logowania (`wlb-hub-revoke`, #18):** przy każdej zmianie
+  `AUTH_MODE` (stan w `/workspace/.wlb-hub/auth-mode`), także przy powrocie do haseł, `wlb-firstboot` przed otwarciem
+  huba zatrzymuje hub i serwery kont, zmienia `cookie_id` kont i usuwa ich tokeny API/OAuth oraz kody OAuth. Ciasteczka
+  i tokeny z logowania hasłem nie przechodzą więc po migracji na Entra, także po pierwszym logowaniu tej samej osoby
+  przez Entra. Plik powiązań kont z osobami zakłada firstboot; jego brak w trakcie pracy wstrzymuje logowanie,
+  a odtworzenie bez niego wymaga świadomej reinicjalizacji (`WLB_ENTRA_REINIT=1`, z odwołaniem wszystkich poświadczeń).
+  Zdarzenia logowania Entra mają kody przyczyn i pseudonimy (oid albo skrót loginu), bez loginów.
 - **`AUTH_MODE=oidc` naprawiony (P0 z audytu #18):** bez `OIDC_ALLOWED_GROUPS` firstboot kończy
   się błędem przed zmianą, zamiast generować `allow_all = True` (dostęp dla każdego użytkownika IdP).
   Konfiguracja z grupami uruchamia się na oauthenticator 17: wcześniej hub nie startował

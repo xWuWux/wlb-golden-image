@@ -108,6 +108,8 @@ def test_cli_check(tmp_path, capsys):
 def registry(tmp_path):
     path = tmp_path / "entra-accounts"
     path.write_text(REGISTRY)
+    # plik powiązań zakłada wlb-firstboot przy przejściu na Entra (pusty: nikt jeszcze się nie logował)
+    (tmp_path / "entra-bindings").write_text("{}")
     return path
 
 
@@ -189,7 +191,7 @@ def test_bez_roli_laboratorium_brak_dostepu(registry, monkeypatch, caplog):
     assert login(make_auth(registry), monkeypatch, id_token(roles=["WLB.Lab.inny"])) is None
     assert login(make_auth(registry), monkeypatch, id_token(roles=None)) is None
     assert login(make_auth(registry), monkeypatch, id_token(roles=ROLE)) is None  # string, nie lista
-    assert "bez roli aplikacji" in caplog.text
+    assert "kod=BRAK_ROLI" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -212,7 +214,7 @@ def test_allow_all_nie_da_sie_wlaczyc(registry, caplog):
 
 def test_brak_required_role_wstrzymuje_logowanie(registry, monkeypatch, caplog):
     assert login(make_auth(registry, required_role=""), monkeypatch, id_token()) is None
-    assert "brak required_role" in caplog.text
+    assert "kod=BRAK_KONFIGURACJI_ROLI" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -252,7 +254,7 @@ def test_przejecie_konta_w_trakcie_logowania(registry, monkeypatch, caplog):
 
     monkeypatch.setattr(auth, "user_info_to_username", swap_then_map)
     assert login(auth, monkeypatch, id_token()) is None
-    assert "nie jest przypisane" in caplog.text
+    assert "kod=PRZYPISANIE_ZMIENIONE" in caplog.text
 
 
 def test_bledny_rejestr_wstrzymuje_logowanie(registry, monkeypatch, caplog):
@@ -260,7 +262,7 @@ def test_bledny_rejestr_wstrzymuje_logowanie(registry, monkeypatch, caplog):
     with pytest.raises(web.HTTPError) as exc:
         login(make_auth(registry), monkeypatch, id_token())
     assert exc.value.status_code == 403
-    assert "rejestr przypisań niepoprawny" in caplog.text
+    assert "kod=REJESTR_NIEPOPRAWNY" in caplog.text
 
 
 def test_check_allowed_bez_modelu_odmawia(registry):
@@ -293,7 +295,7 @@ def test_przekazanie_konta_zablokowane_bez_powrotu_starej_sesji(registry, monkey
     registry.write_text(f"{TENANT} {OID_OBCY} u01\n")
     assert refresh(auth, "u01") is False  # żądania A podlegające odświeżeniu odrzucone
     assert login(auth, monkeypatch, id_token(oid=OID_OBCY)) is None  # B nie przejmie konta
-    assert "przekazanie konta wymaga procedury #102 D3" in caplog.text
+    assert "kod=KONTO_INNEJ_OSOBY" in caplog.text
     assert bindings(registry) == {"u01": f"{TENANT} {OID_ANNA}"}  # powiązanie bez zmian
     assert refresh(auth, "u01") is False  # i stara sesja A nadal odrzucana
 
@@ -323,9 +325,48 @@ def test_odswiezenie_niezalezne_od_enable_auth_state(registry, monkeypatch):
 
 
 def test_brak_zapisu_powiazania_to_odmowa(registry, monkeypatch, caplog):
-    auth = make_auth(registry, bindings_file=str(registry.parent / "brak-katalogu" / "entra-bindings"))
+    auth = make_auth(registry)
+
+    def fail(*args):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(wlb_entra_auth.os, "replace", fail)
     assert login(auth, monkeypatch, id_token()) is None
-    assert "nie można zapisać" in caplog.text
+    assert "kod=POWIAZANIA_ZAPIS" in caplog.text
+    assert bindings(registry) == {}
+
+
+def test_brak_pliku_powiazan_wstrzymuje_logowanie_i_zadania(registry, monkeypatch, caplog):
+    """Przegląd #330: utrata pliku nie może wyzerować historii i odblokować przekazania konta."""
+    auth = make_auth(registry)
+    login(auth, monkeypatch, id_token())  # A wiąże u01
+    registry.write_text(f"{TENANT} {OID_OBCY} u01\n")  # rejestr wskazuje B
+    assert login(auth, monkeypatch, id_token(oid=OID_OBCY)) is None  # B odrzucona
+    (registry.parent / "entra-bindings").unlink()  # utrata pliku / niepełne odtworzenie
+    assert login(auth, monkeypatch, id_token(oid=OID_OBCY)) is None  # B nadal odrzucona
+    assert refresh(auth, "u01") is False  # stare sesje konta też
+    assert "kod=POWIAZANIA_BRAK" in caplog.text
+    assert not (registry.parent / "entra-bindings").exists()  # authenticator nie zakłada pliku sam
+
+
+def test_dziennik_bez_loginow_i_bez_mapowania_login_osoba(registry, monkeypatch, caplog):
+    """Przegląd #330 (P2): stare konta nazwane to dane osobowe."""
+    caplog.set_level(logging.INFO)
+    auth = make_auth(registry)
+    login(auth, monkeypatch, id_token(oid=OID_JAN))  # konto nazwane jkowalski: POWIAZANO
+    login(auth, monkeypatch, id_token(oid=OID_JAN, roles=[]))  # BRAK_ROLI
+    registry.write_text(f"{TENANT} {OID_ANNA} u01\n")
+    refresh(auth, "jkowalski")  # SESJA_ODRZUCONA
+    ref = wlb_entra_auth.account_ref("jkowalski")
+    wlb = [r.getMessage() for r in caplog.records if r.getMessage().startswith("WLB Entra:")]
+    assert wlb
+    for message in wlb:
+        assert "jkowalski" not in message, message
+        assert not (OID_JAN in message and ref in message), message
+    # standardowe logi JupyterHub („User '…' not allowed.") zawierają login — poza tym modułem (RB-entra)
+    assert f"konto={ref}" in caplog.text and f"oid={OID_JAN}" in caplog.text
+    with pytest.raises(ValueError):
+        auth._event(logging.INFO, "X", oid=OID_JAN, login="jkowalski")
 
 
 @pytest.mark.parametrize("content", ["{nie-json", "[]", '{"u01": 1}'])
@@ -335,4 +376,4 @@ def test_uszkodzone_powiazania_wstrzymuja_logowanie_i_zadania(registry, monkeypa
     (registry.parent / "entra-bindings").write_text(content)
     assert refresh(auth, "u01") is False
     assert login(auth, monkeypatch, id_token()) is None
-    assert "logowanie wstrzymane" in caplog.text
+    assert "kod=POWIAZANIA_NIECZYTELNE" in caplog.text

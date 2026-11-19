@@ -167,6 +167,14 @@ ENTRA_TENANT_ID=${ENTRA_TENANT_ID:-}                                # identyfika
 ENTRA_REQUIRED_ROLE=${ENTRA_REQUIRED_ROLE:-}                        # wartość roli aplikacji dającej wejście, np. WLB.Lab.<LAB_NAME>
 ENTRA_ACCOUNTS_FILE=${ENTRA_ACCOUNTS_FILE:-/etc/wlb/entra-accounts} # rejestr 'tid oid konto' (root, 0600)
 ENTRA_ACCOUNTS_TOOL=${WLB_ENTRA_ACCOUNTS_TOOL:-/opt/wlb/hub/wlb_entra_accounts.py}
+# Stan bezpieczeństwa logowania obok bazy huba (dysk roboczy: przeżywa wymianę obrazu, jest w kopii razem
+# z bazą). auth-mode = tryb z poprzedniego przebiegu; entra-bindings = trwałe powiązania konto -> (tid, oid).
+HUB_STATE_DIR=$R/workspace/.wlb-hub
+AUTH_STATE=$HUB_STATE_DIR/auth-mode
+ENTRA_BINDINGS=$HUB_STATE_DIR/entra-bindings
+HUB_REVOKE_TOOL=${WLB_HUB_REVOKE_TOOL:-/usr/local/sbin/wlb-hub-revoke}
+# Laboratoria sprzed zapisu auth-mode działały wyłącznie w trybie native.
+PREV_AUTH_MODE=$(cat "$AUTH_STATE" 2>/dev/null || echo native)
 GUID_RE='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 # Fail-secure (#18): konfigurację uwierzytelniania sprawdzamy PRZED jakąkolwiek zmianą na VM — błąd nie może
 # zostawić huba otwartego dla każdego konta w tenancie ani po cichu wrócić do logowania hasłem.
@@ -197,6 +205,11 @@ validate_auth() {
         die "AUTH_MODE=entra: rejestr ${ENTRA_ACCOUNTS_FILE} musi należeć do root (właściciel UID ${owner}) (#18)"
       python3 "$ENTRA_ACCOUNTS_TOOL" --check "$R$ENTRA_ACCOUNTS_FILE" --tenant "$ENTRA_TENANT_ID" >/dev/null ||
         die "AUTH_MODE=entra: rejestr przypisań ${ENTRA_ACCOUNTS_FILE} niepoprawny (szczegóły powyżej)"
+      # Przegląd #330: Laboratorium już w trybie entra bez pliku powiązań = utrata albo niepełne odtworzenie.
+      # Nowy pusty plik pozwoliłby następcy przejąć konto, którego poświadczenia nie zostały odwołane.
+      if [[ $PREV_AUTH_MODE == entra && ! -e $ENTRA_BINDINGS && ${WLB_ENTRA_REINIT:-0} != 1 ]]; then
+        die "AUTH_MODE=entra: brak ${ENTRA_BINDINGS#"$R"} — odtwórz go z kopii razem z bazą huba albo zainicjuj świadomie: WLB_ENTRA_REINIT=1 wlb-firstboot --force (odwoła poświadczenia wszystkich kont, RB-entra §7)"
+      fi
       ;;
     *) die "AUTH_MODE musi być native, entra albo oidc, jest '${AUTH_MODE}'" ;;
   esac
@@ -762,6 +775,25 @@ PY
     die "AUTH_MODE musi być native, entra albo oidc, jest '${AUTH_MODE}'"
     ;;
 esac
+
+# Zmiana sposobu logowania (przegląd #330): poświadczenia wydane w poprzednim trybie (ciasteczka, tokeny API
+# i OAuth, trwające połączenia z serwerami kont) nie przeszły nowego uwierzytelnienia ani MFA — odwołujemy
+# wszystkie, zanim hub zostanie otwarty. Dotyczy też powrotu entra -> native (rollback) i świadomej
+# reinicjalizacji powiązań. Błąd = firstboot przerwany, hub zostaje zatrzymany (fail-secure).
+reinit=$([[ $AUTH_MODE == entra && ${WLB_ENTRA_REINIT:-0} == 1 ]] && echo 1 || echo 0)
+[[ -d $HUB_STATE_DIR ]] || install -d -m 0700 "$HUB_STATE_DIR"
+if [[ $AUTH_MODE != "$PREV_AUTH_MODE" || $reinit == 1 ]]; then
+  "$HUB_REVOKE_TOOL" --all ||
+    die "uwierzytelnianie ${PREV_AUTH_MODE} -> ${AUTH_MODE}: nie udało się odwołać poświadczeń sprzed zmiany — hub zatrzymany, ponów wlb-firstboot --force"
+  log "uwierzytelnianie: zmiana ${PREV_AUTH_MODE} -> ${AUTH_MODE} — odwołano ciasteczka i tokeny wszystkich kont, serwery kont zatrzymane (#18)"
+fi
+if [[ $AUTH_MODE == entra ]] && [[ ! -e $ENTRA_BINDINGS || $reinit == 1 ]]; then
+  # stary plik zostaje jako dowód (kto był z kim powiązany), ale przestaje obowiązywać
+  [[ -e $ENTRA_BINDINGS ]] && mv "$ENTRA_BINDINGS" "$ENTRA_BINDINGS.przed-reinit-$(date +%Y%m%d%H%M%S)"
+  (umask 077 && printf '{}\n' >"$ENTRA_BINDINGS.tmp" && mv "$ENTRA_BINDINGS.tmp" "$ENTRA_BINDINGS")
+  log "uwierzytelnianie: zainicjowano powiązania kont z Entra (pierwsze logowanie każdej osoby wiąże jej konto)"
+fi
+(umask 077 && printf '%s\n' "$AUTH_MODE" >"$AUTH_STATE.tmp" && mv "$AUTH_STATE.tmp" "$AUTH_STATE")
 
 # --- 6. JupyterHub: administrator Klienta Środowiska WLB -----------------------------
 [[ ${WLB_TLJH_ADMIN_SUDO:-0} == 1 ]] || rm -f "$R/etc/sudoers.d/jupyterhub-admins"

@@ -10,27 +10,34 @@
   i `admin_users` nie omijają tej kontroli;
 - tenant, issuer, audience i ważność id_token są sprawdzane, punkty końcowe to v2.0;
 - zakres `openid profile` (Entra gwarantuje `oid` dopiero z `profile`), ale z tokenu zostają
-  tylko `tid`, `oid` i `roles` — imię, e-mail i UPN nie trafiają do modelu uwierzytelnienia
-  ani do dziennika (w logach pseudonim `oid` przy odmowie);
+  tylko `tid`, `oid` i `roles` — imię, e-mail i UPN nie trafiają do modelu uwierzytelnienia;
+- dziennik: zdarzenia `WLB Entra: kod=<KOD>` z pseudonimem osoby (`oid`) ALBO pseudonimem
+  konta (`konto=<skrót>`, 12 znaków SHA-256 loginu) — nigdy loginu i nigdy obu naraz, żeby
+  dziennik nie budował mapowania login↔osoba. Standardowe logi JupyterHub (np. ścieżki
+  `/user/<login>`) zawierają login — to poza tym modułem;
 - **konto raz związane z osobą nie przechodzi na inną** (`bindings_file`, obok bazy huba na
   dysku roboczym): pierwsze udane logowanie wiąże konto z `(tid, oid)` na stałe. Rejestr
-  wskazujący na koncie inną osobę odmawia jej logowania — przekazanie konta wymaga osobnej
-  procedury z odwołaniem poświadczeń (#102 D3), której jeszcze nie ma;
+  wskazujący na koncie inną osobę odmawia jej logowania — przekazanie konta wymaga procedury
+  z odwołaniem poświadczeń (#102 D3, `wlb-hub-revoke --user`);
+- plik powiązań zakłada `wlb-firstboot` przy przejściu na Entra, razem z odwołaniem wszystkich
+  poświadczeń sprzed przejścia (`wlb-hub-revoke --all`). Brak pliku w trakcie pracy to awaria
+  albo niepełne odtworzenie — logowanie i odświeżanie są wtedy wstrzymane (fail-secure);
 - `refresh_user` (wołany przez JupyterHub przy żądaniach do huba po `auth_refresh_age`,
   dla tokenów API i przed startem serwera) odmawia, gdy konto nie ma już wiersza w rejestrze
-  albo nie ma powiązania z Entra (np. sesja zalogowana hasłem przed migracją).
+  albo powiązania.
 
-To blokuje nowe logowania i żądania podlegające odświeżeniu. NIE jest trwałym odwołaniem
-poświadczeń: nie usuwa ciasteczek ani tokenów z bazy huba i nie zamyka trwających połączeń
-(WebSocket notebooka, noVNC) — pełne odwołanie wymaga osobnej procedury. Odebranie roli
-w Entra działa od następnego logowania (hub nie wymienia tokenów z Entra po zalogowaniu).
+Odwołanie poświadczeń (ciasteczka, tokeny, połączenia z serwerem) robi `wlb-hub-revoke`, nie ten
+moduł: `refresh_user` nie zna pochodzenia sesji. Odebranie roli w Entra działa od następnego
+logowania (hub nie wymienia tokenów z Entra po zalogowaniu).
 
 Konfigurację (`70-wlb-auth.py`) generuje `wlb-firstboot` dla `AUTH_MODE=entra`.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import os
 import time
 
@@ -41,6 +48,11 @@ from traitlets import Unicode, default, validate
 
 # Ten sam komunikat dla każdej odmowy: strona logowania nie zdradza, czego brakuje.
 DENIED = "Brak dostępu do tego Laboratorium WLB. Skontaktuj się z Administratorem Klienta."
+
+
+def account_ref(login):
+    """Pseudonim konta do dziennika (nie anonimizacja: odwracalny dla znającego listę loginów)."""
+    return hashlib.sha256(login.encode()).hexdigest()[:12]
 
 
 class WlbEntraAuthenticator(AzureAdOAuthenticator):
@@ -87,12 +99,25 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
         # więc nie trafiają do modelu uwierzytelnienia ani do dziennika. Bez `email`.
         return ["openid", "profile"]
 
+    def _event(self, level, code, detail=None, *, oid=None, login=None):
+        """Jedno zdarzenie WLB: kod przyczyny + pseudonim osoby (oid) albo konta — nigdy oba."""
+        if oid is not None and login is not None:
+            raise ValueError("oid i konto razem tworzyłyby w dzienniku mapowanie login↔osoba")
+        parts = [f"kod={code}"]
+        if oid is not None:
+            parts.append(f"oid={oid}")
+        if login is not None:
+            parts.append(f"konto={account_ref(login)}")
+        if detail:
+            parts.append(detail)
+        self.log.log(level, "WLB Entra: %s", " ".join(parts))
+
     def _accounts(self):
         try:
             return wlb_entra_accounts.load(self.accounts_file, self.tenant_id)
         except wlb_entra_accounts.AccountsError as exc:
             # błędny rejestr = nikt nie wchodzi (fail-secure); szczegóły tylko w dzienniku huba
-            self.log.error("WLB Entra: rejestr przypisań niepoprawny, logowanie wstrzymane: %s", exc)
+            self._event(logging.ERROR, "REJESTR_NIEPOPRAWNY", f"logowanie wstrzymane: {exc}")
             raise web.HTTPError(403, DENIED) from exc
 
     async def token_to_user(self, token_info):
@@ -113,7 +138,7 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
         if not wlb_entra_accounts.GUID_RE.fullmatch(oid):
             problems.append("oid")
         if problems:
-            self.log.warning("WLB Entra: odrzucony id_token (niezgodne: %s)", ", ".join(problems))
+            self._event(logging.WARNING, "TOKEN_ODRZUCONY", f"niezgodne: {', '.join(problems)}")
             raise web.HTTPError(403, DENIED)
         roles = claims.get("roles") or []
         if not isinstance(roles, list):
@@ -133,17 +158,22 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
     # --- trwałe powiązanie konta z osobą ---------------------------------------------------------
 
     def _bindings(self):
-        """Konto -> 'tid oid'. Brak pliku = brak powiązań; uszkodzony plik = błąd (fail-secure)."""
+        """Konto -> 'tid oid'. Plik zakłada wlb-firstboot; brak albo uszkodzenie = błąd (fail-secure).
+
+        Brak pliku nie może znaczyć „brak powiązań": po utracie pliku następca dostałby konto
+        związane wcześniej z inną osobą, choć jej poświadczenia nie zostały odwołane.
+        """
         try:
             with open(self.bindings_file, encoding="utf-8") as fh:
                 data = json.load(fh)
-        except FileNotFoundError:
-            return {}
+        except FileNotFoundError as exc:
+            self._event(logging.ERROR, "POWIAZANIA_BRAK", f"{self.bindings_file} — logowanie wstrzymane (RB-entra §7)")
+            raise web.HTTPError(403, DENIED) from exc
         except (OSError, ValueError) as exc:
-            self.log.error("WLB Entra: nieczytelne powiązania %s — logowanie wstrzymane: %s", self.bindings_file, exc)
+            self._event(logging.ERROR, "POWIAZANIA_NIECZYTELNE", f"{self.bindings_file}: {type(exc).__name__}")
             raise web.HTTPError(403, DENIED) from exc
         if not isinstance(data, dict) or not all(isinstance(v, str) for v in data.values()):
-            self.log.error("WLB Entra: niepoprawny format %s — logowanie wstrzymane", self.bindings_file)
+            self._event(logging.ERROR, "POWIAZANIA_NIECZYTELNE", f"{self.bindings_file}: niepoprawny format")
             raise web.HTTPError(403, DENIED)
         return data
 
@@ -161,22 +191,20 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
     def user_info_to_username(self, user_info):
         login = self._accounts().login_for(user_info["tid"], user_info["oid"])
         if login is None:
-            self.log.warning("WLB Entra: brak przypisania konta dla oid=%s", user_info["oid"])
+            self._event(logging.WARNING, "BRAK_PRZYPISANIA", oid=user_info["oid"])
             raise web.HTTPError(403, DENIED)
         return login
 
     def _allowed(self, username, user_info):
         if not self.required_role:
-            self.log.error("WLB Entra: brak required_role w konfiguracji — logowanie wstrzymane")
+            self._event(logging.ERROR, "BRAK_KONFIGURACJI_ROLI", "logowanie wstrzymane")
             return False
         identity = self._accounts().identity_for(username)
         if identity != (user_info.get("tid"), user_info.get("oid")):
-            self.log.warning("WLB Entra: konto %s nie jest przypisane do oid=%s", username, user_info.get("oid"))
+            self._event(logging.WARNING, "PRZYPISANIE_ZMIENIONE", oid=user_info.get("oid"))
             return False
         if self.required_role not in user_info.get("roles", []):
-            self.log.warning(
-                "WLB Entra: oid=%s (konto %s) bez roli aplikacji %s", user_info.get("oid"), username, self.required_role
-            )
+            self._event(logging.WARNING, "BRAK_ROLI", f"rola={self.required_role}", oid=user_info.get("oid"))
             return False
         return True
 
@@ -199,16 +227,14 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
             try:
                 self._bind(bindings, username, identity)
             except OSError as exc:
-                self.log.error("WLB Entra: nie można zapisać %s: %s", self.bindings_file, exc.strerror)
+                self._event(logging.ERROR, "POWIAZANIA_ZAPIS", f"{self.bindings_file}: {exc.strerror}")
                 return False
-            self.log.info("WLB Entra: konto %s powiązane z oid=%s (pierwsze logowanie)", username, user_info["oid"])
+            self._event(logging.INFO, "POWIAZANO", "pierwsze logowanie Entra na konto", login=username)
         elif bound != identity:
             # Stare ciasteczka i tokeny poprzedniej osoby nadal wskazują to konto — dopuszczenie
             # następcy wymaga najpierw ich odwołania (#102 D3). Do tego czasu przekazanie jest zablokowane.
-            self.log.warning(
-                "WLB Entra: konto %s powiązane z inną osobą — przekazanie konta wymaga procedury #102 D3 (oid=%s)",
-                username,
-                user_info["oid"],
+            self._event(
+                logging.WARNING, "KONTO_INNEJ_OSOBY", "przekazanie konta wymaga procedury #102 D3", oid=user_info["oid"]
             )
             return False
         return True
@@ -224,6 +250,6 @@ class WlbEntraAuthenticator(AzureAdOAuthenticator):
         except web.HTTPError:
             return False
         if current is None or bound != " ".join(current):
-            self.log.info("WLB Entra: konto %s bez ważnego przypisania w rejestrze — żądanie odrzucone", user.name)
+            self._event(logging.INFO, "SESJA_ODRZUCONA", "brak ważnego przypisania", login=user.name)
             return False
         return True

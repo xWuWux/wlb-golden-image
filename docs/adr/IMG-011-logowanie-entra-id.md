@@ -47,10 +47,18 @@ Dotychczasowy tryb `AUTH_MODE=oidc` (#57) zamieniał claim (`preferred_username`
   bez ich odwołania następca dzieliłby konto z poprzednikiem. Przekazanie konta będzie jedną operacją
   administracyjną #102 D3 (blokada logowań i spawnu → odwołanie ciasteczek i tokenów Hub/OAuth → zamknięcie
   dostępu do serwera → potwierdzenie → atomowa zmiana przypisania). Awaria zostawi konto zablokowane.
-- **Ograniczenie dostępu przy zmianie rejestru:** rejestr jest czytany przy każdym logowaniu oraz w
+  Plik powiązań zakłada `wlb-firstboot` przy przejściu na Entra; jego brak w trakcie pracy wstrzymuje logowanie
+  i odświeżanie (brak pliku nie oznacza „brak powiązań"), a `wlb-firstboot` w trybie entra bez pliku przerywa
+  pracę. Nowy pusty plik powstaje tylko przez świadomą reinicjalizację (`WLB_ENTRA_REINIT=1`), która najpierw
+  odwołuje poświadczenia wszystkich kont.
+- **Odwołanie poświadczeń przy zmianie `AUTH_MODE`:** `refresh_user` nie zna pochodzenia sesji, więc nie
+  odróżni ciasteczka z logowania hasłem od sesji Entra tego samego konta. Dlatego `wlb-firstboot` przy każdej
+  zmianie trybu (także rollback entra → native) wywołuje `wlb-hub-revoke --all`: zatrzymuje hub i serwery kont,
+  zmienia `cookie_id` kont, usuwa tokeny API/OAuth kont i kody OAuth, uruchamia hub. Błąd przerywa firstboot,
+  hub zostaje zatrzymany. To samo narzędzie z `--user` odcina jedno konto i jest elementem przyszłej procedury #102 D3.- **Ograniczenie dostępu przy zmianie rejestru:** rejestr jest czytany przy każdym logowaniu oraz w
   `refresh_user` (żądania do huba po `auth_refresh_age`, start serwera). Blokuje to nowe logowania i żądania
   podlegające odświeżeniu. **Nie** jest trwałym odwołaniem poświadczeń ani gwarancją zamknięcia trwających
-  połączeń (WebSocket notebooka, noVNC, pamięć podręczna serwera badacza). Pełne odcięcie wymaga zatrzymania serwera.
+  połączeń (WebSocket notebooka, noVNC, pamięć podręczna serwera badacza). Pełne odcięcie: `wlb-hub-revoke --user`.
 - **Fail-secure:** `wlb-firstboot` waliduje zmienne i rejestr przed zmianą na VM. Błędny rejestr w trakcie
   pracy wstrzymuje logowanie (403), a nie otwiera dostępu.
 - **Migracja i powrót:** zmiana `AUTH_MODE` per Laboratorium (RB-entra). Konta, UID, `/workspace`,
@@ -68,9 +76,12 @@ z oauthenticator 17.
 ## Konsekwencje
 
 * **Pozytywne:**
-  - brak imion, UPN i e-maili w loginach i logach. W dzienniku huba jest `oid` przy odmowach (pseudonim, nadal dana osobowa),
-  - istniejące konta i dane nienaruszone. Migracja to procedura w oknie serwisowym (zatrzymanie serwerów, rejestr,
-    `AUTH_MODE`), a rollback wymaga wcześniejszego resetu haseł Native kont z odebranym dostępem (RB-entra §5),
+  - brak imion, UPN i e-maili w loginach i w zdarzeniach modułu. Zdarzenia mają kod przyczyny i pseudonim osoby (`oid`)
+    albo konta (skrót loginu), nigdy login i nigdy oba naraz (pseudonimizacja, nadal dane osobowe). Standardowe wpisy
+    JupyterHub zawierają login — poza tym modułem,
+  - istniejące konta i dane nienaruszone. Migracja to procedura w oknie serwisowym (rejestr, `AUTH_MODE`; firstboot
+    zatrzymuje serwery i odwołuje poświadczenia), a rollback wymaga wcześniejszego resetu haseł Native kont z odebranym
+    dostępem (RB-entra §5),
   - dostęp per Laboratorium nadawany w Entra (rola) i na VM (rejestr), bez restartu huba; przekazanie konta innej osobie
     jest zablokowane, zamiast działać bez odwołania poświadczeń,
   - naprawione P0 i błąd startu trybu `oidc`.
@@ -82,8 +93,9 @@ z oauthenticator 17.
     Nie obiecujemy CAE ani ponownej oceny polityk Entra w trakcie lokalnej sesji. Maksymalny wiek sesji
     i SLA odwołania trzeba ustalić z właścicielem platformy (sign-in frequency w Entra, limit sesji huba §9.5),
   - podpis id_token nie jest weryfikowany lokalnie (jak w oauthenticator). Token pochodzi bezpośrednio z punktu `token` po TLS,
-  - testy w repozytorium to testy modułowe authenticatora z podstawioną odpowiedzią punktu `token`.
-    Brak testu z prawdziwym tenantem w CI.
+  - authenticator jest testowany modułowo z podstawioną odpowiedzią punktu `token`. Odwołanie poświadczeń jest
+    testowane na prawdziwej bazie JupyterHub i przez działający hub na VM (ciasteczko, token API, serwer konta).
+    Brak testu callbacku i logowania z prawdziwym tenantem w CI,
 * **Świadomie pominięte:**
   - usunięcie haseł Native (osobny krok po odbiorze),
   - procedura przekazania konta z odwołaniem poświadczeń (#102 D3); do tego czasu przekazanie jest zablokowane,
@@ -97,9 +109,10 @@ z oauthenticator 17.
    gościa B2B (zaufanie do MFA tenantu macierzystego) potwierdzone w logach logowań Entra.
 3. Callback: dwie karty, przerwany callback, stary `state`, ponowne użycie kodu, powrót przeglądarką „wstecz”.
    Ochrony z oauthenticator, bez własnego protokołu.
-4. Odcięcie przez HTTP/API/WebSocket: ciasteczko, token API, token OAuth serwera i trwające połączenie
-   notebooka/noVNC po usunięciu wiersza i zatrzymaniu serwera, także po restarcie huba. Sprawdzić faktyczną
-   odmowę, nie tylko wynik `refresh_user`.
+4. Odcięcie przez HTTP/API/WebSocket po migracji i po `wlb-hub-revoke --user`: ciasteczko i token API sprawdza
+   etap 5 (`68-entra.sh`); do odbioru zostają token OAuth serwera użyty przez przeglądarkę, trwające połączenie
+   noVNC i sesja zalogowana przez Entra (nie Native).
 5. Awarie: wygasły `client_secret`, DNS/proxy/TLS/IdP niedostępne, przesunięty zegar. Nowe logowania odmawiają,
    brak automatycznego powrotu do Native, działające obliczenia nie są przerywane.
-6. Odtworzenie dysku roboczego z kopii nie przywraca odwołanego dostępu (rejestr wobec rejestru organizacyjnego).
+6. Odtworzenie dysku roboczego z kopii nie przywraca odwołanego dostępu (rejestr wobec rejestru organizacyjnego);
+   kopia samej bazy huba bez pliku powiązań kończy się odmową firstboot (`POWIAZANIA_BRAK`), nie cichym dopuszczeniem.

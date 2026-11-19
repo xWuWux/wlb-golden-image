@@ -279,6 +279,14 @@
     dest: /usr/local/sbin/wlb-hub-user
     mode: "0750"
 
+# Odwołanie poświadczeń kont (ciasteczka, tokeny API/OAuth, serwery): wlb-firstboot przy zmianie AUTH_MODE
+# i administrator przed przekazaniem konta innej osobie (#18, #102 D3).
+- name: Narzędzie do odwołania poświadczeń kont huba (#18)
+  ansible.builtin.copy:
+    src: wlb-hub-revoke
+    dest: /usr/local/sbin/wlb-hub-revoke
+    mode: "0750"
+
 # Logowanie przez Entra ID (#18): authenticator i rejestr przypisań (tid, oid) -> konto. Nieaktywne, dopóki
 # wlb-firstboot nie wygeneruje 70-wlb-auth.py dla AUTH_MODE=entra; importuje je wtedy Python huba TLJH.
 - name: Katalog modułów huba WLB (#18)

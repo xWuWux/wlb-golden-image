@@ -100,6 +100,8 @@ EOF
   fake_hub_user
   fake_wlb_monitoring
   export WLB_TLJH_CONFIG="$STUBS/tljh-config" WLB_HUB_USER_TOOL="$STUBS/wlb-hub-user" WLB_HUB_WAIT_SECONDS=4
+  stub wlb-hub-revoke 0 # odwołanie poświadczeń przy zmianie AUTH_MODE (#18)
+  export WLB_HUB_REVOKE_TOOL="$STUBS/wlb-hub-revoke"
   export WLB_HUB_USER_RETRY_SLEEP=0 # ponowienia narzędzia kont (#31) bez czekania
   # zasoby VM (#30): domyślnie 16 GiB RAM, 8 vCPU
   meminfo 16384
@@ -1246,6 +1248,95 @@ PY
   [ "$status" -eq 0 ]
   [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
   [[ $output == *"uwierzytelnianie: native"* ]]
+}
+
+# --- Zmiana AUTH_MODE: odwołanie poświadczeń i powiązania kont (przegląd #330) -------------------
+bindings() { echo "$SANDBOX/workspace/.wlb-hub/entra-bindings"; }
+
+@test "AUTH_MODE native bez zmiany: bez odwołania poświadczeń, stan zapisany" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  refute grep -q "wlb-hub-revoke" "$CALLS"
+  [ "$(cat "$SANDBOX/workspace/.wlb-hub/auth-mode")" = native ]
+  [ ! -e "$(bindings)" ]
+}
+
+@test "native -> entra: odwołanie wszystkich poświadczeń i pusty plik powiązań przed otwarciem huba" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  grep -qx "wlb-hub-revoke --all" "$CALLS"
+  [[ $output == *"zmiana native -> entra — odwołano ciasteczka i tokeny"* ]]
+  [ "$(cat "$(bindings)")" = "{}" ]
+  [ "$(stat -c %a "$(bindings)")" = 600 ]
+  [ "$(cat "$SANDBOX/workspace/.wlb-hub/auth-mode")" = entra ]
+  # odwołanie przed otwarciem portu huba (ostatnie ładowanie zapory)
+  revoke_line=$(grep -n "wlb-hub-revoke" "$CALLS" | head -1 | cut -d: -f1)
+  open_line=$(grep -n "^nft" "$CALLS" | tail -1 | cut -d: -f1)
+  [ "$revoke_line" -lt "$open_line" ]
+}
+
+@test "entra -> entra (--force): bez ponownego odwołania, powiązania zachowane" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  echo '{"u01": "t o"}' >"$(bindings)"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  refute grep -q "wlb-hub-revoke" "$CALLS"
+  [ "$(cat "$(bindings)")" = '{"u01": "t o"}' ]
+}
+
+@test "entra bez pliku powiązań po wcześniejszym entra przerywa przed zmianą (utrata/niepełne odtworzenie)" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  rm "$(bindings)"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak /workspace/.wlb-hub/entra-bindings — odtwórz go z kopii razem z bazą huba albo zainicjuj świadomie"* ]]
+  [ ! -e "$(bindings)" ]
+  refute grep -q "wlb-hub-revoke" "$CALLS"
+  refute grep -q "^nft" "$CALLS"
+}
+
+@test "WLB_ENTRA_REINIT=1: odwołanie, nowy pusty plik, stary zachowany jako dowód" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  echo '{"u01": "t a"}' >"$(bindings)"
+  : >"$CALLS"
+  WLB_ENTRA_REINIT=1 run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  grep -qx "wlb-hub-revoke --all" "$CALLS"
+  [ "$(cat "$(bindings)")" = "{}" ]
+  grep -q '"u01": "t a"' "$(bindings)".przed-reinit-*
+}
+
+@test "entra -> native (rollback): odwołanie sesji Entra, powiązania zostają na powrót" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  echo '{"u01": "t a"}' >"$(bindings)"
+  sed -i 's/^AUTH_MODE=entra/AUTH_MODE=native/' "$SANDBOX/etc/wlb/lab.env"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  grep -qx "wlb-hub-revoke --all" "$CALLS"
+  [ "$(cat "$SANDBOX/workspace/.wlb-hub/auth-mode")" = native ]
+  [ "$(cat "$(bindings)")" = '{"u01": "t a"}' ]
+}
+
+@test "błąd odwołania poświadczeń przerywa firstboot, hub nie zostaje otwarty, stan bez zmiany" {
+  entra_env
+  stub wlb-hub-revoke 1
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nie udało się odwołać poświadczeń sprzed zmiany — hub zatrzymany"* ]]
+  [ ! -e "$SANDBOX/workspace/.wlb-hub/auth-mode" ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
 }
 
 # --- Instalacja pakietów przez badacza (#23, IMG-004) ---------------------------------------
