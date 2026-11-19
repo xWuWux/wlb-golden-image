@@ -69,6 +69,8 @@ else
     bash -c "[[ \$(sqlite3 '$DR_DB' \"SELECT count(*) FROM users WHERE name IN ('$R1','a01');\") == 2 ]]"
 
   # 6. REALNE zachowanie po odtworzeniu (nie samo istnienie konta): HTTP + role na odtworzonej bazie
+  # $HUB rozwija child shell z wyeksportowanego env harnessu (celowo single-quote, jak w prefiksie).
+  # shellcheck disable=SC2016
   expect_ok "Hub działa i odpowiada na API po odtworzeniu (RB-07b, #288)" \
     bash -c 'for _ in $(seq 1 30); do curl -sf -o /dev/null "$HUB/hub/api" && exit 0; sleep 1; done; exit 1'
   expect_ok "Badacz u01 loguje się starym hasłem po odtworzeniu (302, #288)" \
