@@ -56,11 +56,13 @@ w43_exec_target_ok() {
   return 1
 }
 
-# w43_is_wrapper PATH — czy to wrapper WLB (domyślnie /usr/local/bin, /opt/wlb)? Katalogi można
-# podmienić przez W43_WRAPPER_DIRS (tylko dla testów jednostkowych).
+# w43_is_wrapper PATH — czy to wrapper WLB? Domyślnie /usr/local/bin oraz /opt/wlb/bin (katalog
+# wrapperów WLB). NIE całe /opt/wlb: obok wrapperów są tam zwykłe skrypty docelowe, np.
+# /opt/wlb/e2e/mouse-target.sh (#277), które nie mają linii `exec` i nie są wrapperami.
+# Katalogi można podmienić przez W43_WRAPPER_DIRS (tylko dla testów jednostkowych).
 w43_is_wrapper() {
   local p=$1 d
-  for d in ${W43_WRAPPER_DIRS:-/usr/local/bin /opt/wlb}; do
+  for d in ${W43_WRAPPER_DIRS:-/usr/local/bin /opt/wlb/bin}; do
     case $p in "$d"/*) return 0 ;; esac
   done
   return 1

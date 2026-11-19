@@ -28,10 +28,40 @@ pierwszym Laboratorium na klastrze).
   weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
   z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
 
+- **Procedura DR i odtwarzanie bazy huba (`wlb-hub-db-restore`, #306, #288):** aktualizacja runbooków
+  `docs/runbooks/RB-07-odtworzenie-po-awarii.md` (RB-07b) oraz `docs/runbook-kopia-bazy-huba.md`:
+  wywołanie skryptu `/usr/local/sbin/wlb-hub-db-restore` jako jednego źródła prawdy procedury DR
+  (opcje CLI `--from`, `--no-start`, zmienne środowiskowe, kody wyjścia 0–6); ujednolicenie procedury
+  awaryjnej/fallbacku na wyszukiwanie kopii przez `find` (odporne na format i spacje), sprawdzanie niepustości
+  kopii (`test -s`) przed `integrity_check`, zabezpieczenie dowodowe (`mv` bazy i dzienników `-wal`, `-shm`,
+  `-journal` do katalogu dowodowego) przed jakąkolwiek podmianą, zatrzymanie timera `wlb-hub-db-backup.timer`
+  oraz procedura rollbacku w razie niepowodzenia. Dodano ostrzeżenie operacyjne dotyczące okna RPO (do 1h)
+  i konieczności uzgodnienia przywróconych/usuniętych kont z autorytatywnym rejestrem źródłowym. Zarejestrowano
+  skrypty `wlb-hub-db-backup` i `wlb-hub-db-restore` w `SHELL_SCRIPTS` (`ci/common.sh`) oraz zdeduplikowano wpisy
+  #288 w mapie testów (`99-dr-odtworzenie-bazy.sh`). Testy: `tests/unit/wlb-hub-db-restore.bats` (7 przypadków,
+  w tym kontrola negatywna — brak powrotu huba daje exit 6 i rollback), `tests/fixtures/sqlite_hot_journal.py`
+  + `tests/unit/test_sqlite_hot_journal.py` (prawdziwy gorący `-journal`) oraz 4 mutacje w
+  `ci/mutations/bash-mutations.tsv`.
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+
+- **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
+  target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
+  `/run/wlb/e2e` (tmpfs 0777, root) z deskryptorem `/run/wlb/e2e/target.json`
+  (schema `wlb.e2e-target/v1`, trwały `session_id`, `screen.w/h`, współrzędne przycisku
+  `button.x/y/w/h` w pikselach ekranu oraz tytuł okna `keyboard.title`).
+  Target myszy `/opt/wlb/e2e/mouse-target.sh` uruchamia `zenity --question`,
+  pozycjonuje okno deterministycznie przez `wmctrl`, oblicza współrzędne przycisku OK
+  i zapisuje `rc=0` do `/run/wlb/e2e/mouse.txt`. Target klawiatury
+  `/opt/wlb/e2e/keyboard-target.sh` w `xfce4-terminal` z fokusem X zapisuje odebrany
+  nonce do `/run/wlb/e2e/keyboard.txt`. Skrypt `/opt/wlb/e2e/target-runner.sh`
+  zapewnia autostart w sesji XFCE (`/etc/xdg/autostart/wlb-e2e-target.desktop`)
+  oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
+  WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
+  (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
 
 - **Koniec losowych czerwonych bramki SIEM w etapie 5:** forwarding VM→testowy SIEM (rsyslog/TLS)
   jest asynchroniczny — zdarzenie śluzy `sluza_out.export_request` potrafiło dotrzeć sekundy po tym,
@@ -163,6 +193,35 @@ pierwszym Laboratorium na klastrze).
   kopia kafelka ze złym `Exec` musi dać FAIL. Headless i deterministyczna → bramkuje etap 5 (`ko`).
   Parser w `tests/lib/kafelki-exec.sh`, testy jednostkowe `tests/unit/kafelki-exec.bats` (15).
 
+- **Idempotencja Ansible w etapie 5 (#288, klasa 3):** po pierwszym provisioningu VM drugi przebieg
+  `ansible/site.yml` jest uruchamiany na tej samej maszynie, a PLAY RECAP musi dać **changed=0**
+  (bramka `ci/idempotency.py`, testy `tests/unit/test_idempotency.py`). Żeby bramka była realna,
+  przejrzano taski raportujące zmianę przy każdym przebiegu: cache apt wydzielony do osobnego
+  tasku z `changed_when: false` (9 miejsc — bezsporny no-op cache'a), a taski, które **realnie
+  pracują**, raportują changed przez **sondę różnicy** (hash pliku przed/po), nie przez maskowanie:
+  Julia (`Manifest.toml.generated`), pakiety R (`renv.lock.generated`), `R CMD javareconf`
+  (`/etc/R/Renviron.site`), `flatpak override` (plik overrides/<app>), `pip` („Successfully
+  installed”), `conda env update` („All requested packages already installed”). Eksport locka
+  condy zapisuje plik tylko przy `cmp` różnicy, a `fetch`/log diagnostyczny condy to kopie
+  artefaktów, nie stan VM. Strefa czasowa używa modułu `timezone`. Blok wersjonowanego prefiksu
+  Pythona (#193) jest pomijany, gdy prefiks jest już dowiązaniem — inaczej drugi przebieg
+  przełączałby hub.
+  **Koszt obserwowalności (znana granica):** sonda widzi tylko zmiany plików, które hashuje —
+  np. samo precompile Julii bez zmiany Manifestu albo zmiana cache'ów w `JULIA_DEPOT_PATH` nie
+  zostanie zaraportowana jako `changed`; bramka pilnuje no-opu playbooka, nie pełnego stanu
+  wewnętrznego narzędzi.
+
+- **E2E wejścia pulpitu w przeglądarce (#277):** krok interakcji `tests/desktop-e2e-novnc.py` przestał
+  być best-effort i **deterministycznie potwierdza reakcję** pulpitu. Przyczyną fałszywego
+  `before == after` była próbka: czytała tylko lewy-górny róg 200×200, a prawy klik trafiał w ~(640,400)
+  — menu xfdesktop powstawało poza próbką, a zrzut robiono już po `Escape`. Teraz porównujemy **pełny
+  bufor** canvasu (próg na piksel + minimalna liczba zmienionych pikseli), klikamy przez
+  `locator.click(position=…)` (bez ręcznego offsetu paska noVNC) i fotografujemy menu, zanim `Escape`
+  je zamknie. Dodatkowo opakowany `WebSocket.send` liczy komunikaty RFB (`PointerEvent`/`KeyEvent`),
+  więc wynik rozróżnia „zdarzenie nie dotarło do noVNC” od „noVNC wysłał, pulpit nie zareagował”.
+  Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
+  a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
+  (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)

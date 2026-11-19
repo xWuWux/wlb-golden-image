@@ -27,6 +27,18 @@ tile() {
   [[ ":$output:" == *":/usr/bin:"* ]]
 }
 
+@test "domyślne katalogi wrapperów nie obejmują zwykłych skryptów /opt/wlb (#277)" {
+  # /opt/wlb/e2e/mouse-target.sh to skrypt docelowy (bez linii exec), nie wrapper WLB.
+  # Bramka #314 nie może go walidować jak wrappera — inaczej kafelek E2E zawsze FAIL.
+  unset W43_WRAPPER_DIRS
+  run w43_is_wrapper /opt/wlb/e2e/mouse-target.sh
+  [ "$status" -ne 0 ]
+  run w43_is_wrapper /opt/wlb/bin/wlb-session-log
+  [ "$status" -eq 0 ]
+  run w43_is_wrapper /usr/local/bin/wlb-fsleyes
+  [ "$status" -eq 0 ]
+}
+
 @test "Exec absolutny istniejący przechodzi" {
   tile "$W43_TMP/a.desktop" "/bin/sh %F"
   run w43_tile_ok "$W43_TMP/a.desktop"

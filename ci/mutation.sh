@@ -15,7 +15,7 @@
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
 export PATH="$TOOLS_DIR/venv-unit/bin:$PATH"
-require mutmut bats pytest python3
+require mutmut bats pytest python3 sqlite3
 
 PYTHON_MUTATION_MIN=${PYTHON_MUTATION_MIN:-85}
 MUTMUT_MAX_CHILDREN=${MUTMUT_MAX_CHILDREN:-4}
