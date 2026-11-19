@@ -41,12 +41,16 @@ summary() {
 }
 
 require() {
-  local tool
+  local tool hint
   for tool in "$@"; do
-    command -v "$tool" >/dev/null || {
-      echo "Brak narzędzia: $tool — uruchom: make tools (w katalogu głównym repozytorium)"
+    if ! command -v "$tool" >/dev/null; then
+      case $tool in
+        sqlite3) hint="sudo apt install sqlite3 (testy DR huba, #306)" ;;
+        *) hint="make tools (w katalogu głównym repozytorium)" ;;
+      esac
+      echo "Brak narzędzia: $tool — $hint"
       exit 1
-    }
+    fi
   done
 }
 

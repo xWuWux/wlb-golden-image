@@ -43,7 +43,7 @@ fi
 
 # 4. Narzędzia z pakietów systemowych
 for cmd in qemu-system-x86_64:qemu-system-x86 qemu-img:qemu-utils cloud-localds:cloud-image-utils \
-  ssh:openssh-client make:make git:git; do
+  ssh:openssh-client make:make git:git sqlite3:sqlite3; do
   if command -v "${cmd%%:*}" >/dev/null; then ok "${cmd%%:*}"; else fail "Brak ${cmd%%:*}" "sudo apt install ${cmd#*:}"; fi
 done
 # płyta z konfiguracją cloud-init dla maszyny budującej (Packer: cd_content) — dowolny z trzech
