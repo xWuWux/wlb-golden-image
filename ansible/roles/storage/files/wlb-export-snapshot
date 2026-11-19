@@ -10,8 +10,10 @@ import hashlib
 import json
 import os
 import pwd
+import re
 import stat
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypedDict, cast
@@ -46,11 +48,27 @@ class SnapshotError(ValueError):
     """The request cannot be safely staged; retain its source for investigation."""
 
 
+@dataclass(frozen=True)
+class VerifiedRequest:
+    """A v1 bundle selected by request UUID, not by its queue filename."""
+
+    request_id: UUID
+    bundle: Path
+    manifest: Manifest
+    manifest_sha256: str
+    payload_digest: str
+    digest_algorithm: Literal["sha256-file", "sha256-inventory-v1"]
+
+
 # Safety ceilings, not export policy. Large transfers require a dedicated path.
 MAX_ENTRIES = 100_000
 MAX_DEPTH = 64
 MAX_BYTES = 100 * 1024**3
 CHUNK_SIZE = 1024**2
+MAX_MANIFEST_BYTES = 64 * 1024**2
+_QUEUE_UUID_SUFFIX = re.compile(
+    r"\.([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$", re.IGNORECASE
+)
 
 
 def validate_manifest(value: object) -> Manifest:
@@ -289,6 +307,179 @@ def verify(bundle: Path) -> Manifest:
     return manifest
 
 
+def _read_manifest(package_fd: int) -> bytes:
+    """Read one regular manifest without following a symlink or blocking on a FIFO."""
+    try:
+        fd = os.open("manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=package_fd)
+    except FileNotFoundError:
+        raise
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_MANIFEST_BYTES:
+            raise SnapshotError("unsafe_entry")
+        chunks: list[bytes] = []
+        remaining = info.st_size
+        while remaining:
+            chunk = os.read(fd, min(CHUNK_SIZE, remaining))
+            if not chunk:
+                raise SnapshotError("source_changed")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(fd, 1):
+            raise SnapshotError("source_changed")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _read_bundle_manifest(bundle: Path) -> bytes:
+    try:
+        fd = os.open(bundle, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+    try:
+        return _read_manifest(fd)
+    finally:
+        os.close(fd)
+
+
+def resolve_request(queue: Path, request_id: UUID) -> VerifiedRequest:
+    """Resolve exactly one verified v1 bundle by request UUID inside a private queue.
+
+    The caller supplies a queue and a UUID, never a bundle path. A legacy or
+    malformed entry does not hide a valid unrelated request; if no valid match
+    exists, the resolver fails closed instead of returning an unverified bundle.
+    """
+    if not isinstance(request_id, UUID):
+        raise TypeError("request_id must be a UUID")
+    target = str(request_id)
+    matches: list[tuple[str, Manifest, bytes]] = []
+    legacy: list[str] = []
+    unsafe: list[str] = []
+    invalid: list[str] = []
+    conflict: list[str] = []
+    invalid_target = False
+    conflict_target = False
+
+    try:
+        queue_fd = os.open(queue, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+    try:
+        with os.scandir(queue_fd) as children:
+            names = sorted((child.name for child in children), key=os.fsencode)
+        for name in names:
+            # .mover.lock and .incoming.* are service internals, never requests.
+            if name.startswith("."):
+                continue
+            try:
+                info = os.stat(name, dir_fd=queue_fd, follow_symlinks=False)
+            except OSError:
+                unsafe.append(name)
+                continue
+            if stat.S_ISLNK(info.st_mode):
+                unsafe.append(name)
+                continue
+            if not stat.S_ISDIR(info.st_mode):
+                legacy.append(name)
+                continue
+            try:
+                package_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=queue_fd)
+            except OSError:
+                unsafe.append(name)
+                continue
+            try:
+                try:
+                    raw = _read_manifest(package_fd)
+                except FileNotFoundError:
+                    legacy.append(name)
+                    continue
+                except SnapshotError as error:
+                    if str(error) == "unsafe_entry":
+                        unsafe.append(name)
+                    else:
+                        invalid.append(name)
+                    continue
+                try:
+                    manifest = validate_manifest(json.loads(raw))
+                except (json.JSONDecodeError, ValueError):
+                    try:
+                        candidate = json.loads(raw)
+                    except json.JSONDecodeError:
+                        candidate = None
+                    if isinstance(candidate, dict) and candidate.get("request_id") == target:
+                        invalid_target = True
+                    invalid.append(name)
+                    continue
+                suffix = _QUEUE_UUID_SUFFIX.search(name)
+                if suffix is not None and suffix.group(1).lower() != manifest["request_id"]:
+                    if manifest["request_id"] == target:
+                        conflict_target = True
+                    conflict.append(name)
+                    continue
+                if manifest["request_id"] == target:
+                    matches.append((name, manifest, raw))
+            finally:
+                os.close(package_fd)
+    finally:
+        os.close(queue_fd)
+
+    if len(matches) > 1:
+        raise SnapshotError("duplicate_request")
+    if len(matches) == 1:
+        name, manifest, raw = matches[0]
+        if invalid_target:
+            raise SnapshotError("duplicate_request")
+        if conflict_target:
+            raise SnapshotError("request_conflict")
+        bundle = queue / name
+        try:
+            info = os.lstat(bundle)
+        except OSError as error:
+            raise SnapshotError("source_changed") from error
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise SnapshotError("unsafe_entry")
+        try:
+            verified = verify(bundle)
+        except FileNotFoundError as error:
+            raise SnapshotError("source_changed") from error
+        except OSError as error:
+            raise SnapshotError("source_changed") from error
+        if verified != manifest:
+            raise SnapshotError("source_changed")
+        try:
+            raw_after = _read_bundle_manifest(bundle)
+        except (FileNotFoundError, SnapshotError) as error:
+            raise SnapshotError("source_changed") from error
+        manifest_sha256 = hashlib.sha256(raw).hexdigest()
+        if hashlib.sha256(raw_after).hexdigest() != manifest_sha256:
+            raise SnapshotError("source_changed")
+        return VerifiedRequest(
+            request_id=UUID(manifest["request_id"]),
+            bundle=bundle,
+            manifest=manifest,
+            manifest_sha256=manifest_sha256,
+            payload_digest=manifest["sha256"],
+            digest_algorithm=manifest["digest_algorithm"],
+        )
+
+    if invalid_target:
+        raise SnapshotError("invalid_manifest")
+    if conflict_target:
+        raise SnapshotError("request_conflict")
+    if unsafe:
+        raise SnapshotError("unsafe_entry")
+    if legacy:
+        raise SnapshotError("legacy_entry")
+    if conflict:
+        raise SnapshotError("request_conflict")
+    if invalid:
+        raise SnapshotError("invalid_manifest")
+    raise SnapshotError("not_found")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -299,12 +490,31 @@ def main() -> int:
     new.add_argument("request_id")
     check = commands.add_parser("verify")
     check.add_argument("bundle", type=Path)
+    resolve = commands.add_parser("resolve")
+    resolve.add_argument("queue", type=Path)
+    resolve.add_argument("request_id", type=UUID)
     args = parser.parse_args()
     try:
         if args.command == "create":
             manifest = create(args.source, args.destination, args.original_name, args.request_id)
-        else:
+        elif args.command == "verify":
             manifest = verify(args.bundle)
+        else:
+            request = resolve_request(args.queue, args.request_id)
+            print(
+                json.dumps(
+                    {
+                        "request_id": str(request.request_id),
+                        "bundle": str(request.bundle),
+                        "manifest_sha256": request.manifest_sha256,
+                        "payload_digest": request.payload_digest,
+                        "digest_algorithm": request.digest_algorithm,
+                    },
+                    ensure_ascii=True,
+                    sort_keys=True,
+                )
+            )
+            return 0
         print(manifest["sha256"])
         return 0
     except (OSError, ValueError, RecursionError) as error:

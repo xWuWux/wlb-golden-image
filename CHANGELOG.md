@@ -14,6 +14,12 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#20 E1: czytnik wniosków eksportu po UUID** — `wlb-export-snapshot resolve <queue> <uuid>`
+  oraz `resolve_request(queue, request_id)` wybierają dokładnie jeden pakiet v1 po `request_id`
+  (nie po nazwie pliku), weryfikują payload i wiążą `manifest_sha256`. Legacy, duplikat UUID,
+  konflikt nazwy z UUID, symlink, nieznane pola i zły manifest są odrzucane; poprawny wniosek
+  nie jest blokowany przez niepowiązany legacy wpis. Testy: `tests/unit/test_wlb_export_resolve.py`.
+
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
 
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
