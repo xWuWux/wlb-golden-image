@@ -299,6 +299,12 @@
     dest: /usr/local/sbin/wlb-hub-db-backup
     mode: "0750"
 
+- name: "Narzędzie odtworzenia bazy huba z kopii (DR, #288/RB-07b)"
+  ansible.builtin.copy:
+    src: wlb-hub-db-restore
+    dest: /usr/local/sbin/wlb-hub-db-restore
+    mode: "0750"
+
 - name: Usługa kopii bazy huba (#8)
   ansible.builtin.copy:
     dest: /etc/systemd/system/wlb-hub-db-backup.service

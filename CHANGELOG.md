@@ -28,6 +28,21 @@ pierwszym Laboratorium na klastrze).
   weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
   z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
 
+- **Procedura DR i odtwarzanie bazy huba (`wlb-hub-db-restore`, #306, #288):** aktualizacja runbooków
+  `docs/runbooks/RB-07-odtworzenie-po-awarii.md` (RB-07b) oraz `docs/runbook-kopia-bazy-huba.md`:
+  wywołanie skryptu `/usr/local/sbin/wlb-hub-db-restore` jako jednego źródła prawdy procedury DR
+  (opcje CLI `--from`, `--no-start`, zmienne środowiskowe, kody wyjścia 0–6); ujednolicenie procedury
+  awaryjnej/fallbacku na wyszukiwanie kopii przez `find` (odporne na format i spacje), sprawdzanie niepustości
+  kopii (`test -s`) przed `integrity_check`, zabezpieczenie dowodowe (`mv` bazy i dzienników `-wal`, `-shm`,
+  `-journal` do katalogu dowodowego) przed jakąkolwiek podmianą, zatrzymanie timera `wlb-hub-db-backup.timer`
+  oraz procedura rollbacku w razie niepowodzenia. Dodano ostrzeżenie operacyjne dotyczące okna RPO (do 1h)
+  i konieczności uzgodnienia przywróconych/usuniętych kont z autorytatywnym rejestrem źródłowym. Zarejestrowano
+  skrypty `wlb-hub-db-backup` i `wlb-hub-db-restore` w `SHELL_SCRIPTS` (`ci/common.sh`) oraz zdeduplikowano wpisy
+  #288 w mapie testów (`99-dr-odtworzenie-bazy.sh`). Testy: `tests/unit/wlb-hub-db-restore.bats` (7 przypadków,
+  w tym kontrola negatywna — brak powrotu huba daje exit 6 i rollback), `tests/fixtures/sqlite_hot_journal.py`
+  + `tests/unit/test_sqlite_hot_journal.py` (prawdziwy gorący `-journal`) oraz 4 mutacje w
+  `ci/mutations/bash-mutations.tsv`.
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
@@ -181,6 +196,17 @@ pierwszym Laboratorium na klastrze).
   zostanie zaraportowana jako `changed`; bramka pilnuje no-opu playbooka, nie pełnego stanu
   wewnętrznego narzędzi.
 
+- **E2E wejścia pulpitu w przeglądarce (#277):** krok interakcji `tests/desktop-e2e-novnc.py` przestał
+  być best-effort i **deterministycznie potwierdza reakcję** pulpitu. Przyczyną fałszywego
+  `before == after` była próbka: czytała tylko lewy-górny róg 200×200, a prawy klik trafiał w ~(640,400)
+  — menu xfdesktop powstawało poza próbką, a zrzut robiono już po `Escape`. Teraz porównujemy **pełny
+  bufor** canvasu (próg na piksel + minimalna liczba zmienionych pikseli), klikamy przez
+  `locator.click(position=…)` (bez ręcznego offsetu paska noVNC) i fotografujemy menu, zanim `Escape`
+  je zamknie. Dodatkowo opakowany `WebSocket.send` liczy komunikaty RFB (`PointerEvent`/`KeyEvent`),
+  więc wynik rozróżnia „zdarzenie nie dotarło do noVNC” od „noVNC wysłał, pulpit nie zareagował”.
+  Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
+  a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
+  (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)
