@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" errors="0" failures="0" skipped="2" tests="2" time="0.020">
+  <testcase classname="tests.unit.test_features" name="test_proxy_allowlist" time="0.000">
+    <skipped message="Brak testowego proxy na hoście (brak proxy)"/>
+  </testcase>
+  <testcase classname="tests.unit.test_features" name="test_ntp_sync" time="0.000">
+    <skipped message="Wymaga serwera NTP (wymaga ntp)"/>
+  </testcase>
+</testsuite>
