@@ -22,6 +22,13 @@ pierwszym Laboratorium na klastrze).
   pola i zły manifest są odrzucane. `resolve` domyślnie nie ujawnia ścieżki/nazwy pakietu;
   `--show-path` jest jawnym trybem administracyjnym. Testy: `tests/unit/test_wlb_export_resolve.py`.
 
+- **#20 interim: operatorskie CLI `wlb-export`** — `list`/`show`/`verify`/`stage`/`staged-clear`
+  ułatwiają ręczne wyciąganie wyników ze śluzy, dopóki pełny proces #20 nie jest wdrożony.
+  `stage` kopiuje **zweryfikowany** payload do obszaru czytelnego dla konta SSH operatora (do
+  ręcznego `scp`), tylko po `request_id` (nigdy dowolna ścieżka — przez `resolve`), i loguje
+  zdarzenie do SIEM. Decyzje interim: retencja staged **ręczna** (`staged-clear`), admin=Kontroler,
+  bez wymuszonego powodu. `list`/`show`/`verify` są read-only. Testy: `tests/unit/wlb-export.bats`.
+
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
 
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
