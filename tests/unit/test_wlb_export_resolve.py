@@ -4,6 +4,7 @@
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from uuid import UUID
 
@@ -173,39 +174,56 @@ def test_resolve_rejects_symlink_manifest(snapshot, tmp_path):
         snapshot.resolve_request(queue, REQUEST_ID)
 
 
-def test_resolve_rejects_package_swap_during_verify(snapshot, tmp_path, monkeypatch):
-    queue = tmp_path / "queue"
-    queue.mkdir()
-    _bundle, _ = make_bundle(snapshot, queue, "package")
-    real_verify = snapshot.verify
-
-    def swap_then_verify(path):
-        moved = path.with_name(path.name + ".moved")
-        path.rename(moved)
-        path.symlink_to(moved, target_is_directory=True)
-        return real_verify(path)
-
-    monkeypatch.setattr(snapshot, "verify", swap_then_verify)
-    with pytest.raises(snapshot.SnapshotError, match="source_changed"):
-        snapshot.resolve_request(queue, REQUEST_ID)
-
-
-def test_resolve_rejects_manifest_swap_during_verify(snapshot, tmp_path, monkeypatch):
+def test_resolve_keeps_verified_package_after_directory_swap(snapshot, tmp_path, monkeypatch):
     queue = tmp_path / "queue"
     queue.mkdir()
     bundle, _ = make_bundle(snapshot, queue, "package")
-    real_verify = snapshot.verify
+    real_verify = snapshot.verify_open_bundle
+
+    def swap_after_verify(package_fd, raw):
+        verified = real_verify(package_fd, raw)
+        moved = bundle.with_name("moved")
+        bundle.rename(moved)
+        bundle.mkdir()
+        (bundle / "manifest.json").write_bytes((moved / "manifest.json").read_bytes())
+        (bundle / "payload").write_bytes(b"UNVERIFIED")
+        return verified
+
+    monkeypatch.setattr(snapshot, "verify_open_bundle", swap_after_verify)
+    with snapshot.resolve_request(queue, REQUEST_ID) as result:
+        payload_fd = os.open("payload", os.O_RDONLY, dir_fd=result.package_fd)
+        try:
+            assert os.read(payload_fd, 100) == b"ok"
+        finally:
+            os.close(payload_fd)
+
+
+def test_resolve_does_not_reopen_manifest_after_read(snapshot, tmp_path, monkeypatch):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    bundle, manifest = make_bundle(snapshot, queue, "package")
     manifest_path = bundle / "manifest.json"
-    outside = tmp_path / "manifest-outside.json"
-    outside.write_bytes(manifest_path.read_bytes())
+    real_verify = snapshot.verify_open_bundle
 
-    def swap_then_verify(path):
+    def swap_after_verify(package_fd, raw):
+        verified = real_verify(package_fd, raw)
         manifest_path.unlink()
-        manifest_path.symlink_to(outside)
-        return real_verify(path)
+        os.mkfifo(manifest_path)
+        return verified
 
-    monkeypatch.setattr(snapshot, "verify", swap_then_verify)
-    with pytest.raises(snapshot.SnapshotError, match="source_changed"):
+    monkeypatch.setattr(snapshot, "verify_open_bundle", swap_after_verify)
+    with snapshot.resolve_request(queue, REQUEST_ID) as result:
+        assert result.manifest == manifest
+
+
+def test_resolve_rejects_fifo_manifest(snapshot, tmp_path):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    bundle, _ = make_bundle(snapshot, queue, "package")
+    manifest_path = bundle / "manifest.json"
+    manifest_path.unlink()
+    os.mkfifo(manifest_path)
+    with pytest.raises(snapshot.SnapshotError, match="unsafe_entry"):
         snapshot.resolve_request(queue, REQUEST_ID)
 
 
@@ -222,7 +240,7 @@ def test_resolve_cli_prints_metadata_only(snapshot, tmp_path):
 
     queue = tmp_path / "queue"
     queue.mkdir()
-    bundle, manifest = make_bundle(snapshot, queue, "package")
+    bundle, manifest = make_bundle(snapshot, queue, "20261119_u01_sensitive.csv")
     result = subprocess.run(
         [sys.executable, str(SCRIPT), "resolve", str(queue), str(REQUEST_ID)],
         capture_output=True,
@@ -232,13 +250,22 @@ def test_resolve_cli_prints_metadata_only(snapshot, tmp_path):
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload == {
-        "bundle": str(bundle),
         "digest_algorithm": manifest["digest_algorithm"],
         "manifest_sha256": hashlib.sha256((bundle / "manifest.json").read_bytes()).hexdigest(),
         "payload_digest": manifest["sha256"],
         "request_id": str(REQUEST_ID),
     }
-    assert "result.csv" not in result.stdout
+    assert "sensitive.csv" not in result.stdout
+    assert "bundle" not in payload
+
+    with_path = subprocess.run(
+        [sys.executable, str(SCRIPT), "resolve", str(queue), str(REQUEST_ID), "--show-path"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert with_path.returncode == 0
+    assert json.loads(with_path.stdout)["bundle"] == str(bundle)
 
 
 def test_resolve_cli_returns_failure_for_missing_uuid(snapshot, tmp_path):
@@ -256,30 +283,81 @@ def test_resolve_cli_returns_failure_for_missing_uuid(snapshot, tmp_path):
     )
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "SnapshotError" in result.stderr
+    assert "not_found" in result.stderr
 
 
-def test_resolve_rejects_name_uuid_conflict(snapshot, tmp_path):
+def test_resolve_accepts_legal_uuid_suffix_in_basename(snapshot, tmp_path):
     queue = tmp_path / "queue"
     queue.mkdir()
-    _bundle, _manifest = make_bundle(snapshot, queue, f"package.{OTHER_ID}")
-    with pytest.raises(snapshot.SnapshotError, match="request_conflict"):
+    bundle, manifest = make_bundle(snapshot, queue, f"20261119_u01_result.{OTHER_ID}")
+    with snapshot.resolve_request(queue, REQUEST_ID) as result:
+        assert result.bundle == bundle
+        assert result.manifest == manifest
+
+
+def test_resolve_accepts_mover_collision_suffix(snapshot, tmp_path):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    bundle, manifest = make_bundle(snapshot, queue, f"20261119_u01_result.{REQUEST_ID}")
+    with snapshot.resolve_request(queue, REQUEST_ID) as result:
+        assert result.bundle == bundle
+        assert result.manifest == manifest
+
+
+def test_resolve_rejects_non_v4_request_id(snapshot, tmp_path):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    with pytest.raises(snapshot.SnapshotError, match="invalid_request_id"):
+        snapshot.resolve_request(queue, UUID("11111111-1111-1111-1111-111111111111"))
+
+
+def test_resolve_rejects_intermediate_queue_symlink(snapshot, tmp_path):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    make_bundle(snapshot, queue, "package")
+    parent = tmp_path / "parent"
+    parent.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(snapshot.SnapshotError, match="unsafe_entry"):
+        snapshot.resolve_request(parent / "queue", REQUEST_ID)
+
+
+def test_resolve_rejects_duplicate_json_keys(snapshot, tmp_path):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    bundle, _ = make_bundle(snapshot, queue, "package")
+    text = (bundle / "manifest.json").read_text(encoding="utf-8")
+    text = text.replace('"state":"pending_review"', '"state":"approved","state":"pending_review"')
+    (bundle / "manifest.json").write_text(text, encoding="utf-8")
+    with pytest.raises(snapshot.SnapshotError, match="invalid_manifest"):
         snapshot.resolve_request(queue, REQUEST_ID)
 
 
-def test_resolve_accepts_matching_name_uuid_suffix(snapshot, tmp_path):
+def test_resolve_ignores_non_utf8_manifest_when_valid_uuid_exists(snapshot, tmp_path):
     queue = tmp_path / "queue"
     queue.mkdir()
-    bundle, manifest = make_bundle(snapshot, queue, f"package.{REQUEST_ID}")
-    result = snapshot.resolve_request(queue, REQUEST_ID)
-    assert result.bundle == bundle
-    assert result.manifest == manifest
+    bad = queue / "bad"
+    bad.mkdir()
+    (bad / "payload").write_bytes(b"payload")
+    (bad / "manifest.json").write_bytes(b"\xff")
+    bundle, manifest = make_bundle(snapshot, queue, "valid")
+    with snapshot.resolve_request(queue, REQUEST_ID) as result:
+        assert result.bundle == bundle
+        assert result.manifest == manifest
 
 
-def test_resolve_rejects_conflict_even_with_matching_bundle(snapshot, tmp_path):
+def test_resolve_rejects_queue_limit(snapshot, tmp_path, monkeypatch):
     queue = tmp_path / "queue"
     queue.mkdir()
-    _bundle, _manifest = make_bundle(snapshot, queue, f"package.{OTHER_ID}")
-    make_bundle(snapshot, queue, f"package.{REQUEST_ID}")
-    with pytest.raises(snapshot.SnapshotError, match="request_conflict"):
+    make_bundle(snapshot, queue, "package")
+    monkeypatch.setattr(snapshot, "MAX_QUEUE_ENTRIES", 0)
+    with pytest.raises(snapshot.SnapshotError, match="limit_exceeded"):
+        snapshot.resolve_request(queue, REQUEST_ID)
+
+
+def test_resolve_rejects_scan_byte_limit(snapshot, tmp_path, monkeypatch):
+    queue = tmp_path / "queue"
+    queue.mkdir()
+    make_bundle(snapshot, queue, "package")
+    monkeypatch.setattr(snapshot, "MAX_SCAN_MANIFEST_BYTES", 1)
+    with pytest.raises(snapshot.SnapshotError, match="limit_exceeded"):
         snapshot.resolve_request(queue, REQUEST_ID)

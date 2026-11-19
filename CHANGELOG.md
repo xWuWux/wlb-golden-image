@@ -16,9 +16,11 @@ pierwszym Laboratorium na klastrze).
 
 - **#20 E1: czytnik wniosków eksportu po UUID** — `wlb-export-snapshot resolve <queue> <uuid>`
   oraz `resolve_request(queue, request_id)` wybierają dokładnie jeden pakiet v1 po `request_id`
-  (nie po nazwie pliku), weryfikują payload i wiążą `manifest_sha256`. Legacy, duplikat UUID,
-  konflikt nazwy z UUID, symlink, nieznane pola i zły manifest są odrzucane; poprawny wniosek
-  nie jest blokowany przez niepowiązany legacy wpis. Testy: `tests/unit/test_wlb_export_resolve.py`.
+  (nie po nazwie pliku). Zwracany `VerifiedBundle` trzyma przypięty `package_fd`; weryfikacja
+  payloadu i ponowne odczyty używają wyłącznie fd-relative, bez reopen po ścieżce. `manifest_sha256`
+  wiąże dokładne bajty manifestu; duplikaty kluczy JSON, legacy, duplikat UUID, symlink, nieznane
+  pola i zły manifest są odrzucane. `resolve` domyślnie nie ujawnia ścieżki/nazwy pakietu;
+  `--show-path` jest jawnym trybem administracyjnym. Testy: `tests/unit/test_wlb_export_resolve.py`.
 
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
 
