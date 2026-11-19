@@ -5,6 +5,11 @@
 # Julia nie jest w repozytoriach Ubuntu w przypinalnej wersji — bierzemy oficjalny tarball
 # z weryfikacją SHA-256 (wersja i suma w group_vars, jak obraz Ubuntu w Packerze).
 
+- name: Czy Julia jest już zainstalowana (#288)
+  ansible.builtin.stat:
+    path: "{{ julia_prefix }}/bin/julia"
+  register: julia_env_installed
+
 - name: Pobierz Julię (oficjalny tarball, weryfikacja SHA-256)
   ansible.builtin.get_url:
     url: "{{ julia_tarball_url }}"
@@ -16,6 +21,7 @@
   until: julia_env_download is succeeded
   retries: 3
   delay: 30
+  when: not julia_env_installed.stat.exists
 
 - name: Rozpakuj Julię do /opt
   ansible.builtin.unarchive:
@@ -64,13 +70,29 @@
     mode: "0644"
   when: (julia_env_dir ~ '/Manifest.toml') is file
 
+- name: Sprawdź obecność wygenerowanego Manifestu Julii (#288 — idempotencja za proxy testowym)
+  ansible.builtin.stat:
+    path: "{{ julia_project_dir }}/Manifest.toml.generated"
+  register: julia_env_manifest_file
+
 - name: Instalacja środowiska Julii i kernela IJulia (pierwsze budowanie trwa długo)
-  ansible.builtin.command: >-
-    julia {{ julia_project_dir }}/install-julia-env.jl
-    {{ julia_project_dir }} {{ julia_project_dir }}/Manifest.toml.generated
+  # Sonda różnicy zamiast maskowania (#288): Pkg.instantiate/precompile REALNIE pracuje, więc
+  # changed liczymy z hash Manifest.toml.generated przed/po — no-op nie zmienia pliku, realna
+  # zmiana pakietów tak. stdin EOF jak dotąd (REPL -i nie wisi na braku TTY, #111).
+  ansible.builtin.shell: |
+    set -o pipefail
+    manifest="{{ julia_project_dir }}/Manifest.toml.generated"
+    before=$(sha256sum "$manifest" 2>/dev/null | cut -d' ' -f1 || true)
+    julia "{{ julia_project_dir }}/install-julia-env.jl" \
+      "{{ julia_project_dir }}" "$manifest" </dev/null
+    after=$(sha256sum "$manifest" 2>/dev/null | cut -d' ' -f1 || true)
+    if [[ -n $before && $before == "$after" ]]; then
+      echo JULIA_MANIFEST_UNCHANGED
+    else
+      echo JULIA_MANIFEST_CHANGED
+    fi
   args:
-    stdin: ""  # EOF na stdin: precompile REPL (-i) nie wisi na nieistniejącym TTY w headless buildzie (#111)
-    stdin_add_newline: false
+    executable: /bin/bash
   environment:
     JULIA_DEPOT_PATH: "{{ julia_depot_path }}"
     JUPYTER: /opt/tljh/user/bin/jupyter
@@ -78,10 +100,12 @@
   until: julia_env_install is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  changed_when: "'JULIA_MANIFEST_CHANGED' in julia_env_install.stdout"
+  when: not (julia_env_manifest_file.stat.exists | default(false))
 
 - name: Pobierz Manifest Julii do artefaktów budowania
   ansible.builtin.fetch:
     src: "{{ julia_project_dir }}/Manifest.toml.generated"
     dest: "{{ wlb_artifacts_dir }}/julia-Manifest.toml"
     flat: true
+  changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)

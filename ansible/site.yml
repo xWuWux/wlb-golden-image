@@ -1,6 +1,16 @@
 - name: WLB golden image — VM Laboratorium z JupyterHub (ogólnego przeznaczenia)
   hosts: all
   become: true
+  pre_tasks:
+    - name: Sprawdź czy firstboot już się zakończył (#288)
+      ansible.builtin.stat:
+        path: /var/lib/wlb/firstboot.done
+      register: _wlb_firstboot_stat
+
+    - name: Ustaw flagę ukończenia firstboot (#288)
+      ansible.builtin.set_fact:
+        wlb_firstboot_completed: "{{ _wlb_firstboot_stat.stat.exists | default(false) }}"
+
   roles:
     - base
     - storage
@@ -78,3 +88,4 @@
         src: /etc/wlb/image-release
         dest: "{{ wlb_artifacts_dir }}/image-release"
         flat: true
+      changed_when: false  # fetch zawsze raportuje changed; to tylko kopia artefaktu na kontroler (#288)
