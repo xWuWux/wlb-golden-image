@@ -5,16 +5,16 @@ Ułatwia ręczne wyciąganie wyników ze śluzy, dopóki pełny proces #20 (zgod
 publikacja, audyt) nie jest wdrożony. Operacje:
 
   wlb-export list                     # metadane wniosków w kolejce (bez treści payloadu)
-  wlb-export show <request_id>        # zweryfikowany deskryptor jednego wniosku (resolve + JSON)
-  wlb-export verify <request_id>      # integrity_check pakietu (kod wyjścia)
-  wlb-export stage <request_id>       # kopia zweryfikowanego payloadu do obszaru czytelnego dla
-                                      #   konta SSH operatora (do ręcznego scp na własną maszynę)
+  wlb-export show <request_id>        # zweryfikowany deskryptor (bez ścieżki/nazw plików)
+  wlb-export verify <request_id>      # weryfikacja pakietu (kod wyjścia)
+  wlb-export stage <request_id>       # kopia zweryfikowanego payloadu do obszaru operatora (do scp)
   wlb-export staged-clear <request_id>  # usuń staged pliki (retencja RĘCZNA — decyzja operatora)
 
 Bezpieczeństwo:
-- Nigdy nie przyjmuje DOWOLNEJ ścieżki bundle — tylko request_id, rozwiązywany przez
-  `wlb-export-snapshot resolve` (E1, #20). To zamyka furtkę opisaną w RB-eksport-kolejka.md.
-- `stage` kopiuje payload dopiero po `verify`; loguje zdarzenie (authpriv → SIEM).
+- Operuje tylko po request_id, przez `resolve_request` z wlb-export-snapshot (E1, #20): zwraca
+  `VerifiedBundle` z PRZYPIĘTYM deskryptorem katalogu (`package_fd`). `stage` kopiuje payload
+  fd-relative (`inventory_at`), NIGDY nie otwiera ponownie ścieżki — to zamyka TOCTOU (pakiet nie
+  może zostać podmieniony między verify a kopią) i furtkę „dowolnej ścieżki" z RB-eksport-kolejka.md.
 - Model interim (decyzje właściciela): retencja staged RĘCZNA (brak timera), admin = Kontroler
   (ten sam operator inspekcjonuje i wydaje), bez wymuszonego powodu/ticketu.
 
@@ -28,17 +28,34 @@ Zmienne środowiska (nadpisywalne w testach):
 from __future__ import annotations
 
 import contextlib
+import importlib.machinery
+import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from uuid import UUID
 
 QUEUE = Path(os.environ.get("WLB_EXPORT_QUEUE", "/workspace/.wlb-export-queue"))
 STAGING = Path(os.environ.get("WLB_EXPORT_STAGING", "/var/lib/wlb-export-staging"))
 SNAPSHOT = os.environ.get("WLB_EXPORT_SNAPSHOT", "/usr/local/sbin/wlb-export-snapshot")
 ADMIN = os.environ.get("WLB_EXPORT_ADMIN", "root")
+
+MANIFEST_MAX = 1_000_000  # górny limit odczytu manifestu dla `list` (metadane)
+
+
+def _load_snapshot():
+    """Importuje wlb-export-snapshot (E1) jako moduł — reuse resolve_request/inventory_at (fd-pinned)."""
+    loader = importlib.machinery.SourceFileLoader("wlb_export_snapshot", SNAPSHOT)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+SNAP = _load_snapshot()
 
 
 def _log(msg: str) -> None:
@@ -51,37 +68,33 @@ def _log(msg: str) -> None:
         )
 
 
-def _snapshot(*args: str) -> subprocess.CompletedProcess[str]:
-    # S603: polecenie stałe (SNAPSHOT z env operatora/roota), argumenty bez treści użytkownika.
-    return subprocess.run(  # noqa: S603
-        [SNAPSHOT, *args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-
-def _resolve(request_id: str) -> dict:
-    """Rozwiązuje request_id przez wlb-export-snapshot (E1). Fail-closed: błąd = wyjątek, bez bundle."""
-    proc = _snapshot("resolve", str(QUEUE), request_id)
-    if proc.returncode != 0:
-        raise SystemExit(f"nie rozwiązano wniosku {request_id}: {proc.stderr.strip() or 'błąd resolve'}")
+def _read_manifest_meta(bundle_dir: Path) -> dict | None:
+    """Czyta manifest.json wyłącznie dla metadanych `list`, bez ryzyka zawieszenia na FIFO
+    (O_NONBLOCK/O_NOFOLLOW, limit odczytu). None = wpis legacy/nieweryfikowalny."""
     try:
-        return json.loads(proc.stdout)
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"resolve zwrócił niepoprawny JSON dla {request_id}: {exc}") from exc
-
-
-def _read_manifest(bundle: Path) -> dict | None:
-    """Czyta manifest.json wniosku; None, gdy brak/niepoprawny (wpis legacy)."""
+        fd = os.open(bundle_dir / "manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
     try:
-        with (bundle / "manifest.json").open(encoding="utf-8") as fh:
-            value = json.load(fh)
-    except (OSError, json.JSONDecodeError):
+        data = os.read(fd, MANIFEST_MAX)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    try:
+        value = json.loads(data)
+    except (json.JSONDecodeError, ValueError):
         return None
     if not isinstance(value, dict) or value.get("schema_version") != 1:
         return None
     return value
+
+
+def _parse_uuid(request_id: str) -> UUID:
+    try:
+        return UUID(request_id)
+    except ValueError as exc:
+        raise SystemExit(f"nieprawidłowy request_id: {request_id}") from exc
 
 
 def cmd_list() -> int:
@@ -93,7 +106,7 @@ def cmd_list() -> int:
     for entry in sorted(QUEUE.iterdir()):
         if not entry.is_dir() or entry.name.startswith("."):
             continue
-        manifest = _read_manifest(entry)
+        manifest = _read_manifest_meta(entry)
         if manifest is None:
             rows.append((entry.name, "LEGACY", "", "", "", "nieweryfikowalny"))
             continue
@@ -101,12 +114,12 @@ def cmd_list() -> int:
         total = sum(int(e.get("size", 0)) for e in files)
         rows.append(
             (
-                manifest.get("request_id", "?"),
-                manifest.get("requester", {}).get("username", "?"),
-                manifest.get("created_at", "?"),
+                str(manifest.get("request_id", "?")),
+                str(manifest.get("requester", {}).get("username", "?")),
+                str(manifest.get("created_at", "?")),
                 str(len(files)),
                 str(total),
-                manifest.get("state", "?"),
+                str(manifest.get("state", "?")),
             )
         )
     if not rows:
@@ -119,61 +132,56 @@ def cmd_list() -> int:
 
 
 def cmd_show(request_id: str) -> int:
-    """Zweryfikowany deskryptor jednego wniosku (resolve → JSON). Bez treści payloadu i nazw plików."""
-    info = _resolve(request_id)
-    print(json.dumps(info, ensure_ascii=False, indent=2, sort_keys=True))
+    """Zweryfikowany deskryptor jednego wniosku (resolve → fd-pinned). Bez ścieżki i nazw plików."""
+    with SNAP.resolve_request(QUEUE, _parse_uuid(request_id)) as bundle:
+        print(
+            json.dumps(
+                {
+                    "request_id": str(bundle.request_id),
+                    "manifest_sha256": bundle.manifest_sha256,
+                    "payload_digest": bundle.payload_digest,
+                    "digest_algorithm": bundle.digest_algorithm,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
     return 0
 
 
 def cmd_verify(request_id: str) -> int:
-    """Integrity_check pakietu przez wlb-export-snapshot verify. Kod wyjścia != 0 przy niezgodności."""
-    info = _resolve(request_id)
-    proc = _snapshot("verify", info["bundle"])
-    if proc.returncode != 0:
-        print(f"verify NIEUDANY dla {request_id}: {proc.stderr.strip()}", file=sys.stderr)
-        return 1
-    print(f"OK: {request_id} przeszedł verify (sha256={info['manifest_sha256']})")
+    """resolve_request weryfikuje payload przy rozwiązaniu; sukces = pakiet spójny."""
+    with SNAP.resolve_request(QUEUE, _parse_uuid(request_id)) as bundle:
+        print(f"OK: {request_id} zweryfikowany (sha256={bundle.manifest_sha256})")
     return 0
 
 
 def cmd_stage(request_id: str) -> int:
-    """Kopiuje ZWERYFIKOWANY payload do obszaru staged czytelnego dla operatora (do ręcznego scp).
+    """Kopiuje ZWERYFIKOWANY payload do obszaru staged, fd-relative z przypiętego pakietu.
 
-    Nie podejmuje decyzji o eksporcie — przygotowuje tylko plik. Retencja staged jest RĘCZNA
-    (staged-clear). Każde stage loguje zdarzenie export_staged (authpriv → SIEM).
+    Nie podejmuje decyzji o eksporcie — przygotowuje plik do ręcznego scp. Retencja staged RĘCZNA
+    (staged-clear). Loguje zdarzenie export_staged (authpriv → SIEM).
     """
-    info = _resolve(request_id)
-    verify = _snapshot("verify", info["bundle"])
-    if verify.returncode != 0:
-        print(f"stage przerwane — verify NIEUDANY dla {request_id}: {verify.stderr.strip()}", file=sys.stderr)
-        return 1
-    payload = Path(info["bundle"]) / "payload"
-    if not payload.exists():
-        print(f"stage przerwane — brak payloadu w pakiecie {request_id}", file=sys.stderr)
-        return 1
     dest = STAGING / request_id
     if dest.exists():
-        print(f"stage przerwane — staged {dest} już istnieje (użyj staged-clear, retencja ręczna)", file=sys.stderr)
+        print(
+            f"stage przerwane — staged {dest} już istnieje (użyj staged-clear, retencja ręczna)",
+            file=sys.stderr,
+        )
         return 1
-    STAGING.mkdir(parents=True, exist_ok=True)
-    try:
-        if payload.is_dir():
-            shutil.copytree(payload, dest)
-        else:
-            dest.mkdir(parents=True)
-            shutil.copy2(payload, dest / payload.name)
-    except OSError as exc:
-        print(f"stage NIEUDANE dla {request_id}: {exc}", file=sys.stderr)
-        return 1
-    # chown tylko jako root (test jako nie-root pomija); staged ma być czytelny dla konta SSH operatora
+    with SNAP.resolve_request(QUEUE, _parse_uuid(request_id)) as bundle:
+        sha = bundle.manifest_sha256
+        STAGING.mkdir(parents=True, exist_ok=True)
+        dest.mkdir(parents=True)
+        # fd-relative kopia payloadu z PRZYPIĘTEGO pakietu (bez ponownego otwierania ścieżki) + weryfikacja
+        SNAP.inventory_at(bundle.package_fd, "payload", dest / "payload")
     if os.geteuid() == 0 and ADMIN != "root":
         shutil.chown(dest, user=ADMIN)
         for child in dest.rglob("*"):
             shutil.chown(child, user=ADMIN)
-    _log(
-        f"export_staged request_id={request_id} sha256={info['manifest_sha256']} "
-        f"operator={os.environ.get('SUDO_USER', os.environ.get('USER', 'root'))} dest={dest}"
-    )
+    operator = os.environ.get("SUDO_USER", os.environ.get("USER", "root"))
+    _log(f"export_staged request_id={request_id} sha256={sha} operator={operator} dest={dest}")
     print(f"OK: staged {request_id} w {dest}")
     print(f"   skopiuj na swoją maszynę (scp), potem sprzątnij: wlb-export staged-clear {request_id}")
     return 0
@@ -202,12 +210,19 @@ def main(argv: list[str]) -> int:
         if len(rest) != 1:
             print(f"użycie: wlb-export {cmd} <request_id>", file=sys.stderr)
             return 2
-        return {
+        handler = {
             "show": cmd_show,
             "verify": cmd_verify,
             "stage": cmd_stage,
             "staged-clear": cmd_staged_clear,
-        }[cmd](rest[0])
+        }[cmd]
+        try:
+            return handler(rest[0])
+        except (OSError, ValueError) as error:
+            # resolve_request/inventory_at zgłaszają SnapshotError(ValueError)/OSError; fail-closed.
+            code = getattr(error, "code", type(error).__name__)
+            print(f"{cmd} NIEUDANE dla {rest[0]}: {code}", file=sys.stderr)
+            return 1
     print(f"nieznana komenda: {cmd}", file=sys.stderr)
     return 2
 
