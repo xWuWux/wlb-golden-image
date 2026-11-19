@@ -393,10 +393,11 @@ jobs:
       CI: "true"
     steps:
       - name: Zależności testów
+        # sqlite3: testy DR huba (#306); bez niego bats skipują, a etap 4b traktuje skip jako błąd.
         run: |
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
-            ca-certificates curl git jq kcov psmisc python3 python3-venv
+            ca-certificates curl git jq kcov psmisc python3 python3-venv sqlite3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ci/install-tools.sh unit
       - run: ci/guard.sh --name "4. Testy jednostkowe" --timeout 15m --memory auto -- ci/unit.sh
@@ -418,10 +419,11 @@ jobs:
       CI: "true"
     steps:
       - name: Zależności testów
+        # sqlite3: testy DR huba (#306); bez niego bats skipują, a baseline mutacji jest wtedy błędem.
         run: |
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
-            ca-certificates curl git jq psmisc python3 python3-venv
+            ca-certificates curl git jq psmisc python3 python3-venv sqlite3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ci/install-tools.sh unit
       - run: ci/guard.sh --name "4b. Testy mutacyjne" --timeout 20m --memory auto -- ci/mutation.sh

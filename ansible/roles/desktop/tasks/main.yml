@@ -3,9 +3,14 @@
 # logowanie, proxowanie, idle culling i twardy limit 12 h (§9.5) idą przez Hub.
 # Rola nakładana warstwowo na gotowy obraz wlb-general (playbook desktop.yml), nie w site.yml bazy.
 
-- name: Pakiety pulpitu (XFCE minimalny, TigerVNC, noVNC, websockify)
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Pakiety pulpitu (XFCE minimalny, TigerVNC, noVNC, websockify)
+  ansible.builtin.apt:
     name:
       - xfce4 # sesja + panel + menedżer okien (bez xfce4-goodies — za ciężkie na PoC)
       - xterm # terminal na pulpicie
@@ -38,7 +43,9 @@
   until: desktop_proxy_install is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  # pip z tym samym pinem wypisuje „Requirement already satisfied”; changed tylko przy realnej
+  # instalacji — inaczej bramka idempotencji (#288) pada na no-opie.
+  changed_when: "'Successfully installed' in desktop_proxy_install.stdout"
 
 # Ubuntu 24.04 ładuje vncserver-config-mandatory jako Perl, nie listę argumentów.
 # Polityka dotyczy wrappera, a nie uruchomienia Xtigervnc bezpośrednio (#106).
@@ -186,6 +193,79 @@
       - evince
       - mousepad
     state: present
+
+# --- Target in-session dla testów E2E (#277-A) ---------------------------------------
+# Target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Instalowany WYŁĄCZNIE dla
+# buildów testowych / E2E (wlb_enable_e2e_target: true), NIE w obrazie produkcyjnym badacza.
+# Zawiera katalog markerów /run/wlb/e2e (tmpfs 0777), skrypty /opt/wlb/e2e/mouse-target.sh,
+# keyboard-target.sh i target-runner.sh oraz kafelek i autostart sesji XFCE.
+# Pakiety (zenity, xfce4-terminal) instalowane PRZED sweepem AppArmor.
+- name: Pakiety dla targetu E2E (zenity, xfce4-terminal) (#277)
+  ansible.builtin.apt:
+    update_cache: true
+    name:
+      - zenity
+      - xfce4-terminal
+    state: present
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Katalog skryptów targetu E2E (#277)
+  ansible.builtin.file:
+    path: /opt/wlb/e2e
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Skrypty targetu E2E w /opt/wlb/e2e (#277)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/opt/wlb/e2e/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - mouse-target.sh
+    - keyboard-target.sh
+    - target-runner.sh
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Kafelek launchera targetu myszy E2E (menu XFCE) (#277)
+  ansible.builtin.copy:
+    src: wlb-e2e-mouse.desktop
+    dest: /usr/share/applications/wlb-e2e-mouse.desktop
+    owner: root
+    group: root
+    mode: "0644"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Autostart targetu E2E dla sesji XFCE (#277)
+  ansible.builtin.copy:
+    src: wlb-e2e-target.desktop
+    dest: /etc/xdg/autostart/wlb-e2e-target.desktop
+    owner: root
+    group: root
+    mode: "0644"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Konfiguracja tmpfiles dla markerów E2E /run/wlb/e2e (#277)
+  ansible.builtin.copy:
+    src: wlb-e2e-tmpfiles.conf
+    dest: /etc/tmpfiles.d/wlb-e2e.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: wlb_enable_e2e_target | default(false) | bool
+
+- name: Utworzenie katalogu markerów E2E /run/wlb/e2e natychmiast (#277)
+  ansible.builtin.file:
+    path: /run/wlb/e2e
+    state: directory
+    owner: root
+    group: root
+    mode: "0777"
+  when: wlb_enable_e2e_target | default(false) | bool
 
 # --- AppArmor w warstwie pulpitu (#65, CIS 1.6.3) ------------------------------------
 # Rola base wymusza enforce PRZED warstwą flavora — XFCE, TigerVNC, noVNC (i aplikacje GUI dołożone

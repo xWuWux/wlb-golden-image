@@ -21,4 +21,6 @@
   until: rstudio_proxy_install is succeeded
   retries: 3
   delay: 30
-  changed_when: true
+  # pip z tym samym pinem wypisuje „Requirement already satisfied”; changed tylko przy realnej
+  # instalacji — inaczej bramka idempotencji (#288) pada na no-opie.
+  changed_when: "'Successfully installed' in rstudio_proxy_install.stdout"
