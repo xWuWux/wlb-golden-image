@@ -207,7 +207,24 @@ main() {
 	return "$rc"
 }
 
-# Sourcowalny do testów jednostkowych: funkcje dostępne bez uruchamiania zenity.
-if [ "${BASH_SOURCE[0]:-$0}" = "${0}" ]; then
-	main "$@"
+# emit_target_once — tryb testowy/diagnostyczny: policz geometrię i zapisz target.json RAZ,
+# bez zenity i bez pętli. Wołany jako PODPROCES (nie sourcowany), więc działa pod kcov —
+# sourcowanie instrumentowanego skryptu pod set -u wywraca BASH_SOURCE w trapie kcov.
+emit_target_once() {
+	mkdir -p "$MARKER_DIR" 2>/dev/null || true
+	session_init
+	read_screen
+	read_window
+	compute_button
+	write_target_json
+}
+
+# Uruchomienie bezpośrednie (nie sourcowanie): --emit-target do testów, inaczej pełny main.
+# WLB_E2E_SOURCE_ONLY=1 blokuje oba i — dzięki short-circuit — NIE dotyka BASH_SOURCE;
+# forma ${BASH_SOURCE+...} jest bezpieczna pod set -u nawet dla nieustawionej tablicy.
+if [ "${WLB_E2E_SOURCE_ONLY:-0}" != 1 ] && [ "${BASH_SOURCE+${BASH_SOURCE[0]}}" = "${0:-}" ]; then
+	case "${1:-}" in
+	--emit-target) emit_target_once ;;
+	*) main "$@" ;;
+	esac
 fi

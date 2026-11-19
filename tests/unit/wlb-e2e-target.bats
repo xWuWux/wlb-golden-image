@@ -171,21 +171,20 @@ print("VALID_OK")
   # jupyter-remote-desktop-proxy ustawia rfb.resizeSession=true — po resize ekran X zmienia
   # rozmiar i target.json MUSI dostać świeże screen/button, nie tylko „plik istnieje".
   # Regres (brak funkcji geometrii / pętla tylko '! -f', bez strażnika sourcowania) obala ten test.
-  unset WLB_E2E_SCREEN_GEOMETRY
-  run bash -c '
-    set -euo pipefail
-    source "$MOUSE_SCRIPT"
-    WID=""
-    export WLB_E2E_SCREEN_GEOMETRY=1024x768
-    read_screen; read_window; compute_button; write_target_json
-    w1=$(jq -r ".screen.w" "$WLB_E2E_MARKER_DIR/target.json")
-    bx1=$(jq -r ".button.x" "$WLB_E2E_MARKER_DIR/target.json")
-    export WLB_E2E_SCREEN_GEOMETRY=1920x1080
-    read_screen; read_window; compute_button; write_target_json
-    w2=$(jq -r ".screen.w" "$WLB_E2E_MARKER_DIR/target.json")
-    bx2=$(jq -r ".button.x" "$WLB_E2E_MARKER_DIR/target.json")
-    echo "w1=$w1 w2=$w2 bx1=$bx1 bx2=$bx2"
-    [ "$w1" = "1024" ] && [ "$w2" = "1920" ] && [ "$bx1" != "$bx2" ]
-  '
+  # Wykonujemy skrypt w trybie --emit-target (nie sourcujemy): to omija konflikt kcov+set-u przy
+  # sourcowaniu instrumentowanego skryptu, a jednocześnie przechodzi przez REALNE funkcje geometrii.
+  run env WLB_E2E_SCREEN_GEOMETRY=1024x768 "$MOUSE_SCRIPT" --emit-target
   [ "$status" -eq 0 ]
+  w1=$(jq -r ".screen.w" "$WLB_E2E_MARKER_DIR/target.json")
+  bx1=$(jq -r ".button.x" "$WLB_E2E_MARKER_DIR/target.json")
+
+  run env WLB_E2E_SCREEN_GEOMETRY=1920x1080 "$MOUSE_SCRIPT" --emit-target
+  [ "$status" -eq 0 ]
+  w2=$(jq -r ".screen.w" "$WLB_E2E_MARKER_DIR/target.json")
+  bx2=$(jq -r ".button.x" "$WLB_E2E_MARKER_DIR/target.json")
+
+  # Zmiana ekranu 1024->1920 MUSI dać nowe screen.w i nową pozycję przycisku (nie tylko „plik istnieje")
+  [ "$w1" = "1024" ]
+  [ "$w2" = "1920" ]
+  [ "$bx1" != "$bx2" ]
 }
