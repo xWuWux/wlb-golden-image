@@ -88,8 +88,12 @@ expect_ok "Notebook Python (pakiety analityczne + inspectomop)" \
 expect_ok "Notebook R (pakiety HADES)" \
   as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-r.out.ipynb test-r.ipynb"
 expect_ok "Kernel Julia (IJulia) zarejestrowany (#111)" bash -c "test -n '$JLK'"
+# IJulia precompiluje się przy starcie kernela (launcher robi `using IJulia`); na ZIMNYM depocie
+# (świeży /workspace, m.in. wariant mirror = druga VM) zajmuje ~64 s i przekraczał domyślny
+# startup_timeout 60 s nbconvert → flaky TIMEOUT, nie realny błąd. Podnosimy limit startu kernela;
+# test nadal weryfikuje poprawny wynik (det≈6), więc realna awaria IJulii dalej go obali.
 expect_ok "Notebook Julia (IJulia, stdlib)" \
-  as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --output test-jl.out.ipynb test-jl.ipynb"
+  as $R1 bash -c "cd ~ && /opt/tljh/user/bin/jupyter nbconvert --to notebook --execute --ExecutePreprocessor.startup_timeout=300 --output test-jl.out.ipynb test-jl.ipynb"
 expect_ok "Sterownik JDBC PostgreSQL" bash -c 'ls /opt/wlb/jdbc/ | grep -qi postgres'
 
 echo "== 3. /data-mart tylko do odczytu =="

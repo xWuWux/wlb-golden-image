@@ -46,6 +46,7 @@
               tcp dport 22 accept
           }
       }
+  when: not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Włącz nftables
   ansible.builtin.systemd_service:

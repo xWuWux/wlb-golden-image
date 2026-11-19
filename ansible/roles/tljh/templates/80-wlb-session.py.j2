@@ -53,10 +53,23 @@ def _wlb_lab(spawner):
 def _wlb_ident(spawner):
     user = "jupyter-" + spawner.user.name
     unit = getattr(spawner, "unit_name", None) or (user + ".service")
+    if not unit.endswith(".service"):
+        unit = unit + ".service"
     try:
         uid = str(pwd.getpwnam(user).pw_uid)
     except KeyError:
-        uid = ""
+        # TLJH tworzy konto systemowe w UserCreatingSpawner.start(), które biegnie PO pre_spawn_hook.
+        # Przy pierwszym spawnie użytkownika wywołujemy ensure_user jawnie, aby scratch i zdarzenia
+        # sesji miały poprawny UID badacza zamiast pustego/pominiętego (#97, #318).
+        try:
+            from tljh.user import ensure_user
+
+            ensure_user(user)
+            uid = str(pwd.getpwnam(user).pw_uid)
+        except Exception as exc:  # noqa: BLE001 — awaria nie może wywrócić hooka
+            if hasattr(spawner, "log") and hasattr(spawner.log, "warning"):
+                spawner.log.warning("wlb-session: ensure_user %s nie powiodło się: %s", user, exc)
+            uid = ""
     sid = getattr(spawner, "_wlb_session", "")
     return user, uid, unit, sid
 

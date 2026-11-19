@@ -393,10 +393,11 @@ jobs:
       CI: "true"
     steps:
       - name: Zależności testów
+        # sqlite3: testy DR huba (#306); bez niego bats skipują, a etap 4b traktuje skip jako błąd.
         run: |
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
-            ca-certificates curl git jq kcov psmisc python3 python3-venv
+            ca-certificates curl git jq kcov psmisc python3 python3-venv sqlite3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ci/install-tools.sh unit
       - run: ci/guard.sh --name "4. Testy jednostkowe" --timeout 15m --memory auto -- ci/unit.sh
@@ -418,10 +419,11 @@ jobs:
       CI: "true"
     steps:
       - name: Zależności testów
+        # sqlite3: testy DR huba (#306); bez niego bats skipują, a baseline mutacji jest wtedy błędem.
         run: |
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
-            ca-certificates curl git jq psmisc python3 python3-venv
+            ca-certificates curl git jq psmisc python3 python3-venv sqlite3
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ci/install-tools.sh unit
       - run: ci/guard.sh --name "4b. Testy mutacyjne" --timeout 20m --memory auto -- ci/mutation.sh
@@ -474,11 +476,16 @@ jobs:
         env:
           IMAGE_VERSION: 0.0.0-ci.${{ github.run_number }}
           IMAGE_DATE: ${{ steps.imgdate.outputs.date }}
-      # obraz bazowy dla matrixa integracji i etapów 6a/6b (#288 klasa 4)
-      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # obraz bazowy dla matrixa integracji i etapów 6a/6b (#288 klasa 4).
+      # Artefakt zamiast cache: 5+ GB obraz przekraczał eksmisyjny cache Actions (repo-cap 10 GB),
+      # więc matrix dostawał fałszywy cache-miss MIMO udanego 'Cache saved' w 5a (#317). Artefakt
+      # przeżywa cały bieg bez eksmisji; upload-artifact dodatkowo kompresuje (zip).
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
+          name: image-${{ github.run_id }}
           path: output/
-          key: image-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 1
       # Locki i metadane z budowania (renv.lock, environment.lock.yml) — test dryfu i SBOM w jobach
       # integracji czytają build/artifacts; cache obrazu przenosi tylko output/ (#317).
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -513,11 +520,10 @@ jobs:
           sudo docker image prune --all --force 2>/dev/null || true
           sudo apt-get clean
           df -h /
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: output/
-          key: image-${{ github.run_id }}
-          fail-on-cache-miss: true
+          name: image-${{ github.run_id }}
+          path: output
       # Te same locki z budowania, co w jobie 5a — bez nich lock_drift widzi pusty build/artifacts
       # i zgłasza fałszywy dryf (FileNotFoundError renv.lock, #317).
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -604,11 +610,10 @@ jobs:
       PERF_REPEAT: ${{ inputs.perf_repeat || '3' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: output/
-          key: image-${{ github.run_id }}
-          fail-on-cache-miss: true
+          name: image-${{ github.run_id }}
+          path: output
       - name: Dostęp do KVM
         run: ci/enable-kvm.sh
       - run: |
@@ -637,11 +642,10 @@ jobs:
       OS_TEST_NETWORK: ${{ vars.OS_TEST_NETWORK }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: output/
-          key: image-${{ github.run_id }}
-          fail-on-cache-miss: true
+          name: image-${{ github.run_id }}
+          path: output
       - name: Klient OpenStack
         env:
           CLOUDS_YAML: ${{ secrets.OPENSTACK_CLOUDS_YAML }}
