@@ -2,7 +2,7 @@
 # wygenerowany lock z hashami ci/requirements-unit.txt (instalowany w CI z --require-hashes, IMG-008 5b).
 # Stage 4: testy jednostkowe i pokrycie.
 pytest==9.2.0
-coverage==7.17.2
+coverage==7.17.3
 # mutmut — testy mutacyjne w stage 4b; mutuje walidator wydania platformy
 mutmut==3.8.1
 defusedxml==0.7.1  # bezpieczny odczyt lokalnych raportów JUnit w etapie 4b
@@ -13,8 +13,8 @@ PyYAML==6.0.3
 Pillow==13.0.0
 # wlb-hub-user testowany na tej samej głównej wersji JupyterHub co w TLJH 2.0 (jupyterhub<6)
 jupyterhub==5.5.5
-jupyterhub-nativeauthenticator==1.3.0
+jupyterhub-nativeauthenticator==1.4.0
 # logowanie Entra ID (#18): WlbEntraAuthenticator testowany na tej samej głównej wersji co w TLJH 2.0 (<18)
-oauthenticator==17.4.0
+oauthenticator==17.5.0
 opentelemetry-proto==1.45.1  # tylko testy: walidacja OTLP/JSON (#35); protobuf to jego zależność
 protobuf==7.36.2
