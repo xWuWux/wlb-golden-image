@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<drivers>
+    <provider id="postgresql">
+        <driver id="postgres-jdbc" name="PostgreSQL" class="org.postgresql.Driver" custom="true" url="jdbc:postgresql://{host}:{port}/{database}" port="5432">
+            <library type="jar" path="/opt/wlb/drivers/postgres/postgresql-{{ wlb_pgjdbc_version }}.jar" custom="true"/>
+        </driver>
+    </provider>
+</drivers>

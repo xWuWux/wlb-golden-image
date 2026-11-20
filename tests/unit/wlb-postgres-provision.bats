@@ -66,7 +66,7 @@ EOF
 @test "provision: konto admina a01 NIE dostaje roli (tylko uNN) (#271)" {
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  ! grep -q '"a01"' "$PSQL_LOG"
+  refute grep -q '"a01"' "$PSQL_LOG"
   [ ! -e "$HOMEBASE/jupyter-a01/.pgpass" ]
 }
 

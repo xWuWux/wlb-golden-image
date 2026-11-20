@@ -270,3 +270,12 @@ wlb_pg_role_connection_limit: 5
 # Audyt: metadane i schemat (DDL), NIE treść SELECT (dane osobowe). pgaudit domyślnie wyłączony.
 wlb_pg_log_statement: ddl
 wlb_pg_log_min_duration_ms: 5000
+
+# --- DBeaver (rola dbeaver, #271) -------------------------------------------------
+# DBeaver CE 26.2.4 (.deb SHA256-pin) + pgJDBC 42.7.14 offline jar.
+wlb_dbeaver_version: "26.2.4"
+wlb_dbeaver_deb_sha256: "412f2c22047e16af204e76cc6c7d29d8011894af887c65a9c027e7ca4af21a67"
+wlb_dbeaver_deb_url: "https://github.com/dbeaver/dbeaver/releases/download/{{ wlb_dbeaver_version }}/dbeaver-ce-{{ wlb_dbeaver_version }}-linux-x86_64.deb"
+wlb_pgjdbc_version: "42.7.14"
+wlb_pgjdbc_jar_sha256: "73914527305a40cce504b0d3d90b23caf565136912d607ae8ae7c5895512332c"
+wlb_pgjdbc_jar_url: "https://repo1.maven.org/maven2/org/postgresql/postgresql/{{ wlb_pgjdbc_version }}/postgresql-{{ wlb_pgjdbc_version }}.jar"

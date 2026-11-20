@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# /usr/local/bin/dbeaver — wrapper DBeaver CE z automatyczną konfiguracją połączenia WLB (#271).
+# Przy pierwszym uruchomieniu dla konta badacza (jupyter-uNN) instancjonuje profil połączenia
+# ~/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json z szablonu,
+# wykorzystując uwierzytelnianie przez ~/.pgpass (bez zapisywania hasła w pliku JSON).
+
+set -euo pipefail
+
+CURRENT_USER="${WLB_TEST_USER:-$(id -un)}"
+# Wyodrębnienie nazwy roli: jupyter-uNN -> uNN (dla kont badaczy prefiks jupyter- jest usuwany)
+ROLE=$(printf '%s' "$CURRENT_USER" | sed 's/^jupyter-//')
+DB="db_${ROLE}"
+
+TARGET_DIR="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver"
+TARGET_FILE="$TARGET_DIR/data-sources.json"
+TEMPLATE_FILE="${WLB_DBEAVER_TEMPLATE:-/etc/wlb/dbeaver/data-sources.template.json}"
+
+if [[ ! -f "$TARGET_FILE" && -f "$TEMPLATE_FILE" ]]; then
+  mkdir -p "$TARGET_DIR"
+  sed \
+    -e "s/@ROLE@/${ROLE}/g" \
+    -e "s/@USER@/${ROLE}/g" \
+    -e "s/@DB@/${DB}/g" \
+    "$TEMPLATE_FILE" >"${TARGET_FILE}.tmp"
+  chmod 0600 "${TARGET_FILE}.tmp"
+  mv "${TARGET_FILE}.tmp" "$TARGET_FILE"
+fi
+
+if [[ "${WLB_DBEAVER_SKIP_EXEC:-0}" == "1" ]]; then
+  exit 0
+fi
+
+exec /usr/share/dbeaver-ce/dbeaver "$@"
