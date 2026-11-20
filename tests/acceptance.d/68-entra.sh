@@ -15,13 +15,16 @@ cat >"$entra_tmp/entra-accounts" <<'EOF'
 3f1c2b4a-0000-4000-8000-000000000001 9a8b7c6d-0000-4000-8000-0000000000a1 u01
 EOF
 chmod 0600 "$entra_tmp/entra-accounts"
+# plik powiązań zakłada wlb-firstboot przy przejściu na Entra; jego brak = logowanie wstrzymane (fail-secure)
+echo '{}' >"$entra_tmp/entra-accounts.bindings"
+chmod 0600 "$entra_tmp/entra-accounts.bindings"
 expect_ok "Rejestr przypisań: poprawny przechodzi (#18)" \
   python3 "$ENTRA_DIR/wlb_entra_accounts.py" --check "$entra_tmp/entra-accounts" --tenant 3f1c2b4a-0000-4000-8000-000000000001
 expect_fail "Rejestr przypisań: obcy tenant odrzucony (#18)" \
   python3 "$ENTRA_DIR/wlb_entra_accounts.py" --check "$entra_tmp/entra-accounts" --tenant 3f1c2b4a-0000-4000-8000-000000000002
 
 cat >"$entra_tmp/probe.py" <<'PY'
-import asyncio, sys, time
+import asyncio, os, sys, time
 sys.path.insert(0, "/opt/wlb/hub")
 import jwt
 from tornado import web
@@ -66,6 +69,10 @@ class U: name = "u01"
 assert asyncio.run(auth.refresh_user(U())) is True
 open(sys.argv[1], "w").write(f"{TID} 9a8b7c6d-0000-4000-8000-0000000000b2 u01\n")
 assert asyncio.run(auth.refresh_user(U())) is False
+# brak pliku powiązań (utrata / niepełne odtworzenie) wstrzymuje logowanie i sesje
+os.remove(sys.argv[1] + ".bindings")
+open(sys.argv[1], "w").write(f"{TID} 9a8b7c6d-0000-4000-8000-0000000000a1 u01\n")
+assert login() is None and asyncio.run(auth.refresh_user(U())) is False
 PY
 expect_ok "WlbEntraAuthenticator na oauthenticator z TLJH: przypisanie, rola, odmowy, sesja (#18)" \
   "$HUB_PY" "$entra_tmp/probe.py" "$entra_tmp/entra-accounts"
