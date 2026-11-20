@@ -43,3 +43,81 @@ hub-rollback:
     https: "wycofanie reguły firstboot HTTPS"
   mutations:
     - [rollback-condition, 'if [[ $HUB_OPENED == 1 && ! -s $DONE ]]; then', 'if [[ $HUB_OPENED == 1 && -s $DONE ]]; then', rollback]
+
+
+apparmor-early-exit:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/desktop/files/wlb-apparmor-enforce
+  test: tests/unit/wlb-apparmor-enforce.bats
+  inputs: [tests/unit/helpers.bash]
+  consumers:
+    no-complain: "brak profili w complain -> WLB_SWITCHED=0, bez aa-enforce"
+  mutations:
+    - [early-exit, '((before == 0))', '((before != 0))', early-exit]
+
+apparmor-switched:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/desktop/files/wlb-apparmor-enforce
+  test: tests/unit/wlb-apparmor-enforce.bats
+  inputs: [tests/unit/helpers.bash]
+  consumers:
+    two-profiles: "dwa profile w complain -> przełączone na enforce, WLB_SWITCHED=1"
+  mutations:
+    - [switched, 'switched=1', 'switched=0', switched]
+
+apparmor-after-check:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/desktop/files/wlb-apparmor-enforce
+  test: tests/unit/wlb-apparmor-enforce.bats
+  inputs: [tests/unit/helpers.bash]
+  consumers:
+    enforce-failure: "aa-enforce nie zdejmuje complain -> błąd po liczniku (fail-secure)"
+  mutations:
+    - [after-check, 'if [[ $after != 0 ]]', 'if [[ $after == 0 ]]', after-check]
+
+apparmor-enforce-call:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/desktop/files/wlb-apparmor-enforce
+  test: tests/unit/wlb-apparmor-enforce.bats
+  inputs: [tests/unit/helpers.bash]
+  consumers:
+    two-profiles: "dwa profile w complain -> przełączone na enforce, WLB_SWITCHED=1"
+  mutations:
+    - [enforce-call, 'aa-enforce "$f"', 'true', enforce-call]
+
+snapshot-payload-integrity:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/storage/files/wlb-export-snapshot
+  test: tests/unit/test_wlb_export_snapshot.py
+  inputs: [tests/unit/conftest.py]
+  consumers:
+    content: "test_verify_refuses_tampering[content]"
+  mutations:
+    - [integrity-guard, "if (\n        entries", "if False and (\n        entries", payload-integrity]
+
+snapshot-algorithm-integrity:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/storage/files/wlb-export-snapshot
+  test: tests/unit/test_wlb_export_snapshot.py
+  inputs: [tests/unit/conftest.py]
+  consumers:
+    algorithm: "test_verify_refuses_tampering[algorithm]"
+  mutations:
+    - [algorithm-guard, 'or algorithm != manifest.get("digest_algorithm")', 'or False', algorithm-integrity]
+
+snapshot-schema-integrity:
+  owner: platforma
+  risk: critical
+  source: ansible/roles/storage/files/wlb-export-snapshot
+  test: tests/unit/test_wlb_export_snapshot.py
+  inputs: [tests/unit/conftest.py]
+  consumers:
+    version: "test_verify_refuses_tampering[version]"
+  mutations:
+    - [schema-guard, 'or value["schema_version"] != 1', 'or False', schema-integrity]

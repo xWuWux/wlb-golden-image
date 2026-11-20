@@ -67,7 +67,7 @@ profile_file() { # profile_file NAZWA [SUFIKS] — plik profilu w complain
 
 @test "brak profili w complain -> WLB_SWITCHED=0, bez aa-enforce" {
   run "$ENFORCE"
-  [ "$status" -eq 0 ]
+  [ "$status" -eq 0 ] || { echo 'contract:early-exit'; return 1; }
   [[ $output == *"aa-status --complaining=0"* ]]
   [[ $output == *"WLB_SWITCHED=0"* ]]
   refute called aa-enforce
@@ -77,8 +77,8 @@ profile_file() { # profile_file NAZWA [SUFIKS] — plik profilu w complain
   profile_file test-a
   profile_file test-b
   run "$ENFORCE"
-  [ "$status" -eq 0 ]
-  [[ $output == *"WLB_SWITCHED=1"* ]]
+  [ "$status" -eq 0 ] || { echo 'contract:enforce-call'; return 1; }
+  [[ $output == *"WLB_SWITCHED=1"* ]] || { echo 'contract:switched'; return 1; }
   [[ $output == *"before=2 after=0"* ]]
   refute grep -q 'flags=(complain' "$APPARMOR_D/test-a"
   refute grep -q 'flags=(complain' "$APPARMOR_D/test-b"
@@ -123,7 +123,7 @@ echo "aa-enforce $*" >>"$CALLS"
 EOF
   chmod +x "$STUBS/aa-enforce"
   run "$ENFORCE"
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 1 ] || { echo 'contract:after-check'; return 1; }
   [[ $output == *"nadal 1 profili w trybie complain"* ]]
 }
 

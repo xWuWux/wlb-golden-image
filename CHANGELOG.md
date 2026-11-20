@@ -14,7 +14,15 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Normalizator raportów JUnit i testów niestabilnych (#349, PR A2):** dodano moduł `ci/flaky_report.py`
+  parsujący i normalizujący raporty JUnit XML z etapu 4 (pytest) oraz etapu 5 (akceptacja VM). Moduł
+  działa w trybie fail-closed, obsługuje wielokrotne znaczniki `<failure>` w pojedynczym `<testcase>`
+  (subtesty pytest), rozróżnia `<error>` i `<skipped>`, mapuje stabilne `test_id` oraz zapisuje
+  znormalizowany JSON do `build/ci-logs/flaky-raw.json`.
+
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
+  Kolejny etap rozszerza macierz o AppArmor (early-exit, `WLB_SWITCHED`, fail-secure, wywołanie `aa-enforce`)
+  i integralność snapshotu eksportu (payload, algorytm digestu, wersja manifestu).
 
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
   w `tests/unit/test_wlb_session_hook.py` dla domykania osieroconych sesji (`interrupted`)
@@ -47,6 +55,30 @@ pierwszym Laboratorium na klastrze).
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+- **Logowanie przez Microsoft Entra ID (`AUTH_MODE=entra`, #18):** `WlbEntraAuthenticator`
+  (podklasa `AzureAdOAuthenticator`, oauthenticator 17 z TLJH 2.0) loguje na konto wskazane
+  w rejestrze przypisań `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`, root 0600, tylko
+  identyfikatory) i wymaga roli aplikacji Laboratorium (`ENTRA_REQUIRED_ROLE`). Claim osobowy
+  (UPN, e-mail) nie staje się loginem. Zakresy `openid profile` (`oid` wymaga `profile`), ale imię i UPN są odrzucane po odczycie. Sprawdzane są tenant,
+  issuer, audience i ważność id_token. `allow_all` nie da się włączyć. Pierwsze logowanie trwale wiąże konto z osobą,
+  a przekazanie konta innej osobie jest zablokowane do czasu procedury z odwołaniem poświadczeń (#102 D3).
+  Usunięcie wiersza z rejestru blokuje nowe logowania i żądania podlegające odświeżeniu, ale nie zamyka trwających
+  połączeń (pełne odcięcie: zatrzymanie serwera). Konta, dane i hasła Native się nie zmieniają. Migracja to procedura
+  w oknie serwisowym (zatrzymanie serwerów, rejestr, `AUTH_MODE=entra`), powrót to `AUTH_MODE=native` po resecie
+  haseł kont z odebranym dostępem (runbook `RB-entra`). Testy są modułowe (podstawiona odpowiedź tokenu);
+  odbiór z tenantem testowym opisuje IMG-011.
+  `wlb-firstboot` waliduje całość przed zmianą na VM. Wzór: `cloud-init/examples/lab-user-data-entra.yaml`.
+- **Odwołanie poświadczeń przy zmianie sposobu logowania (`wlb-hub-revoke`, #18):** przy każdej zmianie
+  `AUTH_MODE` (stan w `/workspace/.wlb-hub/auth-mode`), także przy powrocie do haseł, `wlb-firstboot` przed otwarciem
+  huba zatrzymuje hub i serwery kont, zmienia `cookie_id` kont i usuwa ich tokeny API/OAuth oraz kody OAuth. Ciasteczka
+  i tokeny z logowania hasłem nie przechodzą więc po migracji na Entra, także po pierwszym logowaniu tej samej osoby
+  przez Entra. Plik powiązań kont z osobami zakłada firstboot; jego brak w trakcie pracy wstrzymuje logowanie,
+  a odtworzenie bez niego wymaga świadomej reinicjalizacji (`WLB_ENTRA_REINIT=1`, z odwołaniem wszystkich poświadczeń).
+  Zdarzenia logowania Entra mają kody przyczyn i pseudonimy (oid albo skrót loginu), bez loginów.
+- **`AUTH_MODE=oidc` naprawiony (P0 z audytu #18):** bez `OIDC_ALLOWED_GROUPS` firstboot kończy
+  się błędem przed zmianą, zamiast generować `allow_all = True` (dostęp dla każdego użytkownika IdP).
+  Konfiguracja z grupami uruchamia się na oauthenticator 17: wcześniej hub nie startował
+  (`claim_groups_key requires manage_groups`). Teraz generowane jest `manage_groups` + `auth_state_groups_key`.
 
 - **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
   target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
