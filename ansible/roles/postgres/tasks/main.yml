@@ -1,0 +1,82 @@
+---
+# Rola postgres (#271): lokalny PostgreSQL 16, klaster na /workspace tworzony przy pierwszym boocie.
+# Headless i base-eligible — bez pulpitu/DBeavera (osobna rola dbeaver).
+
+# KLUCZOWE: zapobiega utworzeniu domyślnego klastra w /var/lib/postgresql przy instalacji pakietu.
+# Klaster powstaje dopiero w wlb-postgres-setup, na trwałym /workspace. Musi być PRZED apt install.
+- name: Wyłącz automatyczny klaster postgresql-common (klaster na /workspace, nie /var/lib) (#271)
+  ansible.builtin.copy:
+    dest: /etc/postgresql-common/createcluster.conf
+    mode: "0644"
+    content: |
+      # Zarządzane przez Ansible (rola postgres, #271)
+      create_main_cluster = false
+
+- name: Instalacja PostgreSQL serwer + klient bez repo PGDG, wersja {{ wlb_pg_version }}
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ wlb_pg_version }}"
+      - "postgresql-client-{{ wlb_pg_version }}"
+    state: present
+    update_cache: true
+
+- name: Katalog stagingu konfiguracji WLB (nakładany na klaster w firstboot)
+  ansible.builtin.file:
+    path: /etc/wlb/postgres
+    state: directory
+    mode: "0755"
+
+- name: Staging konfiguracji klastra (postgresql conf.d, pg_hba, pg_ident)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/wlb/postgres/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: 50-wlb.conf.j2, dest: 50-wlb.conf, mode: "0644" }
+    - { src: pg_hba.conf.j2, dest: pg_hba.conf, mode: "0640" }
+    - { src: pg_ident.conf.j2, dest: pg_ident.conf, mode: "0640" }
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: Skrypty setupu i provisioningu klastra
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    mode: "0750"
+  loop:
+    - wlb-postgres-setup
+    - wlb-postgres-provision
+
+- name: Jednostki systemd setupu i provisioningu (#271)
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - wlb-postgres-setup.service
+    - wlb-postgres-provision.service
+  notify: Reload postgres systemd
+
+- name: Katalog drop-in klastra — kolejność, izolacja, pamięć (wersja {{ wlb_pg_version }})
+  ansible.builtin.file:
+    path: "/etc/systemd/system/postgresql@{{ wlb_pg_version }}-main.service.d"
+    state: directory
+    mode: "0755"
+
+- name: Konfiguracja drop-in klastra (RequiresMountsFor, IPAddressDeny, MemoryMax)
+  ansible.builtin.template:
+    src: 60-wlb.conf.j2
+    dest: "/etc/systemd/system/postgresql@{{ wlb_pg_version }}-main.service.d/60-wlb.conf"
+    mode: "0644"
+  notify: Reload postgres systemd
+
+# Usługi WŁĄCZONE, ale NIE startowane przy budowie — klaster powstaje na pierwszym boocie,
+# po zamontowaniu /workspace (inaczej initdb trafiłby na jednorazowy dysk systemowy).
+- name: Włącz usługi setupu i provisioningu (start przy pierwszym boocie)
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    daemon_reload: true
+  loop:
+    - wlb-postgres-setup.service
+    - wlb-postgres-provision.service

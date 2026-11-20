@@ -1,0 +1,14 @@
+# Zarządzane przez Ansible (rola postgres, #271). Drop-in dla postgresql@{{ wlb_pg_version }}-main.service.
+[Unit]
+# Klaster startuje DOPIERO po utworzeniu na /workspace; dysk roboczy musi być zamontowany.
+After=wlb-postgres-setup.service
+Requires=wlb-postgres-setup.service
+RequiresMountsFor={{ wlb_pg_data_dir | dirname }}
+
+[Service]
+# PG nie może wyjść poza loopback nawet przy zmianie konfiguracji — druga warstwa obok nftables.
+IPAddressAllow=localhost
+IPAddressDeny=any
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Budżet pamięci klastra — poza pulą pamięci badacza.
+MemoryMax={{ wlb_pg_memory_max }}

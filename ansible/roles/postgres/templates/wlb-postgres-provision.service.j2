@@ -1,0 +1,14 @@
+[Unit]
+Description=WLB: role i bazy db_uNN + .pgpass per konto badacza (#271)
+# Klaster MUSI żyć (tu wykonujemy SQL). Requires pociąga start PG, który z kolei wymaga setupu.
+After=postgresql@{{ wlb_pg_version }}-main.service
+Requires=postgresql@{{ wlb_pg_version }}-main.service
+ConditionPathExists={{ wlb_pg_data_dir }}/PG_VERSION
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/wlb-postgres-provision
+
+[Install]
+WantedBy=multi-user.target

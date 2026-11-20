@@ -250,3 +250,23 @@ slicer_prefix: /opt
 # --- Audyt ------------------------------------------------------------------------
 # Po pierwszym starcie reguły są blokowane (auditctl -e 2) — nawet root nie zmieni ich bez restartu.
 wlb_audit_immutable: true
+
+# --- PostgreSQL (rola postgres, #271) ---------------------------------------------
+# Lokalny PG 16, dane na trwałym /workspace, nasłuch tylko 127.0.0.1. Headless/base-eligible.
+wlb_pg_version: 16
+wlb_pg_data_dir: /workspace/pgdata
+# Konta badaczy = jupyter-uNN (prefiks TLJH); rola DB i baza bez prefiksu: uNN / db_uNN.
+wlb_pg_account_prefix: jupyter-
+wlb_pg_shared_buffers: 256MB
+wlb_pg_work_mem: 16MB
+wlb_pg_maintenance_work_mem: 128MB
+wlb_pg_max_connections: 32
+wlb_pg_memory_max: 1G
+# Limity roli badacza (punkt startowy do kalibracji).
+wlb_pg_statement_timeout: 30min
+wlb_pg_idle_in_transaction_timeout: 10min
+wlb_pg_temp_file_limit: 2GB
+wlb_pg_role_connection_limit: 5
+# Audyt: metadane i schemat (DDL), NIE treść SELECT (dane osobowe). pgaudit domyślnie wyłączony.
+wlb_pg_log_statement: ddl
+wlb_pg_log_min_duration_ms: 5000
