@@ -457,12 +457,21 @@ expect_ok "Egress: researcher_egress kończy się reject — default-deny (#288)
 
 if as "$R1" sh -c 'command -v ping >/dev/null 2>&1'; then
   expect_ok "Egress ICMP do zewnętrznego IP odrzucony z wpisem nft (#288, #323)" w6b_icmp_denied
-  expect_ok "Egress ICMPv6 do zewnętrznego IPv6 odrzucony z wpisem nft (#288, #323)" w6b_icmp6_denied
 else
-  skip "Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)"
+  skip "Egress ICMP: brak ping w środowisku badacza (#288)"
 fi
 
-expect_ok "Egress IPv6/TCP do zewnętrznego hosta odrzucony z wpisem nft (#288, #323)" w6b_tcp6_denied
+# IPv6 w QEMU user może nie mieć trasy — wtedy odmowa nie jest dowodem zapory, tylko brakiem trasy.
+# Test wykonujemy tylko przy realnej trasie IPv6; brak trasy = SKIP, nie PASS.
+w6b_ipv6_routed() {
+  command -v ip >/dev/null 2>&1 && ip -6 route show default 2>/dev/null | grep -q .
+}
+if w6b_ipv6_routed; then
+  expect_ok "Egress ICMPv6 do zewnętrznego IPv6 odrzucony z wpisem nft (#288, #323)" w6b_icmp6_denied
+  expect_ok "Egress IPv6/TCP do zewnętrznego hosta odrzucony z wpisem nft (#288, #323)" w6b_tcp6_denied
+else
+  skip "Egress IPv6/ICMPv6: brak trasy IPv6 w VM — nie testujemy (#288, #323)"
+fi
 
 # UDP (zapytanie DNS do zewnętrznego resolvera) — źródłowy port jest unikalny w tym przebiegu,
 # żeby wpis nft nie mógł pochodzić z innego testu. Timeout/refused bez wpisu nft = FAIL.
