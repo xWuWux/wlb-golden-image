@@ -11,7 +11,14 @@ require_vm
 # remote-common.sh). Dzięki temu nowy feature = nowy plik fragmentu, bez konfliktów na wspólnym pliku.
 shopt -s nullglob
 combined=$(mktemp)
-cat "$ROOT/tests/lib/kafelki-exec.sh" "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh >"$combined"
+{
+  # #323: helper sond egress jest testowy; nie trafia do obrazu produkcyjnego. Tworzymy go
+  # w VM przed rdzeniem akceptacji, bo sekcja 6b wywołuje go jako badacz.
+  printf "\ncat >/tmp/wlb-net-probe.py <<'WLB_NET_PROBE'\n"
+  cat "$ROOT/tests/lib/net_probe.py"
+  printf "\nWLB_NET_PROBE\n"
+  cat "$ROOT/tests/lib/kafelki-exec.sh" "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh
+} >"$combined"
 # #292: WLB_CHANNEL_GATING=1 promuje niezgodności matrycy kanałów do FAIL (domyślnie SKIP, jak #138).
 channel_gating=
 if [[ ${WLB_CHANNEL_GATING:-0} == 1 ]]; then channel_gating=--channel-gating; fi
