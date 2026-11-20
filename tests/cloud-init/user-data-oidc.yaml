@@ -43,6 +43,7 @@ write_files:
       OIDC_TOKEN_URL=https://login.example.com/oauth2/token
       OIDC_USERDATA_URL=https://login.example.com/oauth2/userinfo
       OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+      OIDC_ALLOWED_GROUPS=wlb-lab-test01
       ADMIN_SSH_CIDR=10.0.2.0/24
       HUB_ALLOWED_CIDR=10.0.2.0/24
       HUB_TLS=1

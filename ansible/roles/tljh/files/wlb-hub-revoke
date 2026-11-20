@@ -1,0 +1,111 @@
+#!/opt/tljh/hub/bin/python3
+"""Odwołuje poświadczenia kont huba: ciasteczka, tokeny API i OAuth (#18, #102 D3).
+
+    wlb-hub-revoke --all           # wszystkie konta badaczy i administratora (zmiana AUTH_MODE)
+    wlb-hub-revoke --user LOGIN    # jedno konto (np. przed przekazaniem konta innej osobie)
+
+Kolejność: zatrzymanie huba i serwerów kont (zamyka trwające połączenia notebooka, terminala
+i noVNC) -> w bazie huba nowy `cookie_id` (dotychczasowe ciasteczka przestają pasować) i usunięcie
+tokenów API/OAuth należących do kont (w tym tokenów serwerów) oraz niewykorzystanych kodów OAuth
+-> ponowny start huba. Tokeny usług huba (np. culler) zostają. Konta, hasła Native i dane
+w /workspace się nie zmieniają.
+
+Wymaga roota. Baza: c.JupyterHub.db_url (10-wlb.py); WLB_HUB_DB_URL nadpisuje ścieżkę,
+--no-hub-control pomija stop/start (testy na bazie).
+Kod 0: odwołano (albo baza jeszcze nie istnieje); 1: błąd — stan nie jest potwierdzony, hub zostaje
+zatrzymany (fail-secure), żeby stare poświadczenia nie zadziałały.
+"""
+
+import argparse
+import os
+import re
+import subprocess
+import sys
+
+from jupyterhub import orm
+from sqlalchemy import create_engine, event, inspect
+from sqlalchemy.orm import Session
+
+DEFAULT_DB_URL = "sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"
+LOGIN_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+HUB_UNIT = "jupyterhub.service"
+# stała, nie zmienna środowiskowa: polecenie uruchamiane jako root nie może pochodzić z otoczenia (testy
+# podmieniają atrybut modułu)
+SYSTEMCTL = ["/usr/bin/systemctl"]
+LOCK_TIMEOUT = 30
+
+
+def _engine(url):
+    """BEGIN IMMEDIATE: całe odwołanie pod jedną blokadą zapisu (jak wlb-hub-user, #31)."""
+    engine = create_engine(url, connect_args={"timeout": LOCK_TIMEOUT})
+
+    @event.listens_for(engine, "connect")
+    def _manual_begin(dbapi_connection, _record):
+        dbapi_connection.isolation_level = None
+
+    @event.listens_for(engine, "begin")
+    def _begin_immediate(connection):
+        connection.exec_driver_sql("BEGIN IMMEDIATE")
+
+    return engine
+
+
+def _systemctl(*args):
+    # argv bez powłoki ze stałego polecenia i stałych argumentów (login sprawdzony przez LOGIN_RE)
+    subprocess.run([*SYSTEMCTL, *args], check=True, stdout=subprocess.DEVNULL)  # noqa: S603  # nosec B603
+
+
+def revoke(url, login=None):
+    """Odwołuje poświadczenia w bazie; zwraca (konta, tokeny, kody). login=None = wszystkie konta."""
+    engine = _engine(url)
+    if not inspect(engine).has_table("users"):
+        return 0, 0, 0
+    with Session(engine) as db, db.begin():
+        query = db.query(orm.User)
+        if login is not None:
+            query = query.filter(orm.User.name == login)
+        users = query.all()
+        ids = [u.id for u in users]
+        for user in users:
+            user.cookie_id = orm.new_token()
+        tokens = codes = 0
+        if ids:
+            tokens = db.query(orm.APIToken).filter(orm.APIToken.user_id.in_(ids)).delete(synchronize_session=False)
+            codes = db.query(orm.OAuthCode).filter(orm.OAuthCode.user_id.in_(ids)).delete(synchronize_session=False)
+    return len(ids), tokens, codes
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--all", action="store_true", help="wszystkie konta huba")
+    target.add_argument("--user", metavar="LOGIN", help="jedno konto")
+    parser.add_argument("--no-hub-control", action="store_true", help="bez zatrzymania/startu huba (testy)")
+    args = parser.parse_args(argv)
+    if args.user is not None and not LOGIN_RE.match(args.user):
+        parser.error("niepoprawny login")
+    url = os.environ.get("WLB_HUB_DB_URL", DEFAULT_DB_URL)
+    control = not args.no_hub_control
+    try:
+        if control:
+            # serwery kont mają własne jednostki systemd (TLJH): zatrzymanie huba ich nie kończy
+            _systemctl("stop", HUB_UNIT)
+            servers = f"jupyter-{args.user}.service" if args.user else "jupyter-*.service"
+            _systemctl("stop", servers)
+        accounts, tokens, codes = revoke(url, args.user)
+    except Exception as exc:  # każdy błąd = brak potwierdzenia odwołania (fail-secure)
+        print(f"wlb-hub-revoke: BŁĄD: odwołanie niepotwierdzone, hub zostaje zatrzymany: {exc}", file=sys.stderr)
+        return 1
+    # bez loginów w wyjściu: trafia do dziennika firstboot, a stare konta nazwane to dane osobowe
+    print(f"wlb-hub-revoke: odwołano poświadczenia kont: {accounts}, tokeny: {tokens}, kody OAuth: {codes}")
+    if control:
+        try:
+            _systemctl("start", HUB_UNIT)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            print(f"wlb-hub-revoke: BŁĄD: odwołano, ale hub nie wystartował: {exc}", file=sys.stderr)
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

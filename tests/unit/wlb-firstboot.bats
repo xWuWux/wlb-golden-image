@@ -100,6 +100,8 @@ EOF
   fake_hub_user
   fake_wlb_monitoring
   export WLB_TLJH_CONFIG="$STUBS/tljh-config" WLB_HUB_USER_TOOL="$STUBS/wlb-hub-user" WLB_HUB_WAIT_SECONDS=4
+  stub wlb-hub-revoke 0 # odwołanie poświadczeń przy zmianie AUTH_MODE (#18)
+  export WLB_HUB_REVOKE_TOOL="$STUBS/wlb-hub-revoke"
   export WLB_HUB_USER_RETRY_SLEEP=0 # ponowienia narzędzia kont (#31) bez czekania
   # zasoby VM (#30): domyślnie 16 GiB RAM, 8 vCPU
   meminfo 16384
@@ -958,6 +960,7 @@ OIDC_AUTHORIZE_URL=https://login.example.com/oauth2/authorize
 OIDC_TOKEN_URL=https://login.example.com/oauth2/token
 OIDC_USERDATA_URL=https://login.example.com/oauth2/userinfo
 OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+OIDC_ALLOWED_GROUPS=wlb-lab01
 EOF
 }
 authconf() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"; }
@@ -969,7 +972,7 @@ authconf() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"; 
   [[ $output == *"uwierzytelnianie: native"* ]]
 }
 
-@test "AUTH_MODE oidc: poprawny config GenericOAuthenticator (allow_all bez grup)" {
+@test "AUTH_MODE oidc: poprawny config GenericOAuthenticator (grupy, bez allow_all)" {
   oidc_env
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
@@ -980,7 +983,12 @@ authconf() { cat "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"; 
   authconf | grep -qx "c.GenericOAuthenticator.oauth_callback_url = 'https://portal.wlb.local/hub/oauth_callback'"
   authconf | grep -qxF "c.GenericOAuthenticator.scope = ['openid', 'email', 'profile']"
   authconf | grep -qx "c.GenericOAuthenticator.username_claim = 'preferred_username'"
-  authconf | grep -qx "c.GenericOAuthenticator.allow_all = True"
+  authconf | grep -qx "c.GenericOAuthenticator.allow_all = False"
+  authconf | grep -qxF "c.GenericOAuthenticator.allowed_groups = ['wlb-lab01']"
+  # oauthenticator 17: grupy wymagają manage_groups; claim_groups_key przestarzały (#18)
+  authconf | grep -qx "c.GenericOAuthenticator.manage_groups = True"
+  authconf | grep -qx "c.GenericOAuthenticator.auth_state_groups_key = 'oauth_user.groups'"
+  refute grep -q "claim_groups_key" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
   [ "$(stat -c %a "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py")" = 600 ]
   [[ $output == *"uwierzytelnianie: OIDC"* ]]
 }
@@ -997,7 +1005,41 @@ EOF
   authconf | grep -qxF "c.GenericOAuthenticator.allowed_groups = ['wlb-lab01', 'wlb-wszyscy']"
   authconf | grep -qxF "c.GenericOAuthenticator.admin_groups = ['wlb-admini']"
   authconf | grep -qx "c.GenericOAuthenticator.username_claim = 'email'"
-  refute grep -q "allow_all" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
+  refute grep -q "allow_all = True" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
+}
+
+@test "AUTH_MODE oidc: brak lub puste grupy przerywa przed zmianą (P0 z audytu #18)" {
+  local groups
+  for groups in "" " , ,  " ","; do
+    oidc_env
+    echo "OIDC_ALLOWED_GROUPS=\"$groups\"" >>"$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -eq 1 ]
+    [[ $output == *"wymagane niepuste OIDC_ALLOWED_GROUPS"* ]]
+    [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+    # walidacja przed zmianą zapory i huba (fail-secure)
+    refute grep -q "^nft" "$CALLS"
+  done
+}
+
+@test "AUTH_MODE oidc: wygenerowany config ładuje się w oauthenticator 17 (#18)" {
+  python3 -c 'import oauthenticator' 2>/dev/null || skip "brak oauthenticator (ci/requirements-unit.txt)"
+  oidc_env
+  echo "OIDC_ADMIN_GROUPS=wlb-admini" >>"$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  run python3 - "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" <<'PY'
+import sys
+from traitlets.config import Config
+from oauthenticator.generic import GenericOAuthenticator
+c = Config()
+exec(open(sys.argv[1]).read(), {"get_config": lambda: c})
+a = GenericOAuthenticator(config=c)
+assert a.allow_all is False and a.allowed_groups == {"wlb-lab01"} and a.manage_groups
+print("OK", a.auth_state_groups_key)
+PY
+  [ "$status" -eq 0 ]
+  [[ $output == *"OK oauth_user.groups"* ]]
 }
 
 @test "AUTH_MODE oidc: brak wymaganej zmiennej przerywa (fail-secure)" {
@@ -1030,6 +1072,7 @@ OIDC_CLIENT_ID=klient-wlb
 OIDC_CLIENT_SECRET=sekret-123
 OIDC_DISCOVERY_URL=https://login.microsoftonline.com/tenant/v2.0/.well-known/openid-configuration
 OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+OIDC_ALLOWED_GROUPS=wlb-lab01
 EOF
   run "$FIRSTBOOT"
   [ "$status" -eq 0 ]
@@ -1045,6 +1088,7 @@ OIDC_CLIENT_ID=klient-wlb
 OIDC_CLIENT_SECRET=sekret-123
 OIDC_DISCOVERY_URL=http://insecure.example.com/.well-known/openid-configuration
 OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+OIDC_ALLOWED_GROUPS=wlb-lab01
 EOF
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
@@ -1059,17 +1103,240 @@ OIDC_CLIENT_ID=klient-wlb
 OIDC_CLIENT_SECRET=sekret-123
 OIDC_DISCOVERY_URL=https://login.microsoftonline.com/tenant/v2.0/.well-known/openid-configuration
 OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+OIDC_ALLOWED_GROUPS=wlb-lab01
 EOF
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
   [[ $output == *"błąd pobierania OIDC discovery"* ]]
 }
 
-@test "AUTH_MODE: wartość inna niż native/oidc jest odrzucana" {
+@test "AUTH_MODE: wartość inna niż native/entra/oidc jest odrzucana" {
   echo "AUTH_MODE=ldap" >>"$SANDBOX/etc/wlb/lab.env"
   run "$FIRSTBOOT"
   [ "$status" -eq 1 ]
-  [[ $output == *"AUTH_MODE musi być native albo oidc, jest 'ldap'"* ]]
+  [[ $output == *"AUTH_MODE musi być native, entra albo oidc, jest 'ldap'"* ]]
+}
+
+# --- AUTH_MODE=entra: Entra ID, login z rejestru (tid, oid) -> konto, rola aplikacji (#18) ---------
+ENTRA_TID=3f1c2b4a-0000-4000-8000-000000000001
+
+entra_env() {
+  install -d "$SANDBOX/etc/wlb"
+  cat >"$SANDBOX/etc/wlb/entra-accounts" <<EOF
+# tid oid konto
+$ENTRA_TID 9a8b7c6d-0000-4000-8000-0000000000a1 u01
+$ENTRA_TID 9a8b7c6d-0000-4000-8000-0000000000a2 a01
+EOF
+  chmod 0600 "$SANDBOX/etc/wlb/entra-accounts"
+  cat >>"$SANDBOX/etc/wlb/lab.env" <<EOF
+AUTH_MODE=entra
+ENTRA_TENANT_ID=$ENTRA_TID
+ENTRA_REQUIRED_ROLE=WLB.Lab.lab-test01
+OIDC_CLIENT_ID=6c3e2f10-0000-4000-8000-0000000000c1
+OIDC_CLIENT_SECRET=sekret-123
+OIDC_CALLBACK_URL=https://portal.wlb.local/hub/oauth_callback
+EOF
+  export WLB_ENTRA_ACCOUNTS_TOOL="$BATS_TEST_DIRNAME/../../ansible/roles/tljh/files/wlb_entra_accounts.py"
+  WLB_ENTRA_ACCOUNTS_OWNER=$(id -u)
+  export WLB_ENTRA_ACCOUNTS_OWNER
+}
+
+@test "AUTH_MODE entra: config WlbEntraAuthenticator, konta i hasła Native bez zmian" {
+  fake_hub_user
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  python3 -m py_compile "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
+  authconf | grep -qx "sys.path.insert(0, '/opt/wlb/hub')"
+  authconf | grep -qx "c.JupyterHub.authenticator_class = WlbEntraAuthenticator"
+  authconf | grep -qx "c.WlbEntraAuthenticator.tenant_id = '$ENTRA_TID'"
+  authconf | grep -qx "c.WlbEntraAuthenticator.required_role = 'WLB.Lab.lab-test01'"
+  authconf | grep -qx "c.WlbEntraAuthenticator.accounts_file = '/etc/wlb/entra-accounts'"
+  authconf | grep -qx "c.WlbEntraAuthenticator.allow_all = False"
+  refute grep -qE "username_claim|allowed_users|admin_groups" "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py"
+  [ "$(stat -c %a "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py")" = 600 ]
+  [[ $output == *"uwierzytelnianie: Entra ID (tenant $ENTRA_TID, rola WLB.Lab.lab-test01)"* ]]
+  # nieinwazyjnie: konta stanowiskowe dalej zakładane tym samym narzędziem (hasła Native = droga powrotu)
+  [ -e "$HUBDB/a01" ]
+  [ -e "$HUBDB/u01" ]
+}
+
+@test "AUTH_MODE entra: wygenerowany config ładuje WlbEntraAuthenticator (oauthenticator 17)" {
+  python3 -c 'import oauthenticator' 2>/dev/null || skip "brak oauthenticator (ci/requirements-unit.txt)"
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  local mods="$BATS_TEST_DIRNAME/../../ansible/roles/tljh/files"
+  run python3 - "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" "$mods" <<'PY'
+import sys
+from traitlets.config import Config
+src = open(sys.argv[1]).read().replace("/opt/wlb/hub", sys.argv[2])
+c = Config()
+ns = {"get_config": lambda: c}
+exec(src, ns)
+a = c.JupyterHub.authenticator_class(config=c)
+assert a.allow_all is False and a.manage_groups is False and a.refresh_pre_spawn
+print("OK", a.authorize_url)
+PY
+  [ "$status" -eq 0 ]
+  [[ $output == *"OK https://login.microsoftonline.com/$ENTRA_TID/oauth2/v2.0/authorize"* ]]
+}
+
+@test "AUTH_MODE entra: brak wymaganej zmiennej przerywa przed zmianą" {
+  local v
+  for v in ENTRA_TENANT_ID ENTRA_REQUIRED_ROLE OIDC_CLIENT_ID OIDC_CLIENT_SECRET OIDC_CALLBACK_URL; do
+    entra_env
+    sed -i "/^${v}=/d" "$SANDBOX/etc/wlb/lab.env"
+    run "$FIRSTBOOT"
+    [ "$status" -eq 1 ]
+    [[ $output == *"AUTH_MODE=entra: brak wymaganej zmiennej ${v}"* ]]
+    [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+    refute grep -q "^nft" "$CALLS"
+  done
+}
+
+@test "AUTH_MODE entra: walidacja tenantu, roli i callbacku" {
+  entra_env
+  sed -i 's/^ENTRA_TENANT_ID=.*/ENTRA_TENANT_ID=gumed.onmicrosoft.com/' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"ENTRA_TENANT_ID musi być identyfikatorem GUID"* ]]
+  sed -i "s/^ENTRA_TENANT_ID=.*/ENTRA_TENANT_ID=$ENTRA_TID/; s/^ENTRA_REQUIRED_ROLE=.*/ENTRA_REQUIRED_ROLE='rola; rm -rf'/" "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"ENTRA_REQUIRED_ROLE musi być wartością roli aplikacji"* ]]
+  sed -i "s/^ENTRA_REQUIRED_ROLE=.*/ENTRA_REQUIRED_ROLE=WLB.Lab.lab-test01/; s#^OIDC_CALLBACK_URL=.*#OIDC_CALLBACK_URL=http://portal.wlb.local/hub/oauth_callback#" "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"OIDC_CALLBACK_URL musi mieć postać https://<portal>/hub/oauth_callback"* ]]
+  sed -i "s#^OIDC_CALLBACK_URL=.*#OIDC_CALLBACK_URL=https://a.example/x?/hub/oauth_callback#" "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"OIDC_CALLBACK_URL musi mieć postać"* ]]
+}
+
+@test "AUTH_MODE entra: rejestr brakujący, zbyt szeroko dostępny albo błędny przerywa" {
+  entra_env
+  chmod 0644 "$SANDBOX/etc/wlb/entra-accounts"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"rejestr /etc/wlb/entra-accounts ma zbyt szerokie prawa (644)"* ]]
+  chmod 0600 "$SANDBOX/etc/wlb/entra-accounts"
+  # oczekiwany właściciel inny niż faktyczny (testy w CI biegną jako root, lokalnie jako użytkownik)
+  WLB_ENTRA_ACCOUNTS_OWNER=$(($(id -u) + 1)) run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"rejestr /etc/wlb/entra-accounts musi należeć do root"* ]]
+  echo "3f1c2b4a-0000-4000-8000-000000000002 9a8b7c6d-0000-4000-8000-0000000000a3 u02" >>"$SANDBOX/etc/wlb/entra-accounts"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"wiersz 4: tid spoza tenantu"* ]]
+  [[ $output == *"rejestr przypisań /etc/wlb/entra-accounts niepoprawny"* ]]
+  rm "$SANDBOX/etc/wlb/entra-accounts"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak rejestru przypisań /etc/wlb/entra-accounts"* ]]
+  [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+}
+
+@test "AUTH_MODE entra -> native: powrót usuwa config Entra (rollback, RB-entra)" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  [ -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+  sed -i 's/^AUTH_MODE=entra/AUTH_MODE=native/' "$SANDBOX/etc/wlb/lab.env"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  [ ! -e "$SANDBOX/opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py" ]
+  [[ $output == *"uwierzytelnianie: native"* ]]
+}
+
+# --- Zmiana AUTH_MODE: odwołanie poświadczeń i powiązania kont (przegląd #330) -------------------
+bindings() { echo "$SANDBOX/workspace/.wlb-hub/entra-bindings"; }
+
+@test "AUTH_MODE native bez zmiany: bez odwołania poświadczeń, stan zapisany" {
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  refute grep -q "wlb-hub-revoke" "$CALLS"
+  [ "$(cat "$SANDBOX/workspace/.wlb-hub/auth-mode")" = native ]
+  [ ! -e "$(bindings)" ]
+}
+
+@test "native -> entra: odwołanie wszystkich poświadczeń i pusty plik powiązań przed otwarciem huba" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  grep -qx "wlb-hub-revoke --all" "$CALLS"
+  [[ $output == *"zmiana native -> entra — odwołano ciasteczka i tokeny"* ]]
+  [ "$(cat "$(bindings)")" = "{}" ]
+  [ "$(stat -c %a "$(bindings)")" = 600 ]
+  [ "$(cat "$SANDBOX/workspace/.wlb-hub/auth-mode")" = entra ]
+  # odwołanie przed otwarciem portu huba (ostatnie ładowanie zapory)
+  revoke_line=$(grep -n "wlb-hub-revoke" "$CALLS" | head -1 | cut -d: -f1)
+  open_line=$(grep -n "^nft" "$CALLS" | tail -1 | cut -d: -f1)
+  [ "$revoke_line" -lt "$open_line" ]
+}
+
+@test "entra -> entra (--force): bez ponownego odwołania, powiązania zachowane" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  echo '{"u01": "t o"}' >"$(bindings)"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  refute grep -q "wlb-hub-revoke" "$CALLS"
+  [ "$(cat "$(bindings)")" = '{"u01": "t o"}' ]
+}
+
+@test "entra bez pliku powiązań po wcześniejszym entra przerywa przed zmianą (utrata/niepełne odtworzenie)" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  rm "$(bindings)"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 1 ]
+  [[ $output == *"brak /workspace/.wlb-hub/entra-bindings — odtwórz go z kopii razem z bazą huba albo zainicjuj świadomie"* ]]
+  [ ! -e "$(bindings)" ]
+  refute grep -q "wlb-hub-revoke" "$CALLS"
+  refute grep -q "^nft" "$CALLS"
+}
+
+@test "WLB_ENTRA_REINIT=1: odwołanie, nowy pusty plik, stary zachowany jako dowód" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  echo '{"u01": "t a"}' >"$(bindings)"
+  : >"$CALLS"
+  WLB_ENTRA_REINIT=1 run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  grep -qx "wlb-hub-revoke --all" "$CALLS"
+  [ "$(cat "$(bindings)")" = "{}" ]
+  grep -q '"u01": "t a"' "$(bindings)".przed-reinit-*
+}
+
+@test "entra -> native (rollback): odwołanie sesji Entra, powiązania zostają na powrót" {
+  entra_env
+  run "$FIRSTBOOT"
+  [ "$status" -eq 0 ]
+  echo '{"u01": "t a"}' >"$(bindings)"
+  sed -i 's/^AUTH_MODE=entra/AUTH_MODE=native/' "$SANDBOX/etc/wlb/lab.env"
+  : >"$CALLS"
+  run "$FIRSTBOOT" --force
+  [ "$status" -eq 0 ]
+  grep -qx "wlb-hub-revoke --all" "$CALLS"
+  [ "$(cat "$SANDBOX/workspace/.wlb-hub/auth-mode")" = native ]
+  [ "$(cat "$(bindings)")" = '{"u01": "t a"}' ]
+}
+
+@test "błąd odwołania poświadczeń przerywa firstboot, hub nie zostaje otwarty, stan bez zmiany" {
+  entra_env
+  stub wlb-hub-revoke 1
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"nie udało się odwołać poświadczeń sprzed zmiany — hub zatrzymany"* ]]
+  [ ! -e "$SANDBOX/workspace/.wlb-hub/auth-mode" ]
+  refute grep -Fq 'ip saddr 10.10.1.0/24 tcp dport' "$SANDBOX/etc/nftables.conf"
 }
 
 # --- Instalacja pakietów przez badacza (#23, IMG-004) ---------------------------------------

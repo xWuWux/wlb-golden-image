@@ -22,7 +22,7 @@ SHELL_SCRIPTS=(
   ansible/roles/tljh/files/wlb-hub-db-restore
 )
 BATS_FILES=(tests/unit/*.bats tests/unit/helpers.bash)
-PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/storage/files/wlb-export-snapshot ansible/roles/storage/files/wlb-export)
+PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/tljh/files/wlb-hub-revoke ansible/roles/tljh/files/wlb_entra_*.py ansible/roles/storage/files/wlb-export-snapshot ansible/roles/storage/files/wlb-export)
 
 step() {
   if [[ -n ${GITHUB_ACTIONS:-} ]]; then echo "::group::$*"; else echo && echo "== $*"; fi
