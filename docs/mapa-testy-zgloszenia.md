@@ -58,6 +58,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-20). Odświ
 - `tests/acceptance-remote.sh` — `Manifest i integralność kopii w kolejce (#20)`
 - `tests/migration-remote.sh` — `Manifest i kopia przeżywają wymianę VM (#20)`
 - `tests/unit/test_wlb_export_snapshot.py` — *#20: integralność kopii, manifest, wyścigi i awarie*
+- `tests/unit/wlb-export.bats` — `wlb-export list: pokazuje wniosek z metadanymi (#20)`, `wlb-export list: wpis legacy (bez manifestu v1) oznaczony, nie ukryty (#20)`, `wlb-export show: zweryfikowany deskryptor po request_id, bez treści/nazw plików (#20)`, `wlb-export stage: kopiuje zweryfikowany payload do staged, kolejka nietknięta (#20)`, `wlb-export stage: nie nadpisuje istniejącego staged (retencja ręczna, #20)`, `wlb-export staged-clear: usuwa staged pliki (#20)`, `wlb-export verify: poprawny pakiet -> exit 0 (#20)`, `wlb-export: list/show/verify NIE modyfikują kolejki (inwariant read-only, #20)`, `wlb-export: nieznany request_id -> błąd niezerowy (fail-closed, #20)`
 - `tests/unit/wlb-sluza-out-mover.bats` — `#20: niedozwolony element zatrzymuje cały katalog w kwarantannie`, `#20: suma katalogu odtwarzalna przez weryfikator po przeniesieniu pakietu`
 
 ### #22 — Metryki VM (np. node_exporter, /hub/metrics) — wybór systemu monitoringu  ·  _otwarte_
