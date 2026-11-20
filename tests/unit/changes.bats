@@ -134,7 +134,8 @@ repo_with_base() {
   has_line "radiologia=true"
   has_line "memory=true"
   has_line "histologia=true"
-  has_line 'flavors=["general", "radiologia", "memory", "histologia"]' # pełna macierz (#317/P1-5)
+  has_line "pediatria=true"
+  has_line 'flavors=["general", "radiologia", "memory", "histologia", "pediatria"]' # pełna macierz (#317/P1-5)
 }
 
 @test "ci.yml i changes.sh: NIGHTLY_CRON jest identyczny ze schedule w workflow" {
@@ -159,6 +160,7 @@ repo_with_base() {
   has_line "radiologia=true"
   has_line "memory=true"
   has_line "histologia=true"
+  has_line "pediatria=true"
 }
 
 @test "śluza: PR i merge_group wymagają integracji bez etykiety (#149)" {
@@ -191,6 +193,26 @@ repo_with_base() {
   has_line "radiologia=true"
   has_line "image=true"
   has_line 'flavors=["general", "radiologia"]' # tylko opt-in flavor + general (#317/P1-5)
+}
+
+@test "pediatria: zmiana plików flavora wyzwala build+test pediatrii (#271)" {
+  for file in ansible/roles/postgres/tasks/main.yml ansible/roles/dbeaver/tasks/main.yml \
+    ansible/pediatria.yml packer/wlb-pediatria.pkr.hcl tests/acceptance.d/72-pediatria.sh; do
+    repo_with_base "$file"
+    run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+    [ "$status" -eq 0 ]
+    has_line "pediatria=true"
+    has_line "image=true" # pediatria layered na bazie — baza musi się zbudować
+  done
+}
+
+@test "pediatria: etykieta build-pediatria wyzwala flavor na żądanie (#271)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='["build-pediatria"]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "pediatria=true"
+  has_line "image=true"
+  has_line 'flavors=["general", "pediatria"]' # tylko opt-in flavor + general (#317/P1-5)
 }
 
 @test "flavors: etap 5 obowiązkowy bez flavora -> macierz tylko general (#317/P1-5)" {

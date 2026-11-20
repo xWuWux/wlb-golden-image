@@ -1,0 +1,23 @@
+# Flavor wlb-pediatria (#271): stos danych na GOTOWYM obrazie wlb-general. Warstwowy build (jak
+# wlb-memory/radiologia): nakłada pulpit (rola desktop) + lokalny PostgreSQL 16 (rola postgres,
+# headless) + klient GUI DBeaver CE (rola dbeaver). Obraz bazowy zostaje lekki.
+- name: WLB wlb-pediatria — pulpit + PostgreSQL 16 + DBeaver CE na obrazie wlb-general
+  hosts: all
+  become: true
+  roles:
+    - desktop
+    - postgres
+    - dbeaver
+
+  post_tasks:
+    - name: Zaktualizuj metadane obrazu na flavor wlb-pediatria
+      ansible.builtin.lineinfile:
+        path: /etc/wlb/image-release
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: WLB_IMAGE_NAME, value: "{{ wlb_image_name }}" }
+        - { key: WLB_IMAGE_VERSION, value: "{{ wlb_image_version }}" }
+        - { key: WLB_IMAGE_DATE, value: "{{ wlb_image_date }}" }
+      loop_control:
+        label: "{{ item.key }}"

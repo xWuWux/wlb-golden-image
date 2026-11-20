@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# wlb-postgres-setup — tworzy klaster PostgreSQL na trwałym /workspace/pgdata przy pierwszym boocie (#271).
+#
+# Uruchamiany przez wlb-postgres-setup.service: Type=oneshot, Before=postgresql@16-main.service,
+# After=wlb-firstboot.service, RequiresMountsFor=/workspace. NIE startuje PG i NIE wykonuje SQL
+# (to robi wlb-postgres-provision PO starcie klastra). Idempotentny:
+#   - brak klastra (bez PG_VERSION) -> install -d + pg_createcluster --datadir=/workspace/pgdata
+#   - klaster istnieje (np. po wymianie dysku systemowego) -> tylko weryfikacja praw, BEZ initdb
+#
+# Konfiguracja WLB jest montowana z katalogu stagingowego (zapisanego przez Ansible przy budowie),
+# bo /etc/postgresql/16/main powstaje dopiero po pg_createcluster — nie da się jej umieścić wcześniej.
+#
+# Zmienne (nadpisywalne w testach):
+#   WLB_PG_VERSION      wersja PG (domyślnie 16)
+#   WLB_PG_DATA_DIR     katalog danych (domyślnie /workspace/pgdata)
+#   WLB_PG_STAGE_DIR    staging konfiguracji WLB (domyślnie /etc/wlb/postgres)
+#   WLB_PG_CONF_DIR     docelowy katalog konfiguracji klastra (domyślnie /etc/postgresql/<ver>/main)
+set -euo pipefail
+
+PGVER=${WLB_PG_VERSION:-16}
+PGDATA=${WLB_PG_DATA_DIR:-/workspace/pgdata}
+STAGE=${WLB_PG_STAGE_DIR:-/etc/wlb/postgres}
+CONFDIR=${WLB_PG_CONF_DIR:-/etc/postgresql/$PGVER/main}
+
+log() {
+  logger -t wlb-postgres-setup -p daemon.notice -- "$*" 2>/dev/null || true
+  echo "wlb-postgres-setup: $*"
+}
+die() {
+  echo "wlb-postgres-setup BŁĄD: $*" >&2
+  exit 1
+}
+
+# Katalog roboczy (rodzic PGDATA) musi istnieć — RequiresMountsFor= to gwarantuje, ale sprawdzamy
+# fail-safe, by nie zainicjować klastra na jednorazowym dysku systemowym przy niezamontowanym /workspace.
+WORKROOT=$(dirname "$PGDATA")
+[[ -d "$WORKROOT" ]] || die "$WORKROOT nie jest zamontowany — nie tworzę klastra na dysku jednorazowym"
+
+apply_wlb_config() {
+  # Nakłada konfigurację WLB na świeżo utworzony klaster. conf.d jest dołączany przez postgresql.conf.
+  install -d -m 0755 "$CONFDIR/conf.d"
+  install -m 0644 "$STAGE/50-wlb.conf" "$CONFDIR/conf.d/50-wlb.conf"
+  install -m 0640 -o postgres -g postgres "$STAGE/pg_hba.conf" "$CONFDIR/pg_hba.conf"
+  install -m 0640 -o postgres -g postgres "$STAGE/pg_ident.conf" "$CONFDIR/pg_ident.conf"
+}
+
+if [[ -f "$PGDATA/PG_VERSION" ]]; then
+  # Dysk roboczy z istniejącym klastrem (wymiana dysku systemowego): NIE initdb — chronimy dane.
+  chown postgres:postgres "$PGDATA"
+  chmod 0700 "$PGDATA"
+  [[ -d "$CONFDIR" ]] && apply_wlb_config
+  log "klaster istnieje w $PGDATA (PG_VERSION=$(cat "$PGDATA/PG_VERSION")); pominięto tworzenie"
+  exit 0
+fi
+
+install -d -m 0700 -o postgres -g postgres "$PGDATA"
+# pg_createcluster rejestruje klaster w /etc/postgresql i kieruje dane na /workspace; bez --start.
+pg_createcluster "$PGVER" main --datadir="$PGDATA" >/dev/null || die "pg_createcluster nie powiódł się"
+apply_wlb_config
+log "utworzono klaster $PGVER/main w $PGDATA i nałożono konfigurację WLB"

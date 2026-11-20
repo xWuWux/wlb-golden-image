@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=DBeaver CE
+GenericName=Menedżer baz danych
+Comment=Klient PostgreSQL i menedżer baz danych (DBeaver CE)
+Exec=/usr/local/bin/dbeaver %U
+Icon=/usr/share/dbeaver-ce/dbeaver.png
+Terminal=false
+StartupWMClass=DBeaver
+StartupNotify=true
+Categories=Development;Database;IDE;
+Keywords=PostgreSQL;SQL;DBeaver;baza;dane;

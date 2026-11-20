@@ -88,6 +88,16 @@ histologia_change() {
   grep -qE '^(ansible/roles/(histo_apps|desktop|rstudio)/|ansible/histologia\.yml$|packer/wlb-histologia\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|47-histologia)\.sh$)' <<<"$changed"
 }
 
+# #271: zmiana flavora wlb-pediatria (postgres/dbeaver/desktop, pediatria.yml/packer, testy flavora)
+# wymaga przebudowy i testu stosu danych (klaster PG na /workspace, połączenie DBeaver/JDBC) na realnym
+# obrazie — init klastra i auth przez .pgpass łapie tylko build/akceptacja, nie test jednostkowy.
+pediatria_change() {
+  local changed
+  [[ -n $1 ]] || return 0
+  changed=$(git diff --name-only "$1" HEAD) || return 0
+  grep -qE '^(ansible/roles/(postgres|dbeaver|desktop)/|ansible/pediatria\.yml$|packer/wlb-pediatria\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|72-pediatria)\.sh$|tests/lib/WlbJdbcPing\.java$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
@@ -159,6 +169,22 @@ case $EVENT in
 esac
 [[ $histologia == true ]] && image=true
 
+# Pediatria (flavor stosu danych: pulpit+PostgreSQL+DBeaver): opt-in etykietą build-pediatria albo
+# zmiana plików flavora na PR; nocny build też go obejmuje. Buduje się na obrazie bazowym -> image=true. #271
+pediatria=false
+case $EVENT in
+  pull_request | merge_group)
+    { has_label build-pediatria || pediatria_change "$BASE"; } && pediatria=true
+    ;;
+  schedule)
+    [[ $SCHEDULE == "$NIGHTLY_CRON" ]] && pediatria=true
+    ;;
+  workflow_dispatch)
+    pediatria=true # ręczny pełny matrix flavorów (#288)
+    ;;
+esac
+[[ $pediatria == true ]] && image=true
+
 # Dynamiczna macierz flavorów etapu 5: tylko warianty, które REALNIE się zbudują i przetestują.
 # general jest zawsze (gdy image=true — bazowa akceptacja MVP); memory/histologia/radiologia dołączają
 # wyłącznie przy opt-in. Dzięki temu job w macierzy = job, który faktycznie buduje — brak fałszywego
@@ -169,6 +195,7 @@ flavors_list=()
 [[ $radiologia == true ]] && flavors_list+=(radiologia)
 [[ $memory == true ]] && flavors_list+=(memory)
 [[ $histologia == true ]] && flavors_list+=(histologia)
+[[ $pediatria == true ]] && flavors_list+=(pediatria)
 # JSON budujemy w czystym bashu (bez zależności od pythona — spójny format ", " jak json.dumps);
 # nazwy flavorów to kontrolowane literały [a-z], więc nie trzeba escapować.
 flavors_json="["
@@ -190,6 +217,7 @@ echo "image=$image"
 echo "radiologia=$radiologia"
 echo "memory=$memory"
 echo "histologia=$histologia"
+echo "pediatria=$pediatria"
 echo "flavors=$flavors_json"
 echo "perf=$perf"
 echo "ephemeral=$ephemeral"
