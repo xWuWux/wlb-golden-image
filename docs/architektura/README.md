@@ -11,7 +11,7 @@ ten indeks + planowany diagram kontekstu/komponentów. Wszystkie diagramy render
 |---|---|---|
 | **Śluza wyjściowa (eksport danych)** | [`sluza-eksportu.md`](sluza-eksportu.md) | ✅ gotowe (Etap 1) |
 | Śluza wejściowa (import `/sluza-in`) | _planowane_ | ⬜ |
-| **Cykl wydania obrazu** (źródła → baza → warianty → testy → pierwszy boot) | [`cykl-wydania-obrazu.md`](cykl-wydania-obrazu.md) | ✅ gotowe (Etap 1) |
+| **Cykl wydania obrazu** (źródła → baza → warianty → testy → pierwszy boot; wydanie/rollback **częściowo** — luki #71/#224) | [`cykl-wydania-obrazu.md`](cykl-wydania-obrazu.md) | 🟡 częściowe |
 | Utworzenie Laboratorium (wydanie → VM → montowania → konto uNN → sesja) | _planowane_ | ⬜ |
 | Model domenowy (`classDiagram`: projekt, osoba, konto, VM, sesja, wniosek, decyzja, wydanie) | _planowane_ | ⬜ |
 | Diagram komponentów platformy + słownik ról + mapa źródeł | _planowane_ | ⬜ |

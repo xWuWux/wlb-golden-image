@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Dokument** | Architektura WLB — Pakiet 3/3 (#226): budowa i wydanie golden image |
+| **Dokument** | Architektura WLB — pakiety 2–3 (#226): budowa, walidacja i wydanie golden image |
 | **Odbiorca** | osoba bez wcześniejszego kontaktu z WLB (admin, badacz, recenzent, nowy inżynier) |
 | **Zakres** | jak powstaje obraz: potok CI, budowa Packer, kolejność ról Ansible, sanityzacja, warianty (flavory), walidacja na każdym etapie, sekwencja pierwszego bootu |
-| **Status** | potok CI, budowa i walidacja **DZIAŁAJĄ w CI**; promocja `stable`/rollback = **PROCES/RUNBOOK** (poza tym repozytorium) |
-| **Wersja bazowa** | `main` @ `9a5de7f` (zweryfikowano na tym commicie) |
+| **Status** | potok CI, budowa i walidacja **DZIAŁAJĄ w CI**; wydanie (tag `v*` → `release.yml` → `ci/release.sh` → GitHub Release metadanych) jest **w repo, częściowo** — magazyn qcow2, podpis/weryfikacja importu i wywołanie `verify_platform_images.py` w release to **luka #71/#224** |
+| **Wersja bazowa / przegląd** | opisuje stan `main`; zweryfikowano ponownie **2026-11-20** względem bieżącego `main` (firstboot, `release.yml`; potwierdzono brak `verify_audit_ready` i `wlb_build_profile` w main) po recenzji #366 |
 | **Właściciel aktualizacji** | zespół platformy; przegląd przy zmianie grafu `.github/workflows/ci.yml`, provisionerów Packera, listy ról w `ansible/site.yml`, `cleanup.sh` lub sekwencji `wlb-firstboot` |
 | **Powiązania** | #226 (dokumentacja), #317 (macierz flavorów), #257 (SARIF/Code scanning), #251/#268 (bramka dostępu — pierwszy boot), #277 (profil `production` vs `test`), #9 (jedno jądro), #288 (idempotencja) |
 
@@ -14,13 +14,13 @@
 
 ## Co to jest „golden image" i po co go budować (dla nowej osoby)
 
-**WLB (Wirtualne Laboratorium Badawcze)** to odizolowana maszyna wirtualna. Każde Laboratorium dostaje VM uruchomioną z jednego, **niezmiennego (immutable) obrazu dysku** — tzw. *golden image*. Zamiast konfigurować każdą VM ręcznie, budujemy **jeden zweryfikowany obraz** i z niego klonujemy wszystkie Laboratoria. Dzięki temu:
+**WLB (Wirtualne Laboratorium Badawcze)** to odizolowana maszyna wirtualna. Każde Laboratorium dostaje VM uruchomioną z jednego **obrazu dysku wydania** (*golden image*), identyfikowanego przez **digest konkretnego qcow2**. Obraz budujemy raz; VM dostaje **osobną konfigurację i stan** przy wdrożeniu (niezmienny artefakt wydania ≠ niezmienna działająca VM ani identyczne bajty przy ponownym buildzie tego samego commita). Dopuszczenie do wydania jest osobną polityką. Dzięki temu:
 
-- **powtarzalność** — każda VM jest identyczna i opisana commitem,
-- **audytowalność** — wiadomo dokładnie, co jest w środku (SBOM, skan CVE, metadane),
+- **powtarzalność** — artefakt wydania jest opisany commitem i identyfikowany digestem qcow2,
+- **audytowalność** — inwentarz obrazu jest raportowany (SBOM, skan CVE, metadane); skany wykrywają wzorce wg konfiguracji, nie dowodzą nieobecności podatności,
 - **bezpieczeństwo** — hardening (nftables, AppArmor, audyt, sshd) jest „zapieczony" w obrazie, a nie dokładany po fakcie.
 
-Obraz powstaje **wyłącznie w CI** (GitHub Actions) z kodu w tym repozytorium. Nikt nie buduje go ręcznie na produkcji. Konfiguracja konkretnego Laboratorium (klucz SSH admina, nazwy, CIDR) trafia dopiero **przy wdrożeniu**, przez cloud-init — nie jest częścią obrazu.
+Obraz jest budowany przez **CI** (GitHub Actions) z kodu w tym repozytorium; `Makefile` udostępnia też lokalne `make build` dla dewelopera. Dopuszczenie do wydania jest osobną polityką. Konfiguracja konkretnego Laboratorium (klucz SSH admina, nazwy, CIDR) trafia dopiero **przy wdrożeniu**, przez cloud-init — nie jest częścią obrazu.
 
 ## Dwa osobne cloud-inity (częsta pomyłka)
 
@@ -59,7 +59,7 @@ flowchart TD
   O["3.5. Kontrakty obrazu<br/>metryki, zmienne wdrożeniowe"]
   U["4. Testy jednostkowe + pokrycie<br/>pytest + bats pod kcov"]
   M["4b. Testy mutacyjne<br/>mutacje bash + mutmut"]
-  BA["5a. Budowa bazy<br/>Packer: wlb-general (profil production)"]
+  BA["5a. Budowa bazy<br/>Packer: wlb-general (e2e=false)"]
   I["5. Integracja (per flavor)<br/>build flavora + boot VM + acceptance + SCA"]
   P["6a. Benchmarki wydajności"]
   E["6b. Wdrożenie tymczasowe (OpenStack)"]
@@ -96,9 +96,10 @@ flowchart TD
     C3["provisioner ansible:<br/>site.yml (12 ról)"]
     C4["provisioner shell:<br/>cleanup.sh (sanityzacja)"]
     C5["shutdown_command:<br/>userdel -r packer; shutdown -P"]
-    C1 --> C2 --> C3 --> C4 --> C5
+    C6["post-processory Packera:<br/>kompresja zstd + manifest + SHA-256<br/>(suma dotyczy KOŃCOWEGO skompresowanego pliku)"]
+    C1 --> C2 --> C3 --> C4 --> C5 --> C6
   end
-  BAZA --> IMG["wlb-general.qcow2<br/>(obraz bazowy, profil production, e2e=false)"]
+  BAZA --> IMG["wlb-general.qcow2<br/>(obraz bazowy, e2e=false)"]
   IMG --> F1["wlb-memory<br/>desktop + rstudio + memory_apps"]
   IMG --> F2["wlb-histologia<br/>desktop + rstudio + histo_apps"]
   IMG --> F3["wlb-radiologia<br/>desktop + neuro_apps"]
@@ -106,7 +107,7 @@ flowchart TD
 
 ### Kolejność ról Ansible (`ansible/site.yml`)
 
-Role są **zależne od poprzednich** (np. `tljh` wymaga użytkowników i katalogów z `storage`; `lab_config` hartuje to, co złożyły wcześniejsze role):
+Lista to **kolejność wykonania**, nie dowód, że każda rola zależy od bezpośrednio poprzedniej (choć niektóre zależą — np. `tljh` wymaga użytkowników/katalogów z `storage`; `lab_config` hartuje to, co złożyły wcześniejsze). **12 pozycji, w tym 2 warunkowe** — `rstudio` i `desktop` instalują się tylko dla flavorów, które ich wymagają:
 
 | # | Rola | Co wnosi |
 |---|---|---|
@@ -146,7 +147,7 @@ Role są **zależne od poprzednich** (np. `tljh` wymaga użytkowników i katalog
 | 3.5. Kontrakty | `ci/observability.sh` (`metrics_check`, `deployment_vars`) | metryki i zmienne wdrożeniowe spójne (`lab.env` ↔ firstboot ↔ przykłady) | statyczny |
 | 4. Unit | pytest + bats pod **kcov** | jednostki (parsery, firstboot, eksport, …) + **pokrycie** | dynamiczny |
 | 4b. Mutacje | `ci/mutation.sh`, mutmut | testy faktycznie **zabijają** wprowadzone błędy (nie są puste) | dynamiczny |
-| 5a. Baza | `packer build` wlb-general | obraz bazowy **realnie się buduje** (profil production, e2e=false) | budowa |
+| 5a. Baza | `packer build` wlb-general | obraz bazowy **realnie się buduje** (e2e=false via `wlb_enable_e2e_target`) | budowa |
 | 5. Integracja | `ci/integration.sh` → boot VM + `tests/acceptance.sh` + osv-scanner | **realna VM** przechodzi akceptację; SBOM + skan CVE obrazu | E2E |
 | 6a. Perf | benchmarki | budżety wydajności nie są przekroczone | E2E |
 | 6b. Ephemeral | deploy OpenStack | obraz startuje na prawdziwej chmurze | E2E |
@@ -156,9 +157,9 @@ Role są **zależne od poprzednich** (np. `tljh` wymaga użytkowników i katalog
 
 ---
 
-## Diagram 3 — pierwszy boot VM (sekwencja fail-closed)
+## Diagram 3 — pierwszy boot VM (sekwencja, stan main)
 
-To **nie** jest część budowy — dzieje się przy **pierwszym starcie** wdrożonej VM. `wlb-firstboot` (z roli `lab_config`) startuje z **zamkniętą** bramką huba i otwiera ją **dopiero** po potwierdzeniu gotowości (#251/#268). Awaria na dowolnym etapie zostawia hub zamknięty; kanał SSH operatora zostaje do naprawy.
+To **nie** jest część budowy — dzieje się przy **pierwszym starcie** wdrożonej VM. `wlb-firstboot` (z roli `lab_config`) zamyka **port huba** regułą nftables (faza 1), wykonuje konfigurację i otwiera port **po** starcie jednostki audytu (faza 2). **Kontrakt ograniczony:** `trap fail_closed_on_exit` próbuje zamknąć bramkę **tylko** gdy `HUB_OPENED=1` i brak `firstboot.done`; reboot, SIGKILL, istniejące połączenia (`established,related` poprzedza regułę huba), nieudane zamknięcie oraz ponowienie z istniejącym markerem **nie są** tą sekwencją objęte — to osobny odbiór **#268**.
 
 ```mermaid
 sequenceDiagram
@@ -166,26 +167,21 @@ sequenceDiagram
   participant CI as cloud-init (deploy)
   participant FB as wlb-firstboot
   participant NFT as nftables
-  participant AU as auditd
+  participant AU as audyt
   participant HUB as JupyterHub
 
   CI->>FB: start przy pierwszym boocie (lab.env gotowe)
-  FB->>NFT: write_nftables 0 (bramka huba ZAMKNIĘTA, SSH otwarty)
-  FB->>FB: walidacja lab.env, TLS, CIDR
-  FB->>HUB: pre-provisioning kont uNN / a01 (zapis do SQLite, nie przez port)
-  FB->>HUB: hub_ready? (lokalne API, bramka zamknięta)
-  FB->>AU: systemctl start wlb-audit-rules (augenrules --load; auditctl -e 2)
-  FB->>AU: verify_audit_ready (auditctl -s = enabled 2 + reguły) [#268]
-  alt audyt potwierdzony w jądrze
-    FB->>NFT: write_nftables 1 (bramka huba OTWARTA dla HUB_ALLOWED_CIDR)
-    FB->>FB: zapis firstboot.done (atomowo)
-  else audyt niepotwierdzony / błąd fazy
-    FB->>NFT: trap fail_closed_on_exit → bramka pozostaje ZAMKNIĘTA
-    Note over FB,HUB: hub niedostępny z sieci; operator wchodzi po SSH i naprawia
-  end
+  FB->>FB: walidacja lab.env, TLS, CIDR (część przed zamknięciem)
+  FB->>NFT: write_nftables 0 (faza 1 - port huba ZAMKNIĘTY; SSH z ADMIN_SSH_CIDR, reguła z roli lab_config)
+  FB->>HUB: hub_ready - czeka na lokalne API huba (bramka zamknięta)
+  FB->>HUB: provision_hub_account - admin a01 + konta uNN (do bazy huba, nie przez port)
+  FB->>AU: audit-config.requested + systemctl start wlb-audit-rules (augenrules --load; warunkowo auditctl -e 2)
+  FB->>NFT: HUB_OPENED=1; write_nftables 1 (faza 2 - port huba OTWARTY dla HUB_ALLOWED_CIDR)
+  FB->>FB: zapis firstboot.done (atomowo)
+  Note over FB,NFT: trap zamyka bramkę TYLKO przy HUB_OPENED=1 i braku firstboot.done;<br/>reboot / SIGKILL / established / nieudane zamknięcie - poza zakresem (#268)
 ```
 
-**Dlaczego tak:** otwarcie dostępu do huba następuje **po** udowodnieniu w jądrze, że audyt działa i jest zablokowany (`-e 2`) — sam kod wyjścia `systemctl` nie wystarcza, bo usługa z `ConditionPathExists` może zwrócić 0 bez wykonania (#268, kryterium 2).
+**Uwaga do #268 (NIEzrealizowane w main):** kryterium 2 #268 proponuje `verify_audit_ready` — odczyt `auditctl -s` (enabled=2) i porównanie reguł **przed** otwarciem portu, bo sam kod wyjścia `systemctl start wlb-audit-rules` może być 0, gdy `ConditionPathExists` pominie usługę. **W main tej funkcji nie ma** (jest w otwartym PR #365). Diagram powyżej pokazuje stan main: po `systemctl start` następuje `write_nftables 1` bez dodatkowego odczytu stanu jądra.
 
 ---
 
@@ -193,7 +189,26 @@ sequenceDiagram
 
 - **Metadane obraz** (`/etc/wlb/image-release`): `WLB_IMAGE_NAME`, `WLB_IMAGE_VERSION`, `WLB_IMAGE_DATE`, commit — zapisywane przez `post_tasks` w `site.yml`.
 - **Artefakty CI**: `image-<run_id>` (qcow2), `build/ci-logs/*` (logi, kontrakty, SARIF), `image-sca` (SBOM + skan CVE), `coverage`, `mutation`.
-- **Promocja `stable` / rollback**: **poza** tym repozytorium — osobny proces/runbook wydania (zaznaczone jako luka w indeksie architektury).
+
+### Wydanie (tag → pakiet metadanych) — co JEST w repo
+
+Osobny workflow `.github/workflows/release.yml` na tag `v*`: buduje i testuje przez `ci/integration.sh`, wywołuje `ci/release.sh`, publikuje `build/release/*` jako GitHub Release.
+
+```mermaid
+flowchart LR
+  T["tag v X.Y.Z<br/>(ręcznie, z zielonego main)"] --> RW["release.yml"]
+  RW --> IT["ci/integration.sh<br/>(build + akceptacja)"]
+  RW --> RS["ci/release.sh<br/>(walidacja: format vX.Y.Z,<br/>tag=HEAD, metadane, czyste drzewo)"]
+  RS --> PKG["build/release/*<br/>(pakiet metadanych)"]
+  PKG --> GH["GitHub Release"]
+```
+
+**Jawne luki (nie 'poza repo', lecz niedomknięte):**
+- `ci/release.sh` publikuje **pakiet metadanych, nie sam qcow2** — magazyn obrazu, podpis i weryfikacja przy imporcie: stan **#71/#224**.
+- Istnieje walidator `ci/verify_platform_images.py` + katalog `release/image-catalog.json`, ale **release.yml/release.sh go nie wywołują** — jawna luka, nie brak narzędzia.
+- „Tag z zielonego main" to **instrukcja w komentarzu** workflow, nie techniczna kontrola `needs` wobec CI.
+- Promocja tego samego digestu bez przebudowy i próba odtworzenia: **#224/#71**.
+- Rollback: runbook `docs/runbooks/RB-05-aktualizacja-i-rollback.md`.
 
 ## Mapa źródeł (plik → symbol)
 
@@ -204,10 +219,13 @@ sequenceDiagram
 | Budowa bazy + flavorów | `ci/integration.sh` (`build_image`), `packer/*.pkr.hcl` |
 | Kolejność ról | `ansible/site.yml` |
 | Sanityzacja | `packer/scripts/cleanup.sh` |
-| Profil production/test (#277) | `packer/variables.pkr.hcl` (`wlb_build_profile`) |
+| Przełącznik targetu E2E (w main) | `packer` var `wlb_enable_e2e_target` (bool, domyślnie `false`) → ansible extra-vars → warunkowa instalacja targetu E2E |
 | Pierwszy boot | `ansible/roles/lab_config/files/wlb-firstboot` |
-| Weryfikacja audytu (#268) | `wlb-firstboot` → `verify_audit_ready` |
+| Wydanie / rollback | `.github/workflows/release.yml`, `ci/release.sh`, `docs/runbooks/RB-05-aktualizacja-i-rollback.md`, `ci/verify_platform_images.py`, `release/image-catalog.json` |
+| **Propozycje (NIE w main)** | #268: `verify_audit_ready` (PR #365) · #277-S3: profil `wlb_build_profile` (PR #360) |
 
 ---
 
-> **Status elementów** (konwencja indeksu): potok CI, budowa, sanityzacja i sekwencja pierwszego bootu **DZIAŁAJĄ w CI/DEV** (dowód: `ci.yml`, `cleanup.sh`, testy `wlb-firstboot.bats`). Promocja `stable`/rollback — **PROCES** poza repo. Per-boot re-weryfikacja gotowości (jednostka systemd) i wydzielenie bramki huba — **w toku** (#268, kryteria 1/3).
+> **Status elementów** (konwencja indeksu): potok CI, budowa, sanityzacja i sekwencja pierwszego bootu **DZIAŁAJĄ w CI/DEV** (dowód: `ci.yml`, `cleanup.sh`, testy `wlb-firstboot.bats`). Wydanie (tag → `release.yml` → `release.sh` → GitHub Release metadanych) **DZIAŁA**, ale **częściowo**: magazyn qcow2, podpis/weryfikacja importu, wywołanie `verify_platform_images.py` w release i promocja tego samego digestu — **luki #71/#224**. Per-boot re-weryfikacja gotowości (`verify_audit_ready`, bramka huba przed `established`) — **propozycja #268 (kryteria 1–3), niezaimplementowana w main; PR #365 realizuje kryterium 2**.
+>
+> **Dowód wykonania ≠ dowód poprawności:** „DZIAŁAJĄ w CI" znaczy, że mechanizm jest wdrożony i testy go pokrywają — nie że każdy flavor/etap wykonał się w danym przebiegu. Skan sekretów/CVE wykrywa wzorce wg konfiguracji; brak znalezisk **nie dowodzi** braku podatności. Skan obrazu w CI jest `continue-on-error` i dla `wlb-general`, nie każdego flavora.
