@@ -21,6 +21,8 @@ pierwszym Laboratorium na klastrze).
   znormalizowany JSON do `build/ci-logs/flaky-raw.json`.
 
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
+  Kolejny etap rozszerza macierz o AppArmor (early-exit, `WLB_SWITCHED`, fail-secure, wywołanie `aa-enforce`)
+  i integralność snapshotu eksportu (payload, algorytm digestu, wersja manifestu).
 
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
   w `tests/unit/test_wlb_session_hook.py` dla domykania osieroconych sesji (`interrupted`)
