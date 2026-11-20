@@ -6,8 +6,8 @@ sprawdza niezmienniki:
 1. wartości w cudzysłowach i bez cudzysłowów są parsowane literalnie i casefoldowane;
 2. dwukrotny odczyt tego samego pliku daje identyczną tożsamość (idempotence);
 3. `validate_scan_identity` akceptuje dokładnie tę samą, wspieraną parę ID/VERSION_ID;
-4. każda inna para — inna dystrybucja, inne wydanie albo para spoza wspieranego zbioru —
-   jest odrzucana jako `IdentityError`, bez przypadkowego przejścia.
+4. wspierany target z innym skanerem jest odrzucany jako `IdentityError`;
+5. target spoza wspieranego zbioru jest odrzucany jako `IdentityError`.
 
 Limity są w profilu Hypothesis (`tests/conftest.py`): CI 50 przykładów bez deadline,
 lokalnie 15 przykładów z deadline 5 s. Kontrprzykłady są raportowane przez Hypothesis
@@ -52,16 +52,24 @@ def test_validation_accepts_exact_supported_identical_pair(pair: tuple[str, str]
 
 
 @given(
-    id_value=SAFE_TEXT,
-    version_value=SAFE_TEXT,
+    pair=st.sampled_from(sorted(SUPPORTED)),
     scanner_id=SAFE_TEXT,
     scanner_version=SAFE_TEXT,
 )
-def test_validation_rejects_any_non_supported_or_unequal_pair(
-    id_value: str, version_value: str, scanner_id: str, scanner_version: str
+def test_validation_rejects_supported_target_with_different_scanner(
+    pair: tuple[str, str], scanner_id: str, scanner_version: str
 ):
-    target = OsIdentity(id=id_value, version_id=version_value)
+    distro_id, version_id = pair
+    target = OsIdentity(id=distro_id, version_id=version_id)
     scanner = OsIdentity(id=scanner_id, version_id=scanner_version)
-    assume(not (target.is_supported and target == scanner))
-    with pytest.raises(IdentityError):
+    assume(scanner != target)
+    with pytest.raises(IdentityError, match="srodowisko skanera"):
         validate_scan_identity(target, scanner)
+
+
+@given(id_value=SAFE_TEXT, version_value=SAFE_TEXT)
+def test_validation_rejects_unsupported_target(id_value: str, version_value: str):
+    target = OsIdentity(id=id_value, version_id=version_value)
+    assume(not target.is_supported)
+    with pytest.raises(IdentityError, match="poza wspieranym"):
+        validate_scan_identity(target, target)
