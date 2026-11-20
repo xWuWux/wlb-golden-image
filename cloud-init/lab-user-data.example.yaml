@@ -76,8 +76,8 @@ write_files:
       EGRESS_ALLOW="10.20.0.10:3128 10.30.0.5:5432"
       ADMIN_SSH_CIDR=10.10.0.0/24
       HUB_ALLOWED_CIDR=10.10.1.0/24
-      # native = konta lokalne w bazie huba; oidc = SSO IdP (wymaga OIDC_* — patrz
-      # cloud-init/lab.env.example). Zmiana tutaj to zmiana sposobu logowania badaczy.
+      # native = konta lokalne w bazie huba; entra = Microsoft Entra ID (wzór: cloud-init/examples/
+      # lab-user-data-entra.yaml); oidc = inny IdP. Zmiana tutaj to zmiana sposobu logowania badaczy.
       AUTH_MODE=native
       # 1 = dane przykładowe lokalnego testu obrazu. Nigdy na produkcji.
       LOCAL_TEST_MODE=0

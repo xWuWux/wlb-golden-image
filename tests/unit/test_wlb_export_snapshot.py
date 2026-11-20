@@ -88,12 +88,26 @@ def test_verify_refuses_tampering(snapshot, tmp_path, change):
         (bundle / "payload" / "result").write_text("bad")
     elif change == "extra_file":
         (bundle / "payload" / "extra").touch()
+    elif change == "algorithm":
+        manifest["digest_algorithm"] = (
+            "sha256-file" if manifest["digest_algorithm"] != "sha256-file" else "sha256-inventory-v1"
+        )
+    elif change == "version":
+        manifest["schema_version"] = 2
     else:
-        key = {"algorithm": "digest_algorithm", "version": "schema_version", "state": "state"}[change]
-        manifest[key] = "bad"
-        (bundle / "manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(snapshot.SnapshotError):
+        manifest["state"] = "bad"
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    markers = {
+        "content": "payload-integrity",
+        "algorithm": "algorithm-integrity",
+        "version": "schema-integrity",
+    }
+    try:
         snapshot.verify(bundle)
+    except snapshot.SnapshotError:
+        pass
+    else:
+        raise AssertionError(f"contract:{markers.get(change, 'other')}")
 
 
 def test_old_entries_are_not_silently_approved(snapshot, tmp_path):
@@ -276,7 +290,7 @@ def test_main_create_verify_and_error(snapshot, tmp_path, monkeypatch, capsys):
     assert snapshot.main() == 0
     (bundle / "payload").write_text("changed")
     assert snapshot.main() == 1
-    assert "SnapshotError" in capsys.readouterr().err
+    assert "integrity_mismatch" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("fault", ["short_read", "growth", "zero_write", "fsync", "replace"])

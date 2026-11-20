@@ -19,7 +19,30 @@ pierwszym Laboratorium na klastrze).
   (`wlb-general`), sprawdzające nieobecność 4 ścieżek targetu (`/opt/wlb/e2e`, autostart, kafelek, tmpfiles).
   Dodano testy jednostkowe w `tests/unit/test_e2e_negative_acceptance.py`.
 
+- **#20 E1: czytnik wniosków eksportu po UUID** — `wlb-export-snapshot resolve <queue> <uuid>`
+  oraz `resolve_request(queue, request_id)` wybierają dokładnie jeden pakiet v1 po `request_id`
+  (nie po nazwie pliku). Zwracany `VerifiedBundle` trzyma przypięty `package_fd`; weryfikacja
+  payloadu i ponowne odczyty używają wyłącznie fd-relative, bez reopen po ścieżce. `manifest_sha256`
+  wiąże dokładne bajty manifestu; duplikaty kluczy JSON, legacy, duplikat UUID, symlink, nieznane
+  pola i zły manifest są odrzucane. `resolve` domyślnie nie ujawnia ścieżki/nazwy pakietu;
+  `--show-path` jest jawnym trybem administracyjnym. Testy: `tests/unit/test_wlb_export_resolve.py`.
+
+- **#20 interim: operatorskie CLI `wlb-export`** — `list`/`show`/`verify`/`stage`/`staged-clear`
+  ułatwiają ręczne wyciąganie wyników ze śluzy, dopóki pełny proces #20 nie jest wdrożony.
+  `stage` kopiuje **zweryfikowany** payload do obszaru czytelnego dla konta SSH operatora (do
+  ręcznego `scp`), tylko po `request_id` (nigdy dowolna ścieżka — przez `resolve`), i loguje
+  zdarzenie do SIEM. Decyzje interim: retencja staged **ręczna** (`staged-clear`), admin=Kontroler,
+  bez wymuszonego powodu. `list`/`show`/`verify` są read-only. Testy: `tests/unit/wlb-export.bats`.
+
+- **Normalizator raportów JUnit i testów niestabilnych (#349, PR A2):** dodano moduł `ci/flaky_report.py`
+  parsujący i normalizujący raporty JUnit XML z etapu 4 (pytest) oraz etapu 5 (akceptacja VM). Moduł
+  działa w trybie fail-closed, obsługuje wielokrotne znaczniki `<failure>` w pojedynczym `<testcase>`
+  (subtesty pytest), rozróżnia `<error>` i `<skipped>`, mapuje stabilne `test_id` oraz zapisuje
+  znormalizowany JSON do `build/ci-logs/flaky-raw.json`.
+
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
+  Kolejny etap rozszerza macierz o AppArmor (early-exit, `WLB_SWITCHED`, fail-secure, wywołanie `aa-enforce`)
+  i integralność snapshotu eksportu (payload, algorytm digestu, wersja manifestu).
 
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe
   w `tests/unit/test_wlb_session_hook.py` dla domykania osieroconych sesji (`interrupted`)
@@ -33,10 +56,64 @@ pierwszym Laboratorium na klastrze).
   weryfikacja usunięcia scratcha, markera i stanu, skorelowany `session_stop` z czasem trwania, ponowny spawn
   z nowym identyfikatorem sesji oraz zabezpieczenie sesji badacza przez trap/finally).
 
+- **Procedura DR i odtwarzanie bazy huba (`wlb-hub-db-restore`, #306, #288):** aktualizacja runbooków
+  `docs/runbooks/RB-07-odtworzenie-po-awarii.md` (RB-07b) oraz `docs/runbook-kopia-bazy-huba.md`:
+  wywołanie skryptu `/usr/local/sbin/wlb-hub-db-restore` jako jednego źródła prawdy procedury DR
+  (opcje CLI `--from`, `--no-start`, zmienne środowiskowe, kody wyjścia 0–6); ujednolicenie procedury
+  awaryjnej/fallbacku na wyszukiwanie kopii przez `find` (odporne na format i spacje), sprawdzanie niepustości
+  kopii (`test -s`) przed `integrity_check`, zabezpieczenie dowodowe (`mv` bazy i dzienników `-wal`, `-shm`,
+  `-journal` do katalogu dowodowego) przed jakąkolwiek podmianą, zatrzymanie timera `wlb-hub-db-backup.timer`
+  oraz procedura rollbacku w razie niepowodzenia. Dodano ostrzeżenie operacyjne dotyczące okna RPO (do 1h)
+  i konieczności uzgodnienia przywróconych/usuniętych kont z autorytatywnym rejestrem źródłowym. Zarejestrowano
+  skrypty `wlb-hub-db-backup` i `wlb-hub-db-restore` w `SHELL_SCRIPTS` (`ci/common.sh`) oraz zdeduplikowano wpisy
+  #288 w mapie testów (`99-dr-odtworzenie-bazy.sh`). Testy: `tests/unit/wlb-hub-db-restore.bats` (7 przypadków,
+  w tym kontrola negatywna — brak powrotu huba daje exit 6 i rollback), `tests/fixtures/sqlite_hot_journal.py`
+  + `tests/unit/test_sqlite_hot_journal.py` (prawdziwy gorący `-journal`) oraz 4 mutacje w
+  `ci/mutations/bash-mutations.tsv`.
+
 - **Dryf locka: `pkgconf` w obrazie, brak w zamrożeniu (odblokowanie etapu 5):** obraz (conda)
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+- **Logowanie przez Microsoft Entra ID (`AUTH_MODE=entra`, #18):** `WlbEntraAuthenticator`
+  (podklasa `AzureAdOAuthenticator`, oauthenticator 17 z TLJH 2.0) loguje na konto wskazane
+  w rejestrze przypisań `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`, root 0600, tylko
+  identyfikatory) i wymaga roli aplikacji Laboratorium (`ENTRA_REQUIRED_ROLE`). Claim osobowy
+  (UPN, e-mail) nie staje się loginem. Zakresy `openid profile` (`oid` wymaga `profile`), ale imię i UPN są odrzucane po odczycie. Sprawdzane są tenant,
+  issuer, audience i ważność id_token. `allow_all` nie da się włączyć. Pierwsze logowanie trwale wiąże konto z osobą,
+  a przekazanie konta innej osobie jest zablokowane do czasu procedury z odwołaniem poświadczeń (#102 D3).
+  Usunięcie wiersza z rejestru blokuje nowe logowania i żądania podlegające odświeżeniu, ale nie zamyka trwających
+  połączeń (pełne odcięcie: zatrzymanie serwera). Konta, dane i hasła Native się nie zmieniają. Migracja to procedura
+  w oknie serwisowym (zatrzymanie serwerów, rejestr, `AUTH_MODE=entra`), powrót to `AUTH_MODE=native` po resecie
+  haseł kont z odebranym dostępem (runbook `RB-entra`). Testy są modułowe (podstawiona odpowiedź tokenu);
+  odbiór z tenantem testowym opisuje IMG-011.
+  `wlb-firstboot` waliduje całość przed zmianą na VM. Wzór: `cloud-init/examples/lab-user-data-entra.yaml`.
+- **Odwołanie poświadczeń przy zmianie sposobu logowania (`wlb-hub-revoke`, #18):** przy każdej zmianie
+  `AUTH_MODE` (stan w `/workspace/.wlb-hub/auth-mode`), także przy powrocie do haseł, `wlb-firstboot` przed otwarciem
+  huba zatrzymuje hub i serwery kont, zmienia `cookie_id` kont i usuwa ich tokeny API/OAuth oraz kody OAuth. Ciasteczka
+  i tokeny z logowania hasłem nie przechodzą więc po migracji na Entra, także po pierwszym logowaniu tej samej osoby
+  przez Entra. Plik powiązań kont z osobami zakłada firstboot; jego brak w trakcie pracy wstrzymuje logowanie,
+  a odtworzenie bez niego wymaga świadomej reinicjalizacji (`WLB_ENTRA_REINIT=1`, z odwołaniem wszystkich poświadczeń).
+  Zdarzenia logowania Entra mają kody przyczyn i pseudonimy (oid albo skrót loginu), bez loginów.
+- **`AUTH_MODE=oidc` naprawiony (P0 z audytu #18):** bez `OIDC_ALLOWED_GROUPS` firstboot kończy
+  się błędem przed zmianą, zamiast generować `allow_all = True` (dostęp dla każdego użytkownika IdP).
+  Konfiguracja z grupami uruchamia się na oauthenticator 17: wcześniej hub nie startował
+  (`claim_groups_key requires manage_groups`). Teraz generowane jest `manage_groups` + `auth_state_groups_key`.
+
+- **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
+  target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
+  `/run/wlb/e2e` (tmpfs 0777, root) z deskryptorem `/run/wlb/e2e/target.json`
+  (schema `wlb.e2e-target/v1`, trwały `session_id`, `screen.w/h`, współrzędne przycisku
+  `button.x/y/w/h` w pikselach ekranu oraz tytuł okna `keyboard.title`).
+  Target myszy `/opt/wlb/e2e/mouse-target.sh` uruchamia `zenity --question`,
+  pozycjonuje okno deterministycznie przez `wmctrl`, oblicza współrzędne przycisku OK
+  i zapisuje `rc=0` do `/run/wlb/e2e/mouse.txt`. Target klawiatury
+  `/opt/wlb/e2e/keyboard-target.sh` w `xfce4-terminal` z fokusem X zapisuje odebrany
+  nonce do `/run/wlb/e2e/keyboard.txt`. Skrypt `/opt/wlb/e2e/target-runner.sh`
+  zapewnia autostart w sesji XFCE (`/etc/xdg/autostart/wlb-e2e-target.desktop`)
+  oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
+  WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
+  (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
 
 - **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
   target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
@@ -201,6 +278,17 @@ pierwszym Laboratorium na klastrze).
   zostanie zaraportowana jako `changed`; bramka pilnuje no-opu playbooka, nie pełnego stanu
   wewnętrznego narzędzi.
 
+- **E2E wejścia pulpitu w przeglądarce (#277):** krok interakcji `tests/desktop-e2e-novnc.py` przestał
+  być best-effort i **deterministycznie potwierdza reakcję** pulpitu. Przyczyną fałszywego
+  `before == after` była próbka: czytała tylko lewy-górny róg 200×200, a prawy klik trafiał w ~(640,400)
+  — menu xfdesktop powstawało poza próbką, a zrzut robiono już po `Escape`. Teraz porównujemy **pełny
+  bufor** canvasu (próg na piksel + minimalna liczba zmienionych pikseli), klikamy przez
+  `locator.click(position=…)` (bez ręcznego offsetu paska noVNC) i fotografujemy menu, zanim `Escape`
+  je zamknie. Dodatkowo opakowany `WebSocket.send` liczy komunikaty RFB (`PointerEvent`/`KeyEvent`),
+  więc wynik rozróżnia „zdarzenie nie dotarło do noVNC” od „noVNC wysłał, pulpit nie zareagował”.
+  Krok jest domyślnie wymagany (`WLB_E2E_INTERACTION=required`; `optional`/`off` = tryb raportowy),
+  a etap 5 nadal nie bramkuje całości bez `WLB_E2E_GATING=1`. `result.json` ma teraz `status: pass|fail`
+  (schemat v2) i sekcję `interaction` z różnicą pikseli, bounding boxem i licznikami RFB.
 - **Testy mutacyjne w CI:** nowy blokujący etap **4b** (`ci/mutation.sh`) sprawdza, czy testy
   naprawdę wykrywają błędy, a nie tylko „przechodzą”. Python: `mutmut` mutuje
   `ci/verify_platform_images.py` i uruchamia jego testy; próg `PYTHON_MUTATION_MIN` (domyślnie 85%)

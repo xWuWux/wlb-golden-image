@@ -18,9 +18,11 @@ SHELL_SCRIPTS=(
   ansible/roles/lab_config/files/wlb-firstboot
   ansible/roles/storage/files/wlb-sluza-out-mover
   ansible/roles/monitoring/files/wlb-monitoring
+  ansible/roles/tljh/files/wlb-hub-db-backup
+  ansible/roles/tljh/files/wlb-hub-db-restore
 )
 BATS_FILES=(tests/unit/*.bats tests/unit/helpers.bash)
-PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/storage/files/wlb-export-snapshot)
+PYTHON_FILES=(ci/*.py tests/*.py tests/unit/*.py ansible/roles/tljh/files/wlb-hub-user ansible/roles/tljh/files/wlb-hub-revoke ansible/roles/tljh/files/wlb_entra_*.py ansible/roles/storage/files/wlb-export-snapshot ansible/roles/storage/files/wlb-export)
 
 step() {
   if [[ -n ${GITHUB_ACTIONS:-} ]]; then echo "::group::$*"; else echo && echo "== $*"; fi
@@ -39,12 +41,16 @@ summary() {
 }
 
 require() {
-  local tool
+  local tool hint
   for tool in "$@"; do
-    command -v "$tool" >/dev/null || {
-      echo "Brak narzędzia: $tool — uruchom: make tools (w katalogu głównym repozytorium)"
+    if ! command -v "$tool" >/dev/null; then
+      case $tool in
+        sqlite3) hint="sudo apt install sqlite3 (testy DR huba, #306)" ;;
+        *) hint="make tools (w katalogu głównym repozytorium)" ;;
+      esac
+      echo "Brak narzędzia: $tool — $hint"
       exit 1
-    }
+    fi
   done
 }
 

@@ -20,6 +20,9 @@ if [[ ${WLB_CHANNEL_GATING:-0} == 1 ]]; then channel_gating=--channel-gating; fi
   printf "\nif python3 - \"\$R1\" <<'WLB_RESOURCE_TEST'\n"
   cat "$ROOT/tests/sluza_resources.py"
   printf "\nWLB_RESOURCE_TEST\nthen ok 'Limity i izolacja śluzy (#149)'; else ko 'Limity i izolacja śluzy (#149)'; fi\n"
+  # #349 A1: XML jest raportem obok historycznego stdout; finalizacja przed summary,
+  # żeby kod wyjścia summary (FAIL) pozostał ostatnim kodem skryptu.
+  printf '\njunit_finalize || true\n'
   printf '\nsummary\n'
 } >>"$combined"
 remote_run "$combined" \
