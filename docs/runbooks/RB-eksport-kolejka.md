@@ -59,6 +59,22 @@ oraz `verify(bundle: Path) -> Manifest`. Błąd oznacza wyjątek `SnapshotError`
 sudo /usr/local/sbin/wlb-export-snapshot verify /workspace/.wlb-export-queue/PAKIET
 ```
 
+**Dla operatora wygodniej (CLI `wlb-export`, #20 interim):** zamiast surowego `find`/`verify`
+na ścieżkach używaj operacji po `request_id` (helper sam rozwiązuje pakiet przez `resolve`,
+nigdy nie przyjmuje dowolnej ścieżki):
+
+```sh
+sudo wlb-export list                     # metadane wniosków w kolejce (bez treści payloadu)
+sudo wlb-export show <request_id>        # zweryfikowany deskryptor jednego wniosku
+sudo wlb-export verify <request_id>      # integrity_check pakietu
+sudo wlb-export stage <request_id>       # kopia zweryfikowanego payloadu do obszaru operatora (do scp)
+sudo wlb-export staged-clear <request_id>  # sprzątnij staged po scp (retencja RĘCZNA)
+```
+
+Staged pliki zawierają dane wrażliwe i **nie są czyszczone automatycznie** — operator usuwa je
+`staged-clear` po `scp`. `stage` to przygotowanie, nie zgoda na eksport; pełny proces (Lider/Kontroler,
+publikacja, audyt) pozostaje w #20.
+
 `create SOURCE DEST ORIGINAL_NAME REQUEST_ID` jest wewnętrznym interfejsem movera.
 `DEST` musi nie istnieć, a jego rodzic musi być prywatny. Nie udostępniać tej komendy
 badaczom/Kontrolerowi przez sudo i nie pozwalać im wybierać ścieżek.

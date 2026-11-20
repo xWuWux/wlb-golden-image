@@ -12,6 +12,7 @@ import os
 import pwd
 import stat
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal, TypedDict, cast
@@ -43,7 +44,39 @@ class Manifest(TypedDict):
 
 
 class SnapshotError(ValueError):
-    """The request cannot be safely staged; retain its source for investigation."""
+    """Stable failure code for a snapshot/resolve operation."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass
+class VerifiedBundle:
+    """A v1 bundle with a pinned directory fd; the caller owns and must close it.
+
+    ``bundle`` is informational only: it is not a capability. Use ``package_fd``
+    with dir-relative opens for any later stage; closing the fd releases the pin.
+    """
+
+    request_id: UUID
+    bundle: Path
+    manifest: Manifest
+    manifest_sha256: str
+    payload_digest: str
+    digest_algorithm: Literal["sha256-file", "sha256-inventory-v1"]
+    package_fd: int
+
+    def close(self) -> None:
+        if self.package_fd >= 0:
+            os.close(self.package_fd)
+            self.package_fd = -1
+
+    def __enter__(self) -> "VerifiedBundle":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
 
 
 # Safety ceilings, not export policy. Large transfers require a dedicated path.
@@ -51,6 +84,9 @@ MAX_ENTRIES = 100_000
 MAX_DEPTH = 64
 MAX_BYTES = 100 * 1024**3
 CHUNK_SIZE = 1024**2
+MAX_MANIFEST_BYTES = 64 * 1024**2
+MAX_QUEUE_ENTRIES = 100_000
+MAX_SCAN_MANIFEST_BYTES = 256 * 1024**2
 
 
 def validate_manifest(value: object) -> Manifest:
@@ -134,23 +170,22 @@ def child_names(fd: int, limit: int) -> list[str]:
     return sorted(names, key=os.fsencode)
 
 
-def inventory(source: Path, destination: Path | None = None) -> list[Entry]:
-    """Copy to new inodes or verify a private payload; refuse unsafe/changing trees.
+def inventory_at(parent_fd: int, name: str, destination: Path | None = None) -> list[Entry]:
+    """Copy or verify one entry relative to a pinned parent directory fd.
 
-    A retained write fd can still change SOURCE. It cannot change DEST. Checking
-    metadata detects ordinary concurrent edits, but is not an application-level
-    transaction or proof that the researcher finished writing.
+    The parent fd is borrowed and remains owned by the caller. All children are
+    opened relative to pinned fds with O_NOFOLLOW/O_NONBLOCK; unsafe or changing
+    trees fail without returning a partial inventory.
     """
     entries: list[Entry] = []
     total = 0
     owner: int | None = None
 
-    def visit(parent_fd: int, name: str, relative: str, target: Path | None, depth: int) -> None:
+    def visit(parent: int, child: str, relative: str, target: Path | None, depth: int) -> None:
         nonlocal total, owner
         if depth > MAX_DEPTH or len(entries) >= MAX_ENTRIES:
             raise SnapshotError("limit_exceeded")
-        # O_NONBLOCK prevents a raced FIFO from hanging the root service.
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
+        fd = os.open(child, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         try:
             before = os.fstat(fd)
             if owner is None:
@@ -195,9 +230,9 @@ def inventory(source: Path, destination: Path | None = None) -> list[Entry]:
                 if target is not None:
                     target.mkdir(mode=0o700)
                 children = child_names(fd, MAX_ENTRIES - len(entries))
-                for child in children:
-                    child_path = child if relative == "." else relative + "/" + child
-                    visit(fd, child, child_path, target / child if target is not None else None, depth + 1)
+                for child_name in children:
+                    child_path = child_name if relative == "." else relative + "/" + child_name
+                    visit(fd, child_name, child_path, target / child_name if target is not None else None, depth + 1)
                 if children != child_names(fd, MAX_ENTRIES):
                     raise SnapshotError("source_changed")
                 if target is not None:
@@ -206,18 +241,22 @@ def inventory(source: Path, destination: Path | None = None) -> list[Entry]:
                 raise SnapshotError("unsupported_type")
             if signature(before) != signature(os.fstat(fd)):
                 raise SnapshotError("source_changed")
-            # Detect replacement/removal of an entry while its old fd was pinned.
-            if signature(before) != signature(os.stat(name, dir_fd=parent_fd, follow_symlinks=False)):
+            if signature(before) != signature(os.stat(child, dir_fd=parent, follow_symlinks=False)):
                 raise SnapshotError("source_changed")
         finally:
             os.close(fd)
 
+    visit(parent_fd, name, ".", destination, 0)
+    return entries
+
+
+def inventory(source: Path, destination: Path | None = None) -> list[Entry]:
+    """Path wrapper for create(); verification uses inventory_at(package_fd, ...)."""
     parent = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        visit(parent, source.name, ".", destination, 0)
+        return inventory_at(parent, source.name, destination)
     finally:
         os.close(parent)
-    return entries
 
 
 def sync_dir(path: Path) -> None:
@@ -270,15 +309,35 @@ def create(source: Path, destination: Path, original_name: str, request_id: str)
     return manifest
 
 
-def verify(bundle: Path) -> Manifest:
-    """Verify exact paths, types, sizes and content, including empty directories.
+class _DuplicateKeyError(ValueError):
+    pass
 
-    Manifest is local root-owned metadata, not a signature or evidence of approval.
-    Legacy queue entries without a v1 manifest are deliberately refused.
+
+def _no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateKeyError(key)
+        result[key] = value
+    return result
+
+
+def _load_json(raw: bytes) -> object:
+    """Strict JSON: duplicate keys, bad UTF-8 and excessive nesting are invalid."""
+    try:
+        return json.loads(raw, object_pairs_hook=_no_duplicate_keys)
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError, _DuplicateKeyError) as error:
+        raise SnapshotError("invalid_manifest") from error
+
+
+def verify_open_bundle(package_fd: int, raw_manifest: bytes) -> Manifest:
+    """Verify payload against already-read manifest bytes and a pinned package fd.
+
+    The package fd is borrowed; the caller keeps it open and closes it. This
+    function never reopens the bundle or its manifest by path.
     """
-    with (bundle / "manifest.json").open("rb") as source:
-        manifest = validate_manifest(json.load(source))
-    entries = inventory(bundle / "payload")
+    manifest = validate_manifest(_load_json(raw_manifest))
+    entries = inventory_at(package_fd, "payload")
     algorithm = "sha256-file" if entries[0]["type"] == "file" else "sha256-inventory-v1"
     if (
         entries != manifest.get("entries")
@@ -287,6 +346,202 @@ def verify(bundle: Path) -> Manifest:
     ):
         raise SnapshotError("integrity_mismatch")
     return manifest
+
+
+def verify(bundle: Path) -> Manifest:
+    """Verify a bundle by opening it once, then using only fd-relative reads.
+
+    Manifest is local root-owned metadata, not a signature or evidence of approval.
+    Legacy queue entries without a v1 manifest are deliberately refused.
+    """
+    try:
+        package_fd = os.open(bundle, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        raise
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+    try:
+        return verify_open_bundle(package_fd, _read_manifest(package_fd))
+    finally:
+        os.close(package_fd)
+
+
+def _read_manifest(package_fd: int) -> bytes:
+    """Read one regular manifest without following a symlink or blocking on a FIFO."""
+    try:
+        fd = os.open("manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=package_fd)
+    except FileNotFoundError:
+        raise
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_MANIFEST_BYTES:
+            raise SnapshotError("unsafe_entry")
+        chunks: list[bytes] = []
+        remaining = info.st_size
+        while remaining:
+            chunk = os.read(fd, min(CHUNK_SIZE, remaining))
+            if not chunk:
+                raise SnapshotError("source_changed")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(fd, 1):
+            raise SnapshotError("source_changed")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _close_matches(matches: list[tuple[str, Manifest, bytes, int]]) -> None:
+    for _name, _manifest, _raw, package_fd in matches:
+        if package_fd >= 0:
+            os.close(package_fd)
+    matches.clear()
+
+
+def resolve_request(queue: Path, request_id: UUID) -> VerifiedBundle:
+    """Resolve exactly one verified v1 bundle by request UUID inside a private queue.
+
+    The caller supplies a canonical queue and a UUID, never a bundle path. The
+    returned ``VerifiedBundle`` owns a pinned package fd; use it for any later
+    dir-relative read. A legacy or malformed entry does not hide a valid
+    unrelated request; if no valid match exists, the resolver fails closed.
+    """
+    if not isinstance(request_id, UUID):
+        raise TypeError("request_id must be a UUID")
+    if request_id.version != 4:
+        raise SnapshotError("invalid_request_id")
+    target = str(request_id)
+    matches: list[tuple[str, Manifest, bytes, int]] = []
+    has_legacy = False
+    has_unsafe = False
+    has_invalid = False
+    invalid_target = False
+    scan_bytes = 0
+
+    try:
+        resolved_queue = queue.resolve(strict=True)
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+    if resolved_queue != queue.absolute():
+        raise SnapshotError("unsafe_entry")
+
+    try:
+        queue_fd = os.open(queue, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as error:
+        raise SnapshotError("unsafe_entry") from error
+
+    try:
+        with os.scandir(queue_fd) as children:
+            count = 0
+            for child in children:
+                count += 1
+                if count > MAX_QUEUE_ENTRIES:
+                    raise SnapshotError("limit_exceeded")
+                name = child.name
+                # .mover.lock and .incoming.* are service internals, never requests.
+                if name.startswith("."):
+                    continue
+                try:
+                    info = os.stat(name, dir_fd=queue_fd, follow_symlinks=False)
+                except OSError:
+                    has_unsafe = True
+                    continue
+                if stat.S_ISLNK(info.st_mode):
+                    has_unsafe = True
+                    continue
+                if not stat.S_ISDIR(info.st_mode):
+                    has_legacy = True
+                    continue
+                package_fd = -1
+                try:
+                    try:
+                        package_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=queue_fd)
+                    except OSError:
+                        has_unsafe = True
+                        continue
+                    try:
+                        raw = _read_manifest(package_fd)
+                    except FileNotFoundError:
+                        has_legacy = True
+                        continue
+                    except SnapshotError as error:
+                        if error.code == "unsafe_entry":
+                            has_unsafe = True
+                        else:
+                            has_invalid = True
+                        continue
+                    except OSError:
+                        has_invalid = True
+                        continue
+                    scan_bytes += len(raw)
+                    if scan_bytes > MAX_SCAN_MANIFEST_BYTES:
+                        raise SnapshotError("limit_exceeded")
+                    try:
+                        candidate = _load_json(raw)
+                    except SnapshotError:
+                        has_invalid = True
+                        continue
+                    try:
+                        manifest = validate_manifest(candidate)
+                    except SnapshotError:
+                        if isinstance(candidate, dict) and candidate.get("request_id") == target:
+                            invalid_target = True
+                        has_invalid = True
+                        continue
+                    if manifest["request_id"] != target:
+                        continue
+                    if matches:
+                        raise SnapshotError("duplicate_request")
+                    matches.append((name, manifest, raw, package_fd))
+                    package_fd = -1
+                finally:
+                    if package_fd >= 0:
+                        os.close(package_fd)
+
+        if not matches:
+            if invalid_target:
+                raise SnapshotError("invalid_manifest")
+            if has_unsafe:
+                raise SnapshotError("unsafe_entry")
+            if has_legacy:
+                raise SnapshotError("legacy_entry")
+            if has_invalid:
+                raise SnapshotError("invalid_manifest")
+            raise SnapshotError("not_found")
+
+        name, manifest, raw, package_fd = matches[0]
+        if invalid_target:
+            _close_matches(matches)
+            raise SnapshotError("duplicate_request")
+        try:
+            verified = verify_open_bundle(package_fd, raw)
+        except SnapshotError:
+            _close_matches(matches)
+            raise
+        except OSError as error:
+            _close_matches(matches)
+            raise SnapshotError("source_changed") from error
+        if verified != manifest:
+            _close_matches(matches)
+            raise SnapshotError("source_changed")
+        bundle = queue / name
+        matches.clear()
+        return VerifiedBundle(
+            request_id=UUID(manifest["request_id"]),
+            bundle=bundle,
+            manifest=manifest,
+            manifest_sha256=hashlib.sha256(raw).hexdigest(),
+            payload_digest=manifest["sha256"],
+            digest_algorithm=manifest["digest_algorithm"],
+            package_fd=package_fd,
+        )
+    except Exception:
+        _close_matches(matches)
+        raise
+    finally:
+        os.close(queue_fd)
 
 
 def main() -> int:
@@ -299,17 +554,33 @@ def main() -> int:
     new.add_argument("request_id")
     check = commands.add_parser("verify")
     check.add_argument("bundle", type=Path)
+    resolve = commands.add_parser("resolve")
+    resolve.add_argument("queue", type=Path)
+    resolve.add_argument("request_id", type=UUID)
+    resolve.add_argument("--show-path", action="store_true", help="include the sensitive bundle path in stdout")
     args = parser.parse_args()
     try:
         if args.command == "create":
             manifest = create(args.source, args.destination, args.original_name, args.request_id)
-        else:
+        elif args.command == "verify":
             manifest = verify(args.bundle)
+        else:
+            with resolve_request(args.queue, args.request_id) as request:
+                payload = {
+                    "request_id": str(request.request_id),
+                    "manifest_sha256": request.manifest_sha256,
+                    "payload_digest": request.payload_digest,
+                    "digest_algorithm": request.digest_algorithm,
+                }
+                if args.show_path:
+                    payload["bundle"] = str(request.bundle)
+                print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+            return 0
         print(manifest["sha256"])
         return 0
     except (OSError, ValueError, RecursionError) as error:
-        # No untrusted names/content in stderr (journald). Details stay in quarantine.
-        print("export_snapshot_failed: " + type(error).__name__, file=sys.stderr)
+        code = getattr(error, "code", type(error).__name__)
+        print("export_snapshot_failed: " + code, file=sys.stderr)
         return 1
 
 
