@@ -9,8 +9,9 @@ sprawdza niezmienniki:
 4. każda inna para — inna dystrybucja, inne wydanie albo para spoza wspieranego zbioru —
    jest odrzucana jako `IdentityError`, bez przypadkowego przejścia.
 
-Limity: 30 przykładów na własność, deadline 5 s. Kontrprzykłady są raportowane przez
-Hypothesis i mogą być odtworzone przez `@reproduce_failure` / zapisany seed.
+Limity są w profilu Hypothesis (`tests/conftest.py`): CI 50 przykładów bez deadline,
+lokalnie 15 przykładów z deadline 5 s. Kontrprzykłady są raportowane przez Hypothesis
+i mogą być odtworzone przez `--hypothesis-seed` lub `@reproduce_failure`.
 """
 
 import string
@@ -18,20 +19,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
-from ci.image_identity import IdentityError, OsIdentity, read_os_identity, validate_scan_identity
+from ci.image_identity import SUPPORTED, IdentityError, OsIdentity, read_os_identity, validate_scan_identity
 
 SAFE_TEXT = st.text(
     alphabet=string.ascii_letters + string.digits + "._-",
     min_size=1,
     max_size=24,
 )
-SETTINGS = settings(max_examples=30, deadline=5000)
 
 
-@SETTINGS
 @given(id_value=SAFE_TEXT, version_value=SAFE_TEXT)
 def test_quoted_values_round_trip_and_reading_is_idempotent(id_value: str, version_value: str):
     with TemporaryDirectory() as temp:
@@ -44,20 +43,25 @@ def test_quoted_values_round_trip_and_reading_is_idempotent(id_value: str, versi
         assert first.version_id == version_value.casefold()
 
 
-@SETTINGS
+@given(pair=st.sampled_from(sorted(SUPPORTED)))
+def test_validation_accepts_exact_supported_identical_pair(pair: tuple[str, str]):
+    distro_id, version_id = pair
+    target = OsIdentity(id=distro_id, version_id=version_id)
+    scanner = OsIdentity(id=distro_id, version_id=version_id)
+    validate_scan_identity(target, scanner)
+
+
 @given(
     id_value=SAFE_TEXT,
     version_value=SAFE_TEXT,
     scanner_id=SAFE_TEXT,
     scanner_version=SAFE_TEXT,
 )
-def test_validation_accepts_exactly_the_supported_equal_pair(
+def test_validation_rejects_any_non_supported_or_unequal_pair(
     id_value: str, version_value: str, scanner_id: str, scanner_version: str
 ):
     target = OsIdentity(id=id_value, version_id=version_value)
     scanner = OsIdentity(id=scanner_id, version_id=scanner_version)
-    if target.is_supported and target == scanner:
+    assume(not (target.is_supported and target == scanner))
+    with pytest.raises(IdentityError):
         validate_scan_identity(target, scanner)
-    else:
-        with pytest.raises(IdentityError):
-            validate_scan_identity(target, scanner)
