@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# wlb-hub-db-restore — jedno źródło prawdy odtwarzania bazy huba z kopii (#288, #20, RB-07b).
+# Wywoływane TAK SAMO przez runbooki i test akceptacyjny (koniec dryfu procedura↔test).
+#
+#   wlb-hub-db-restore [--from PLIK] [--no-start]
+#
+# Zmienne środowiska (nadpisywalne w testach):
+#   HUB_DB        baza huba (domyślnie /workspace/.wlb-hub/jupyterhub.sqlite)
+#   BACKUP_DIR    katalog kopii (domyślnie /workspace/.wlb-hub/backup)
+#   FORENSIC_DIR  katalog dowodowy „przed-odtworzeniem" (domyślnie /workspace/.wlb-hub/przed-odtworzeniem)
+#   HUB_UNIT      jednostka huba (domyślnie jupyterhub)
+#   TIMER_UNIT    timer kopii (domyślnie wlb-hub-db-backup.timer)
+#   DB_OWNER      właściciel bazy user:group (domyślnie root:root; chown tylko jako root)
+#   HUB_API_URL   URL sondy zdrowia huba (domyślnie http://127.0.0.1/hub/api)
+#
+# Kody wyjścia: 0 sukces · 2 błędne użycie · 3 brak spójnej kopii (bez zmian w systemie)
+#   · 4 hub nadal aktywny · 5 nieudana podmiana (automatyczny rollback) · 6 hub nie wstał (rollback)
+#
+# Zasada bezpieczeństwa: spójność kopii jest weryfikowana PRZED zatrzymaniem czegokolwiek;
+# baza jest zachowywana RAZEM z dziennikami (-wal/-shm/-journal) do katalogu dowodowego przez `mv`
+# (nigdy kasowana przed kopią); podmiana jest atomowa z weryfikacją sha256; rollback jest w trapie.
+set -uo pipefail
+
+HUB_DB=${HUB_DB:-/workspace/.wlb-hub/jupyterhub.sqlite}
+BACKUP_DIR=${BACKUP_DIR:-/workspace/.wlb-hub/backup}
+FORENSIC_DIR=${FORENSIC_DIR:-/workspace/.wlb-hub/przed-odtworzeniem}
+HUB_UNIT=${HUB_UNIT:-jupyterhub}
+TIMER_UNIT=${TIMER_UNIT:-wlb-hub-db-backup.timer}
+DB_OWNER=${DB_OWNER:-root:root}
+HUB_API_URL=${HUB_API_URL:-http://127.0.0.1/hub/api}
+
+START_HUB=1
+FROM=
+MOVED=0
+RESTORED=0
+forensic=
+
+usage() {
+  echo "użycie: $0 [--from PLIK] [--no-start]" >&2
+  exit 2
+}
+while (($#)); do
+  case $1 in
+    --from)
+      FROM=${2:?brak wartości dla --from}
+      shift
+      ;;
+    --no-start) START_HUB=0 ;;
+    -h | --help) usage ;;
+    *) usage ;;
+  esac
+  shift
+done
+
+die() {
+  echo "BŁĄD: $1" >&2
+  exit "${2:-5}"
+}
+
+# check_db PLIK — pusta/nieistniejąca baza NIE może udawać „ok" (Ustalenie 3: sqlite3 '' zwraca ok).
+check_db() {
+  [[ -s $1 ]] || return 1
+  [[ $(sqlite3 "$1" 'PRAGMA integrity_check;' 2>/dev/null) == ok ]]
+}
+
+# Rollback w trapie EXIT: die/exit NIE uruchamiają trap ERR, więc siatkę bezpieczeństwa
+# wieszamy na EXIT. Gdy bazę już przeniesiono, a nie odtworzono — wracamy do stanu sprzed operacji.
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  if ((MOVED && ! RESTORED)) && [[ -n $forensic && -d $forensic ]]; then
+    systemctl stop "$HUB_UNIT" 2>/dev/null || true
+    rm -f "$HUB_DB" "$HUB_DB-wal" "$HUB_DB-shm" "$HUB_DB-journal" 2>/dev/null || true
+    for f in "$forensic"/*; do
+      [[ -e $f ]] && mv -f "$f" "$(dirname "$HUB_DB")/"
+    done
+  fi
+  if ((START_HUB)); then
+    systemctl start "$HUB_UNIT" 2>/dev/null || true
+  fi
+  systemctl start "$TIMER_UNIT" 2>/dev/null || true
+  exit "$rc"
+}
+trap cleanup EXIT
+
+# 1. Wybór i weryfikacja kopii PRZED zatrzymaniem czegokolwiek (find w obu miejscach — koniec dryfu z `ls`)
+if [[ -z $FROM ]]; then
+  FROM=$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'jupyterhub-*.sqlite' -printf '%T@ %p\n' 2>/dev/null |
+    sort -nr | head -1 | cut -d' ' -f2-)
+fi
+[[ -n $FROM && -s $FROM ]] || die "brak spójnej kopii w $BACKUP_DIR" 3
+check_db "$FROM" || die "kopia $FROM nie przechodzi integrity_check" 3
+
+# 2. Hub musi być zatrzymany; timer nie może wystartować kopii w trakcie odtwarzania
+systemctl stop "$HUB_UNIT" || die "nie można zatrzymać huba ($HUB_UNIT)" 4
+systemctl stop "$TIMER_UNIT" 2>/dev/null || true
+
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+forensic="$FORENSIC_DIR/$ts"
+mkdir -p "$forensic"
+chmod 0700 "$forensic" 2>/dev/null || true
+
+# 3. Zachowaj bazę RAZEM z dziennikami (nie kasuj -journal/-wal przed kopią — Ustalenia 1 i 2)
+for f in "$HUB_DB" "$HUB_DB-wal" "$HUB_DB-shm" "$HUB_DB-journal"; do
+  [[ -e $f ]] && mv -f "$f" "$forensic/"
+done
+MOVED=1
+
+# 4. Podmiana atomowa (.part → fsync → weryfikacja sha256 → rename) + integrity_check odtworzonej bazy
+part="$HUB_DB.part"
+install -m 0600 "$FROM" "$part" || die "nie udało się przygotować $part" 5
+if [[ -n $DB_OWNER ]] && [[ $(id -u) -eq 0 ]]; then
+  chown "$DB_OWNER" "$part" 2>/dev/null || true
+fi
+sync
+if [[ $(sha256sum "$part" | cut -d' ' -f1) != "$(sha256sum "$FROM" | cut -d' ' -f1)" ]]; then
+  rm -f "$part"
+  die "sha256 kopii i pliku tymczasowego różnią się" 5
+fi
+mv -f "$part" "$HUB_DB"
+check_db "$HUB_DB" || die "odtworzona baza nie przechodzi integrity_check" 5
+
+# 5. Start huba + weryfikacja, że REALNIE odpowiada na API (nie tylko „plik jest")
+if ((START_HUB)); then
+  systemctl start "$HUB_UNIT" || die "nie można wystartować huba" 6
+  ok=0
+  for _ in $(seq 1 60); do
+    if curl -sf -o /dev/null "$HUB_API_URL"; then
+      ok=1
+      break
+    fi
+    sleep 1
+  done
+  ((ok)) || die "hub nie odpowiada na $HUB_API_URL po podmianie" 6
+fi
+
+RESTORED=1
+systemctl start "$TIMER_UNIT" 2>/dev/null || true
+echo "OK: odtworzono $HUB_DB z $FROM; dowody w $forensic"

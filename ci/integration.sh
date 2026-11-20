@@ -319,6 +319,13 @@ acceptance() {
       tar -C "$LOGS/channels-$logname" --strip-components=1 -xf - 2>/dev/null || true
     chmod -R a+r "$LOGS/channels-$logname"
   fi
+  # #349 A1: ustrukturyzowane wyniki akceptacji (JUnit XML) — raport obok logu,
+  # nie zmienia bramki etapu 5. Parser A2 czyta dokładnie ten plik.
+  if "${SSH[@]}" 'sudo test -f /tmp/acceptance.xml' 2>/dev/null; then
+    "${SSH[@]}" 'sudo cat /tmp/acceptance.xml' >"$LOGS/acceptance.xml" || true
+  else
+    echo "Brak /tmp/acceptance.xml na VM — raport JUnit etapu 5 pominięty"
+  fi
   sleep 10 # dostarczenie ostatnich zdarzeń z kolejki rsyslog
   collect_vm_logs acceptance
   tests/stop-local.sh

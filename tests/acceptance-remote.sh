@@ -37,10 +37,14 @@ if [[ $AUTH_MODE == native ]]; then
   hub_spawn $R2
   expect_ok "Serwer notebooków uruchomiony ($R1)" systemctl is-active --quiet jupyter-$R1
 else
-  # #18/#57: GenericOAuthenticator poprawnie wygenerowany, ale brak produkcyjnego IdP
-  skip "AUTH_MODE=oidc: logowanie runtime zablokowane — brak produkcyjnego IdP (#18, #57)"
-  expect_ok "OIDC: konfiguracja 70-wlb-auth.py obecna (#18)" test -f /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
-  expect_ok "OIDC: klasa generic-oauth w konfiguracji (#18)" grep -q "c.JupyterHub.authenticator_class = 'generic-oauth'" /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
+  # #18/#57: konfiguracja IdP poprawnie wygenerowana, ale brak produkcyjnego IdP do logowania w CI
+  skip "AUTH_MODE=${AUTH_MODE}: logowanie runtime zablokowane — brak produkcyjnego IdP (#18, #57)"
+  expect_ok "${AUTH_MODE}: konfiguracja 70-wlb-auth.py obecna (#18)" test -f /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
+  if [[ $AUTH_MODE == entra ]]; then
+    expect_ok "entra: klasa WlbEntraAuthenticator w konfiguracji (#18)" grep -qx "c.JupyterHub.authenticator_class = WlbEntraAuthenticator" /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
+  else
+    expect_ok "OIDC: klasa generic-oauth w konfiguracji (#18)" grep -q "c.JupyterHub.authenticator_class = 'generic-oauth'" /opt/tljh/config/jupyterhub_config.d/70-wlb-auth.py
+  fi
 fi
 expect_ok "Katalog domowy w /workspace" test "$(getent passwd jupyter-$R1 | cut -d: -f6)" = /workspace/jupyter-$R1
 expect_ok "Badacz widzi własny katalog" as $R1 ls /workspace/jupyter-$R1
