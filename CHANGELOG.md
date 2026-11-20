@@ -29,6 +29,13 @@ pierwszym Laboratorium na klastrze).
   zdarzenie do SIEM. Decyzje interim: retencja staged **ręczna** (`staged-clear`), admin=Kontroler,
   bez wymuszonego powodu. `list`/`show`/`verify` są read-only. Testy: `tests/unit/wlb-export.bats`.
 
+- **Property-based testing (#351):** dodano `hypothesis` do etapu 4 i testy własności w
+  `tests/unit/test_verify_platform_images_properties.py` oraz `tests/unit/test_image_identity_properties.py`.
+  Obejmują idempotencję walidacji, niezależność kolejności rekordów, wykrywanie zmiany payloadu/wersji/base,
+  odrzucanie brakujących/nadmiarowych/pustych/symlinkowanych obrazów, fail-closed dla dowolnego JSON
+  oraz parser/validator tożsamości OS. Profile Hypothesis w `tests/conftest.py`: CI 50 przykładów bez deadline,
+  lokalnie 15 przykładów z deadline 5 s; kontrprzykłady są raportowane przez Hypothesis.
+
 - **Normalizator raportów JUnit i testów niestabilnych (#349, PR A2):** dodano moduł `ci/flaky_report.py`
   parsujący i normalizujący raporty JUnit XML z etapu 4 (pytest) oraz etapu 5 (akceptacja VM). Moduł
   działa w trybie fail-closed, obsługuje wielokrotne znaczniki `<failure>` w pojedynczym `<testcase>`

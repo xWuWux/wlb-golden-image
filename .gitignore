@@ -26,3 +26,6 @@ lab.env
 __pycache__/
 .tools/
 .envrc
+
+# Hypothesis: lokalna baza kontrprzykładów i cache przykładów
+.hypothesis/

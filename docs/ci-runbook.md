@@ -310,3 +310,30 @@ Popraw najpierw baseline lub selektor. Przy `survived` sprawdź osiągalność z
 fragmentu i niezależną asercję efektu. Błąd procesu, timeout i pominięty test blokują bramkę.
 Wynik wymagany dla każdego pliku macierzy to 100% par. Zakres i odpowiedzialność opisuje
 [macierz kontraktów](mutation-abstractions.md).
+
+### Property-based testing etapu 4 (#351)
+
+Testy właściwościowe Hypothesis działają w istniejącym etapie 4, bez osobnego joba:
+
+```bash
+python3 -m pytest -q tests/unit/test_verify_platform_images_properties.py tests/unit/test_image_identity_properties.py
+```
+
+Zakres: walidator manifestu wydania (`verify_platform_images`) oraz parser/walidator tożsamości OS
+(`image_identity`). Profile Hypothesis są w `tests/conftest.py`: `ci` = 50 przykładów, `deadline=None`
+(I/O na współdzielonym runnerze nie może dawać fałszywego `DeadlineExceeded`); `dev` = 15 przykładów,
+`deadline=5000`. Profil wybiera `CI` albo `HYPOTHESIS_PROFILE`.
+Testy mają własność idempotencji, niezależności kolejności, wykrywania zmiany payloadu/wersji/base,
+odrzucania brakujących/nadmiarowych/pustych/symlinkowanych obrazów i fail-closed dla dowolnego JSON.
+
+Przy czerwonym wyniku Hypothesis wypisuje zminimalizowany kontrprzykład. Odtwarzanie:
+
+1. seed z logu:
+   ```bash
+   pytest --hypothesis-seed=<seed_z_logu> tests/unit/test_verify_platform_images_properties.py
+   ```
+2. dekorator wygenerowany przez Hypothesis: dodaj `@reproduce_failure(...)` nad daną funkcją testową.
+
+Lokalna baza `.hypothesis/` jest ignorowana przez Git; w CI nie polega na trwałości bazy.
+Budżet: lokalnie oba pliki ~0,3 s, w CI ~1,4 s dla 50 przykładów; nowe własności nie mogą
+wydłużać etapu 4 bez świadomej zmiany profilu.
