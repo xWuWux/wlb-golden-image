@@ -31,8 +31,10 @@ die() {
   exit 1
 }
 
-# /workspace musi być zamontowany — gwarantuje RequiresMountsFor= w unicie, ale sprawdzamy fail-safe.
-[[ -d /workspace ]] || die "/workspace nie jest zamontowany — nie tworzę klastra na dysku jednorazowym"
+# Katalog roboczy (rodzic PGDATA) musi istnieć — RequiresMountsFor= to gwarantuje, ale sprawdzamy
+# fail-safe, by nie zainicjować klastra na jednorazowym dysku systemowym przy niezamontowanym /workspace.
+WORKROOT=$(dirname "$PGDATA")
+[[ -d "$WORKROOT" ]] || die "$WORKROOT nie jest zamontowany — nie tworzę klastra na dysku jednorazowym"
 
 apply_wlb_config() {
   # Nakłada konfigurację WLB na świeżo utworzony klaster. conf.d jest dołączany przez postgresql.conf.
