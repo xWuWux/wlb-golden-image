@@ -110,6 +110,21 @@ pierwszym Laboratorium na klastrze).
   WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
   (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
 
+- **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
+  target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
+  `/run/wlb/e2e` (tmpfs 0777, root) z deskryptorem `/run/wlb/e2e/target.json`
+  (schema `wlb.e2e-target/v1`, trwały `session_id`, `screen.w/h`, współrzędne przycisku
+  `button.x/y/w/h` w pikselach ekranu oraz tytuł okna `keyboard.title`).
+  Target myszy `/opt/wlb/e2e/mouse-target.sh` uruchamia `zenity --question`,
+  pozycjonuje okno deterministycznie przez `wmctrl`, oblicza współrzędne przycisku OK
+  i zapisuje `rc=0` do `/run/wlb/e2e/mouse.txt`. Target klawiatury
+  `/opt/wlb/e2e/keyboard-target.sh` w `xfce4-terminal` z fokusem X zapisuje odebrany
+  nonce do `/run/wlb/e2e/keyboard.txt`. Skrypt `/opt/wlb/e2e/target-runner.sh`
+  zapewnia autostart w sesji XFCE (`/etc/xdg/autostart/wlb-e2e-target.desktop`)
+  oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
+  WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
+  (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
+
 - **Koniec losowych czerwonych bramki SIEM w etapie 5:** forwarding VM→testowy SIEM (rsyslog/TLS)
   jest asynchroniczny — zdarzenie śluzy `sluza_out.export_request` potrafiło dotrzeć sekundy po tym,
   jak akceptacja w VM już przeszła, a `siem_delivery`/`siem_wazuh` sprawdzały log jednorazowo (wyścig;
