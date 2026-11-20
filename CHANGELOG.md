@@ -110,6 +110,12 @@ pierwszym Laboratorium na klastrze).
   WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
   (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
 
+- **Bramka wydania E2E (#277-S3):** produkcja jawnie wymusza `wlb_enable_e2e_target=false`
+  przez profil Packera `wlb_build_profile=production` (domyślny); profil `test` ustawia tylko
+  CI dla flavorów E2E. `ci/release.sh` odrzuca wydanie, gdy qcow2 lub drzewo artefaktów zawiera
+  którąkolwiek z czterech ścieżek fixture (`/opt/wlb/e2e/`, wpis autostartu, kafelek myszy,
+  tmpfiles) — kod wyjścia 3, brak możliwości sprawdzenia = kod 2 (fail-closed).
+
 - **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
   target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
   `/run/wlb/e2e` (tmpfs 0777, root) z deskryptorem `/run/wlb/e2e/target.json`
