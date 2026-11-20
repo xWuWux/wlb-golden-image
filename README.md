@@ -309,10 +309,13 @@ i sprawdź, czy serwer zostanie zatrzymany po 5 minutach mimo aktywności.
   brak `/etc/pip.conf`, brak repozytoriów R, `PYTHONNOUSERSITE=1`; tryb `mirror`: instalacja tylko
   z kuratorowanego mirrora (#16). Konfiguracja klienta nie jest kontrolą — instalację ogranicza
   allowlista proxy i zawartość mirrora; test akceptacyjny sprawdza spójność obrazu z trybem.
-- Uwierzytelnianie: domyślnie Native Authenticator (`AUTH_MODE=native`). `AUTH_MODE=oidc` przełącza na
-  SSO przez OpenID Connect (Entra ID / Keycloak, MFA po stronie IdP) — `wlb-firstboot` z `OIDC_*` w `lab.env`
-  pisze `70-wlb-auth.py` z `GenericOAuthenticator`. Wymaga rejestracji aplikacji w IdP, HTTPS (#18) oraz
-  mapowania claimu na istniejące konta `jupyter-<login>` i grup IdP zamiast `allow_all` (decyzje w #18).
+- Uwierzytelnianie: domyślnie Native Authenticator (`AUTH_MODE=native`). `AUTH_MODE=entra` — logowanie przez
+  Microsoft Entra ID (IdP GUMed, MFA przez Conditional Access): login wynika z rejestru przypisań
+  `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`), nie z claimu osobowego, a wejście wymaga też roli
+  aplikacji Laboratorium. Konta (`u01`, `a01`, stare konta nazwane), dane i hasła Native zostają bez zmian;
+  przekazanie konta innej osobie jest zablokowane do czasu procedury #102 D3. Migracja w oknie serwisowym
+  i powrót do haseł: [RB-entra](docs/runbooks/RB-entra.md). `AUTH_MODE=oidc` — inny dostawca OIDC przez `GenericOAuthenticator`,
+  wyłącznie z niepustym `OIDC_ALLOWED_GROUPS` (bez `allow_all`, #18).
 - HTTPS: hub nasłuchuje na porcie 80 i zakłada TLS na portalu WLB lub bramce VDI. Ewentualnie
   można włączyć `https.*` w TLJH.
 - GPU (RTX PRO 6000, passthrough), wybór Proxmox vs OpenStack, dostęp testera (portal czy

@@ -14,6 +14,7 @@ rules:
     ignore: |
       **/user-data*.yaml
       cloud-init/*.yaml
+      cloud-init/examples/*.yaml
   comments-indentation: disable
   truthy:
     allowed-values: ["true", "false", "yes", "no"]
