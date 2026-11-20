@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Hardening targetu E2E pulpitu — asercje negatywne w obrazie produkcyjnym (#277, S2):**
+  dodano bramkujące asercje negatywne `test ! -e` w `tests/acceptance.d/40-pulpit.sh` dla obrazu nie-E2E
+  (`wlb-general`), sprawdzające nieobecność 4 ścieżek targetu (`/opt/wlb/e2e`, autostart, kafelek, tmpfiles).
+  Dodano testy jednostkowe w `tests/unit/test_e2e_negative_acceptance.py`.
+
 - **Kontrakty mutacyjne (#340)** — etap 4b osobno sprawdza przykłady wdrożenia oraz HTTP/HTTPS firstboot.
 
 - **Testy cyklu życia sesji badacza i osieroconych sesji (#97):** wdrożono testy jednostkowe

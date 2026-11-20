@@ -33,4 +33,9 @@ else
     grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia|histologia)' /etc/wlb/image-release
   expect_fail "Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)" bash -c "command -v startxfce4"
   expect_fail "Regresja: serwer VNC nieobecny w obrazie bazowym (#105)" bash -c "command -v Xtigervnc || command -v vncserver"
+  # Hardening #277 (S2): artefakty targetu E2E nie mogą istnieć w obrazie produkcyjnym / nie-E2E
+  expect_ok "Brak targetu E2E: /opt/wlb/e2e nie istnieje w obrazie nie-E2E (#277)" test ! -e /opt/wlb/e2e
+  expect_ok "Brak targetu E2E: autostart wlb-e2e nie istnieje w obrazie nie-E2E (#277)" test ! -e /etc/xdg/autostart/wlb-e2e-target.desktop
+  expect_ok "Brak targetu E2E: kafelek wlb-e2e-mouse nie istnieje w obrazie nie-E2E (#277)" test ! -e /usr/share/applications/wlb-e2e-mouse.desktop
+  expect_ok "Brak targetu E2E: tmpfiles wlb-e2e.conf nie istnieje w obrazie nie-E2E (#277)" test ! -e /etc/tmpfiles.d/wlb-e2e.conf
 fi
