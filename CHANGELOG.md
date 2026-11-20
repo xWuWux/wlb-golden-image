@@ -14,6 +14,21 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#20 E1: czytnik wniosków eksportu po UUID** — `wlb-export-snapshot resolve <queue> <uuid>`
+  oraz `resolve_request(queue, request_id)` wybierają dokładnie jeden pakiet v1 po `request_id`
+  (nie po nazwie pliku). Zwracany `VerifiedBundle` trzyma przypięty `package_fd`; weryfikacja
+  payloadu i ponowne odczyty używają wyłącznie fd-relative, bez reopen po ścieżce. `manifest_sha256`
+  wiąże dokładne bajty manifestu; duplikaty kluczy JSON, legacy, duplikat UUID, symlink, nieznane
+  pola i zły manifest są odrzucane. `resolve` domyślnie nie ujawnia ścieżki/nazwy pakietu;
+  `--show-path` jest jawnym trybem administracyjnym. Testy: `tests/unit/test_wlb_export_resolve.py`.
+
+- **#20 interim: operatorskie CLI `wlb-export`** — `list`/`show`/`verify`/`stage`/`staged-clear`
+  ułatwiają ręczne wyciąganie wyników ze śluzy, dopóki pełny proces #20 nie jest wdrożony.
+  `stage` kopiuje **zweryfikowany** payload do obszaru czytelnego dla konta SSH operatora (do
+  ręcznego `scp`), tylko po `request_id` (nigdy dowolna ścieżka — przez `resolve`), i loguje
+  zdarzenie do SIEM. Decyzje interim: retencja staged **ręczna** (`staged-clear`), admin=Kontroler,
+  bez wymuszonego powodu. `list`/`show`/`verify` są read-only. Testy: `tests/unit/wlb-export.bats`.
+
 - **Normalizator raportów JUnit i testów niestabilnych (#349, PR A2):** dodano moduł `ci/flaky_report.py`
   parsujący i normalizujący raporty JUnit XML z etapu 4 (pytest) oraz etapu 5 (akceptacja VM). Moduł
   działa w trybie fail-closed, obsługuje wielokrotne znaczniki `<failure>` w pojedynczym `<testcase>`

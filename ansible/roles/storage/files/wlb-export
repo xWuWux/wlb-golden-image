@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""wlb-export — operatorskie CLI do inspekcji kolejki eksportu i przygotowania wydania (#20, interim).
+
+Ułatwia ręczne wyciąganie wyników ze śluzy, dopóki pełny proces #20 (zgoda Lidera/Kontrolera,
+publikacja, audyt) nie jest wdrożony. Operacje:
+
+  wlb-export list                     # metadane wniosków w kolejce (bez treści payloadu)
+  wlb-export show <request_id>        # zweryfikowany deskryptor (bez ścieżki/nazw plików)
+  wlb-export verify <request_id>      # weryfikacja pakietu (kod wyjścia)
+  wlb-export stage <request_id>       # kopia zweryfikowanego payloadu do obszaru operatora (do scp)
+  wlb-export staged-clear <request_id>  # usuń staged pliki (retencja RĘCZNA — decyzja operatora)
+
+Bezpieczeństwo:
+- Operuje tylko po request_id, przez `resolve_request` z wlb-export-snapshot (E1, #20): zwraca
+  `VerifiedBundle` z PRZYPIĘTYM deskryptorem katalogu (`package_fd`). `stage` kopiuje payload
+  fd-relative (`inventory_at`), NIGDY nie otwiera ponownie ścieżki — to zamyka TOCTOU (pakiet nie
+  może zostać podmieniony między verify a kopią) i furtkę „dowolnej ścieżki" z RB-eksport-kolejka.md.
+- Model interim (decyzje właściciela): retencja staged RĘCZNA (brak timera), admin = Kontroler
+  (ten sam operator inspekcjonuje i wydaje), bez wymuszonego powodu/ticketu.
+
+Zmienne środowiska (nadpisywalne w testach):
+  WLB_EXPORT_QUEUE     kolejka (domyślnie /workspace/.wlb-export-queue)
+  WLB_EXPORT_STAGING   obszar staged, czytelny dla konta SSH operatora (domyślnie /var/lib/wlb-export-staging)
+  WLB_EXPORT_SNAPSHOT  ścieżka helpera wlb-export-snapshot (domyślnie /usr/local/sbin/wlb-export-snapshot)
+  WLB_EXPORT_ADMIN     konto, na które chown-ujemy staged pliki (domyślnie root; chown tylko jako root)
+"""
+
+from __future__ import annotations
+
+import contextlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from uuid import UUID
+
+QUEUE = Path(os.environ.get("WLB_EXPORT_QUEUE", "/workspace/.wlb-export-queue"))
+STAGING = Path(os.environ.get("WLB_EXPORT_STAGING", "/var/lib/wlb-export-staging"))
+SNAPSHOT = os.environ.get("WLB_EXPORT_SNAPSHOT", "/usr/local/sbin/wlb-export-snapshot")
+ADMIN = os.environ.get("WLB_EXPORT_ADMIN", "root")
+
+MANIFEST_MAX = 1_000_000  # górny limit odczytu manifestu dla `list` (metadane)
+
+
+def _load_snapshot():
+    """Importuje wlb-export-snapshot (E1) jako moduł — reuse resolve_request/inventory_at (fd-pinned)."""
+    loader = importlib.machinery.SourceFileLoader("wlb_export_snapshot", SNAPSHOT)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+SNAP = _load_snapshot()
+
+
+def _log(msg: str) -> None:
+    """Minimalny ślad audytowy do syslog/SIEM (authpriv). Nie przerywa operacji przy błędzie loggera."""
+    with contextlib.suppress(OSError):
+        # logger: zaufane polecenie systemowe; argumenty bez treści użytkownika.
+        subprocess.run(  # noqa: S603
+            ["logger", "-t", "wlb-export", "-p", "authpriv.notice", "--", msg],  # noqa: S607
+            check=False,
+        )
+
+
+def _read_manifest_meta(bundle_dir: Path) -> dict | None:
+    """Czyta manifest.json wyłącznie dla metadanych `list`, bez ryzyka zawieszenia na FIFO
+    (O_NONBLOCK/O_NOFOLLOW, limit odczytu). None = wpis legacy/nieweryfikowalny."""
+    try:
+        fd = os.open(bundle_dir / "manifest.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        data = os.read(fd, MANIFEST_MAX)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+    try:
+        value = json.loads(data)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        return None
+    return value
+
+
+def _parse_uuid(request_id: str) -> UUID:
+    try:
+        return UUID(request_id)
+    except ValueError as exc:
+        raise SystemExit(f"nieprawidłowy request_id: {request_id}") from exc
+
+
+def cmd_list() -> int:
+    """Wypisuje metadane wniosków w kolejce. TYLKO metadane manifestu — nigdy treść payloadu."""
+    if not QUEUE.is_dir():
+        print(f"kolejka {QUEUE} nie istnieje lub niedostępna", file=sys.stderr)
+        return 1
+    rows = []
+    for entry in sorted(QUEUE.iterdir()):
+        # is_symlink PRZED is_dir: dowiązanie w kolejce nie może wskazać manifestu spoza niej
+        # (is_dir/O_NOFOLLOW chronią tylko ostatni komponent, nie katalog-dowiązanie).
+        if entry.is_symlink() or not entry.is_dir() or entry.name.startswith("."):
+            continue
+        manifest = _read_manifest_meta(entry)
+        if manifest is None:
+            rows.append((entry.name, "LEGACY", "", "", "", "nieweryfikowalny"))
+            continue
+        # Manifest przeszedł tylko kontrolę schema_version — pola mogą mieć zły typ (entries:string,
+        # requester:string). Twarde strażniki typów: `list` nie może wywrócić się na dowolnym wejściu.
+        raw_entries = manifest.get("entries")
+        entries = raw_entries if isinstance(raw_entries, list) else []
+        files = [e for e in entries if isinstance(e, dict) and e.get("type") == "file"]
+        total = sum(int(e.get("size", 0)) for e in files if isinstance(e.get("size"), int))
+        requester = manifest.get("requester")
+        username = requester.get("username", "?") if isinstance(requester, dict) else "?"
+        rows.append(
+            (
+                str(manifest.get("request_id", "?")),
+                str(username),
+                str(manifest.get("created_at", "?")),
+                str(len(files)),
+                str(total),
+                str(manifest.get("state", "?")),
+            )
+        )
+    if not rows:
+        print("(kolejka pusta)")
+        return 0
+    print(f"{'REQUEST_ID':36}  {'BADACZ':16}  {'UTWORZONO':20}  {'PLIKI':>5}  {'ROZMIAR':>12}  STAN")
+    for r in rows:
+        print(f"{r[0]:36}  {r[1]:16}  {r[2]:20}  {r[3]:>5}  {r[4]:>12}  {r[5]}")
+    return 0
+
+
+def cmd_show(request_id: str) -> int:
+    """Zweryfikowany deskryptor jednego wniosku (resolve → fd-pinned). Bez ścieżki i nazw plików."""
+    with SNAP.resolve_request(QUEUE, _parse_uuid(request_id)) as bundle:
+        print(
+            json.dumps(
+                {
+                    "request_id": str(bundle.request_id),
+                    "manifest_sha256": bundle.manifest_sha256,
+                    "payload_digest": bundle.payload_digest,
+                    "digest_algorithm": bundle.digest_algorithm,
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    return 0
+
+
+def cmd_verify(request_id: str) -> int:
+    """resolve_request weryfikuje payload przy rozwiązaniu; sukces = pakiet spójny."""
+    with SNAP.resolve_request(QUEUE, _parse_uuid(request_id)) as bundle:
+        print(f"OK: {request_id} zweryfikowany (sha256={bundle.manifest_sha256})")
+    return 0
+
+
+def cmd_stage(request_id: str) -> int:
+    """Kopiuje ZWERYFIKOWANY payload do obszaru staged, fd-relative z przypiętego pakietu.
+
+    Nie podejmuje decyzji o eksporcie — przygotowuje plik do ręcznego scp. Retencja staged RĘCZNA
+    (staged-clear). Loguje zdarzenie export_staged (authpriv → SIEM).
+    """
+    canonical = str(_parse_uuid(request_id))  # kanoniczny UUID: nazwa staged bez traversalu
+    dest = STAGING / canonical
+    if dest.exists():
+        print(
+            f"stage przerwane — staged {dest} już istnieje (użyj staged-clear, retencja ręczna)",
+            file=sys.stderr,
+        )
+        return 1
+    with SNAP.resolve_request(QUEUE, _parse_uuid(request_id)) as bundle:
+        sha = bundle.manifest_sha256
+        STAGING.mkdir(parents=True, exist_ok=True)
+        dest.mkdir(parents=True)
+        try:
+            # fd-relative kopia payloadu z PRZYPIĘTEGO pakietu (bez ponownego otwierania ścieżki).
+            entries = SNAP.inventory_at(bundle.package_fd, "payload", dest / "payload")
+            # Integralność treści: digest SKOPIOWANEGO payloadu musi równać się digestowi ZWERYFIKOWANEMU
+            # przy resolve. fd-pinned zamyka podmianę ścieżki, ale nie podmianę TREŚCI między verify a
+            # kopią — ta asercja ją wykrywa (reprodukcja z review #354) i odrzuca staged.
+            if SNAP.payload_digest(entries) != bundle.payload_digest:
+                raise ValueError("payload-zmieniony-po-weryfikacji")
+        except BaseException:
+            shutil.rmtree(dest, ignore_errors=True)  # żaden niezweryfikowany bajt nie zostaje staged
+            raise
+    # Właściciel staged = operator, aby mógł scp z WŁASNEGO konta SSH. Domyślny root zostawiał pliki
+    # nieczytelne dla operatora (cały sens stage). WLB_EXPORT_ADMIN nadpisuje jawnie; inaczej SUDO_USER.
+    operator = os.environ.get("SUDO_USER", os.environ.get("USER", "root"))
+    owner = ADMIN if ADMIN != "root" else operator
+    if os.geteuid() == 0 and owner and owner != "root":
+        shutil.chown(dest, user=owner)
+        for child in dest.rglob("*"):
+            shutil.chown(child, user=owner)
+    _log(f"export_staged request_id={canonical} sha256={sha} operator={operator} owner={owner} dest={dest}")
+    print(f"OK: staged {canonical} w {dest} (właściciel={owner})")
+    print(f"   skopiuj na swoją maszynę (scp), potem sprzątnij: wlb-export staged-clear {canonical}")
+    return 0
+
+
+def cmd_staged_clear(request_id: str) -> int:
+    """Usuwa staged pliki wniosku (retencja ręczna — operator sprząta po scp).
+
+    request_id jest KANONIZOWANY przez _parse_uuid PRZED zbudowaniem ścieżki. Chroni przed
+    traversalem ('staged-clear ../ofiara' usuwał katalog poza staging) i pustym argumentem
+    ('staged-clear ""' usuwał CAŁY staging) — oba zgłoszone w review #354.
+    """
+    canonical = str(_parse_uuid(request_id))
+    dest = STAGING / canonical
+    # Belt-and-suspenders: po kanonizacji rodzic MUSI być STAGING, a dest nie może być dowiązaniem.
+    if dest.parent != STAGING or dest.is_symlink():
+        print(f"odmowa: nieprawidłowa ścieżka staged dla {request_id}", file=sys.stderr)
+        return 2
+    if not dest.exists():
+        print(f"(brak staged dla {canonical})")
+        return 0
+    shutil.rmtree(dest)
+    _log(f"export_staged_cleared request_id={canonical} dest={dest}")
+    print(f"OK: usunięto staged {canonical}")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 1:
+        print(__doc__, file=sys.stderr)
+        return 2
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "list":
+        return cmd_list()
+    if cmd in ("show", "verify", "stage", "staged-clear"):
+        if len(rest) != 1:
+            print(f"użycie: wlb-export {cmd} <request_id>", file=sys.stderr)
+            return 2
+        handler = {
+            "show": cmd_show,
+            "verify": cmd_verify,
+            "stage": cmd_stage,
+            "staged-clear": cmd_staged_clear,
+        }[cmd]
+        try:
+            return handler(rest[0])
+        except (OSError, ValueError) as error:
+            # resolve_request/inventory_at zgłaszają SnapshotError(ValueError)/OSError; fail-closed.
+            code = getattr(error, "code", type(error).__name__)
+            print(f"{cmd} NIEUDANE dla {rest[0]}: {code}", file=sys.stderr)
+            return 1
+    print(f"nieznana komenda: {cmd}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
