@@ -49,6 +49,8 @@ def test_reviewed_matrix_has_both_languages_and_all_variants():
     groups = mc.catalog(mc.ROOT)
     assert set(groups["deployment-values"]["consumers"]) == {"env-example", "cloud-init-base", "cloud-init-optional"}
     assert all(set(groups[name]["consumers"]) == {"http", "https"} for name in ("hub-rules", "hub-rollback"))
+    assert set(groups["apparmor-switched"]["consumers"]) == {"two-profiles"}
+    assert set(groups["snapshot-algorithm-integrity"]["consumers"]) == {"algorithm"}
     for suffix in (".py", ".bats"):
         assert sum(len(g["mutations"]) for g in groups.values() if g["test"].endswith(suffix)) >= 5
 
