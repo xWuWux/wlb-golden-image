@@ -10,6 +10,7 @@
 # 6. Poprawność składniową szablonu JSON i brak jawnych haseł w szablonie git (@PASSWORD@).
 # 7. Zachowanie w przypadku braku szablonu (skip).
 # 8. Zachowanie przy braku .pgpass (generuje profil z pustym hasłem bez wywrotki).
+# 9. Obsługa haseł ze znakami specjalnymi (&, /, ", \) bez uszkadzania składni JSON.
 
 load helpers.bash
 
@@ -106,4 +107,24 @@ setup() {
   target="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
   [ -f "$target" ]
   grep -q '"userPassword": ""' "$target"
+}
+
+@test "wrapper: bezpieczna obsługa haseł ze znakami specjalnymi (&, /, \", \\) (#271)" {
+  export WLB_TEST_USER="jupyter-u01"
+  printf '127.0.0.1:5432:db_u01:u01:Trudne&Haslo/Z\\Znakami"Specjalnymi\n' >"$HOME/.pgpass"
+  chmod 600 "$HOME/.pgpass"
+  run bash "$WRAPPER"
+  [ "$status" -eq 0 ]
+  target="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
+  [ -f "$target" ]
+  # Sprawdzenie czy plik jest w 100% poprawnym JSON po podstawieniu
+  python3 -m json.tool "$target" >/dev/null
+  # Weryfikacja dokładnej wartości hasła z deserializacji JSON
+  python3 -c '
+import json
+with open("'"$target"'") as f:
+    d = json.load(f)
+pw = d["connections"]["wlb-local-postgres"]["configuration"]["auth-properties"]["userPassword"]
+assert pw == "Trudne&Haslo/Z\\Znakami\"Specjalnymi", f"Niepoprawne haslo: {pw}"
+'
 }

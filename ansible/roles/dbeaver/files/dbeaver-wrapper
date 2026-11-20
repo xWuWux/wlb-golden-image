@@ -25,12 +25,44 @@ if [[ ! -f "$TARGET_FILE" && -f "$TEMPLATE_FILE" ]]; then
       '$1 == h && $2 == p && ($3 == d || $3 == "*") && ($4 == u || $4 == "*") { print $5; exit }' "$PGPASS_FILE")
   fi
 
-  sed \
-    -e "s/@ROLE@/${ROLE}/g" \
-    -e "s/@USER@/${ROLE}/g" \
-    -e "s/@DB@/${DB}/g" \
-    -e "s/@PASSWORD@/${DB_PASS}/g" \
-    "$TEMPLATE_FILE" >"${TARGET_FILE}.tmp"
+  # Bezpieczna instancjacja JSON:
+  # Podstawienie przez python3 (odporne na dowolne znaki w haśle, eliminujące sprzężenie
+  # na wyłącznie alfanumeryczne hasła z wlb-postgres-provision i błędy formatowania JSON).
+  # W przypadku środowiska bez python3 — fallback na sed (zakłada hasło alfanumeryczne [A-Za-z0-9]{32}).
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import json, sys
+
+template_path, target_path, role, db, password = sys.argv[1:6]
+with open(template_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+conn = data.get("connections", {}).get("wlb-local-postgres", {})
+conn["name"] = f"Baza lokalna ({db})"
+cfg = conn.setdefault("configuration", {})
+cfg["database"] = db
+cfg["url"] = f"jdbc:postgresql://127.0.0.1:5432/{db}"
+cfg["user"] = role
+cfg["password"] = password
+auth = cfg.setdefault("auth-properties", {})
+auth["user"] = role
+auth["userName"] = role
+auth["userPassword"] = password
+auth["password"] = password
+
+with open(target_path + ".tmp", "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+' "$TEMPLATE_FILE" "$TARGET_FILE" "$ROLE" "$DB" "$DB_PASS"
+  else
+    # Fallback sed: zakłada hasło alfanumeryczne z wlb-postgres-provision ([A-Za-z0-9]{32})
+    sed \
+      -e "s/@ROLE@/${ROLE}/g" \
+      -e "s/@USER@/${ROLE}/g" \
+      -e "s/@DB@/${DB}/g" \
+      -e "s/@PASSWORD@/${DB_PASS}/g" \
+      "$TEMPLATE_FILE" >"${TARGET_FILE}.tmp"
+  fi
   chmod 0600 "${TARGET_FILE}.tmp"
   mv "${TARGET_FILE}.tmp" "$TARGET_FILE"
 fi
