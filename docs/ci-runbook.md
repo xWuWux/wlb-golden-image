@@ -320,12 +320,20 @@ python3 -m pytest -q tests/unit/test_verify_platform_images_properties.py tests/
 ```
 
 Zakres: walidator manifestu wydania (`verify_platform_images`) oraz parser/walidator tożsamości OS
-(`image_identity`). Limity są w dekoratorach `@settings`: 25–30 przykładów na własność i deadline 5 s.
+(`image_identity`). Profile Hypothesis są w `tests/conftest.py`: `ci` = 50 przykładów, `deadline=None`
+(I/O na współdzielonym runnerze nie może dawać fałszywego `DeadlineExceeded`); `dev` = 15 przykładów,
+`deadline=5000`. Profil wybiera `CI` albo `HYPOTHESIS_PROFILE`.
 Testy mają własność idempotencji, niezależności kolejności, wykrywania zmiany payloadu/wersji/base,
-odrzucania brakujących/nadmiarowych wariantów i fail-closed dla dowolnego JSON.
+odrzucania brakujących/nadmiarowych/pustych/symlinkowanych obrazów i fail-closed dla dowolnego JSON.
 
 Przy czerwonym wyniku Hypothesis wypisuje zminimalizowany kontrprzykład. Odtwarzanie:
-uruchom ponownie pytest z tym samym seedem albo dodaj `@reproduce_failure(...)` z komunikatu.
+
+1. seed z logu:
+   ```bash
+   pytest --hypothesis-seed=<seed_z_logu> tests/unit/test_verify_platform_images_properties.py
+   ```
+2. dekorator wygenerowany przez Hypothesis: dodaj `@reproduce_failure(...)` nad daną funkcją testową.
+
 Lokalna baza `.hypothesis/` jest ignorowana przez Git; w CI nie polega na trwałości bazy.
-Budżet lokalny: oba pliki ~0,5 s; limit czasu jest częścią ustawień, więc nowe własności nie mogą
-wydłużać etapu 4 bez świadomej zmiany limitu.
+Budżet: lokalnie oba pliki ~0,3 s, w CI ~1,4 s dla 50 przykładów; nowe własności nie mogą
+wydłużać etapu 4 bez świadomej zmiany profilu.

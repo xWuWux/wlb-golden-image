@@ -9,10 +9,11 @@ Tutaj Hypothesis generuje dane i sprawdza niezmienniki kontraktu:
 4. zmiana wersji pojedynczego obrazu jest zawsze odrzucana;
 5. `base_sha256` obrazu pochodnego musi wskazywać na bieżący digest rodzica;
 6. brak lub nadmiarowy wariant jest odrzucany;
-7. dowolny kształt JSON nie powoduje wyjątku innego niż `ValueError` (fail-closed).
+7. dowolny kształt JSON jest odrzucany jako `ValueError` (fail-closed).
 
-Limity: 25 przykładów na własność, deadline 5 s; Hypothesis shrinking i raportowanie
-kontrprzykładu są włączone domyślnie. Testy działają w istniejącym etapie 4.
+Limity są w profilu Hypothesis (`tests/conftest.py`): CI 50 przykładów bez deadline,
+lokalnie 15 przykładów z deadline 5 s. Shrinking i raportowanie kontrprzykładu są
+włączone domyślnie. Testy działają w istniejącym etapie 4.
 """
 
 import hashlib
@@ -22,7 +23,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from ci.verify_platform_images import CATALOG, verify
@@ -32,7 +33,6 @@ NAMES = tuple(CATALOG_DATA)
 DERIVED = tuple(name for name, parent in CATALOG_DATA.items() if parent)
 VERSION = st.from_regex(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", fullmatch=True)
 PAYLOADS = st.fixed_dictionaries({name: st.binary(min_size=1, max_size=64) for name in NAMES})
-SETTINGS = settings(max_examples=25, deadline=5000)
 
 
 def sha256(data: bytes) -> str:
@@ -57,7 +57,6 @@ def save_manifest(directory: Path, manifest: Path, version: str, images: dict[st
     manifest.write_text(json.dumps({"schema": 1, "version": version, "images": images}))
 
 
-@SETTINGS
 @given(version=VERSION, payloads=PAYLOADS)
 def test_valid_manifest_is_accepted_and_verification_is_idempotent(version: str, payloads: dict[str, bytes]):
     with TemporaryDirectory() as temp:
@@ -67,18 +66,16 @@ def test_valid_manifest_is_accepted_and_verification_is_idempotent(version: str,
         verify(version, manifest, directory)
 
 
-@SETTINGS
-@given(version=VERSION, payloads=PAYLOADS)
-def test_record_order_is_not_part_of_the_contract(version: str, payloads: dict[str, bytes]):
+@given(version=VERSION, payloads=PAYLOADS, data=st.data())
+def test_record_order_is_not_part_of_the_contract(version: str, payloads: dict[str, bytes], data):
     with TemporaryDirectory() as temp:
         directory = Path(temp)
         manifest, images = write_valid(directory, version, payloads)
-        reordered = dict(reversed(list(images.items())))
-        save_manifest(directory, manifest, version, reordered)
+        keys = data.draw(st.permutations(list(images)))
+        save_manifest(directory, manifest, version, {key: images[key] for key in keys})
         verify(version, manifest, directory)
 
 
-@SETTINGS
 @given(
     version=VERSION,
     payloads=PAYLOADS,
@@ -95,7 +92,6 @@ def test_any_payload_change_is_rejected(version: str, payloads: dict[str, bytes]
             verify(version, manifest, directory)
 
 
-@SETTINGS
 @given(version=VERSION, other=VERSION, payloads=PAYLOADS, name=st.sampled_from(NAMES))
 def test_record_version_change_is_rejected(version: str, other: str, payloads: dict[str, bytes], name: str):
     assume(other != version)
@@ -108,7 +104,6 @@ def test_record_version_change_is_rejected(version: str, other: str, payloads: d
             verify(version, manifest, directory)
 
 
-@SETTINGS
 @given(
     version=VERSION,
     payloads=PAYLOADS,
@@ -126,22 +121,49 @@ def test_derived_base_digest_must_match_parent(version: str, payloads: dict[str,
             verify(version, manifest, directory)
 
 
-@SETTINGS
 @given(version=VERSION, payloads=PAYLOADS, name=st.sampled_from(NAMES))
-def test_missing_or_extra_variant_is_rejected(version: str, payloads: dict[str, bytes], name: str):
+def test_missing_variant_is_rejected(version: str, payloads: dict[str, bytes], name: str):
     with TemporaryDirectory() as temp:
         directory = Path(temp)
         manifest, images = write_valid(directory, version, payloads)
-
         del images[name]
         save_manifest(directory, manifest, version, images)
         with pytest.raises(ValueError, match=r"^image set differs from the release catalog$"):
             verify(version, manifest, directory)
 
+
+@given(version=VERSION, payloads=PAYLOADS)
+def test_extra_variant_is_rejected(version: str, payloads: dict[str, bytes]):
+    with TemporaryDirectory() as temp:
+        directory = Path(temp)
         manifest, images = write_valid(directory, version, payloads)
         images["wlb-extra"] = images[NAMES[0]]
         save_manifest(directory, manifest, version, images)
         with pytest.raises(ValueError, match=r"^image set differs from the release catalog$"):
+            verify(version, manifest, directory)
+
+
+@given(version=VERSION, payloads=PAYLOADS, name=st.sampled_from(NAMES))
+def test_empty_payload_is_rejected(version: str, payloads: dict[str, bytes], name: str):
+    with TemporaryDirectory() as temp:
+        directory = Path(temp)
+        manifest, _ = write_valid(directory, version, payloads)
+        (directory / f"{name}.qcow2").write_bytes(b"")
+        with pytest.raises(ValueError, match=rf"^{re.escape(name)}: expected a nonempty regular image file$"):
+            verify(version, manifest, directory)
+
+
+@given(version=VERSION, payloads=PAYLOADS, name=st.sampled_from(NAMES))
+def test_symlink_payload_is_rejected(version: str, payloads: dict[str, bytes], name: str):
+    with TemporaryDirectory() as temp:
+        directory = Path(temp)
+        manifest, _ = write_valid(directory, version, payloads)
+        target = directory / "target.qcow2"
+        target.write_bytes(payloads[name])
+        path = directory / f"{name}.qcow2"
+        path.unlink()
+        path.symlink_to(target)
+        with pytest.raises(ValueError, match=rf"^{re.escape(name)}: expected a nonempty regular image file$"):
             verify(version, manifest, directory)
 
 
@@ -152,16 +174,11 @@ MALFORMED = st.recursive(
 )
 
 
-@SETTINGS
 @given(payload=MALFORMED)
-def test_malformed_candidate_never_escapes_as_non_value_error(payload):
+def test_malformed_candidate_is_rejected_as_value_error(payload):
     with TemporaryDirectory() as temp:
         directory = Path(temp)
         manifest = directory / "candidate.json"
         manifest.write_text(json.dumps(payload))
-        try:
+        with pytest.raises(ValueError):
             verify("1.2.0", manifest, directory)
-        except ValueError:
-            pass
-        except Exception as exc:
-            raise AssertionError(f"walidator ujawnił {type(exc).__name__} dla {payload!r}") from exc
