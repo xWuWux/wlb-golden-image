@@ -464,7 +464,11 @@ fi
 # IPv6 w QEMU user może nie mieć trasy — wtedy odmowa nie jest dowodem zapory, tylko brakiem trasy.
 # Test wykonujemy tylko przy realnej trasie IPv6; brak trasy = SKIP, nie PASS.
 w6b_ipv6_routed() {
-  command -v ip >/dev/null 2>&1 && ip -6 route show default 2>/dev/null | grep -q .
+  command -v ip >/dev/null 2>&1 || return 1
+  # Sam default route nie wystarcza: QEMU user może mieć trasę przez link-local bez
+  # globalnego adresu IPv6; wtedy pakiety nie wychodzą i brak wpisu nft nie jest dowodem.
+  ip -6 -o addr show scope global 2>/dev/null | grep -q 'inet6' || return 1
+  ip -6 route show default 2>/dev/null | grep -q .
 }
 if w6b_ipv6_routed; then
   expect_ok "Egress ICMPv6 do zewnętrznego IPv6 odrzucony z wpisem nft (#288, #323)" w6b_icmp6_denied
