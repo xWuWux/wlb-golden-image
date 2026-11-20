@@ -513,9 +513,23 @@ EOF
 # Tylko ODCZYT stanu runtime; sam kod wyjścia `systemctl start wlb-audit-rules.service` NIE dowodzi
 # załadowania reguł — ConditionPathExists może pominąć usługę, zwracając 0. Niepotwierdzony stan musi
 # blokować otwarcie huba (wywołujący robi `|| die`, trap zamyka bramkę; kanał SSH operatora zostaje).
+# Oczekiwane klucze audytu pochodzą z pliku reguł WLB — jedno źródło prawdy z rolą audit (#365 review).
+WLB_AUDIT_RULES=${WLB_AUDIT_RULES:-/etc/audit/rules.d/50-wlb.rules}
 verify_audit_ready() {
-  auditctl -s 2>/dev/null | grep -qE '^enabled 2$' || return 1 # augenrules --load + auditctl -e 2 wykonane
-  auditctl -l 2>/dev/null | grep -qvE '^No rules$' || return 1 # reguły faktycznie w jądrze, nie pominięte
+  # Audyt aktywny: enabled 1 (lub 2 przy wlb_audit_immutable=true, domyślnie). Pominięta usługa daje
+  # enabled 0 albo brak reguł. NIE wymagamy twardo 2, by nie fail-closować konfiguracji immutable=false.
+  auditctl -s 2>/dev/null | grep -qE '^enabled [12]$' || return 1
+  local loaded key
+  loaded=$(auditctl -l 2>/dev/null) || return 1
+  [[ -n $loaded && $loaded != 'No rules' ]] || return 1
+  # KOMPLET reguł WLB: KAŻDY klucz z pliku reguł musi być w jądrze. Częściowy/obcy zestaw = fail
+  # (sam fakt, że istnieje jakakolwiek reguła, NIE dowodzi załadowania reguł WLB).
+  [[ -r $WLB_AUDIT_RULES ]] || return 1
+  while IFS= read -r key; do
+    [[ -n $key ]] || continue
+    grep -qE "(-k[[:space:]]+|key=)${key}([[:space:]]|$)" <<<"$loaded" || return 1
+  done < <(grep -oE '[-]k[[:space:]]+wlb_[A-Za-z0-9_]+' "$WLB_AUDIT_RULES" | awk '{print $2}' | sort -u)
+  return 0
 }
 
 # Fail-closed (#251): jeśli firstboot zakończy się błędem PO otwarciu bramki huba, a PRZED
