@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" errors="0" failures="2" skipped="0" tests="1" time="0.045">
+  <testcase classname="tests.unit.test_demo" name="test_sub[0]" time="0.012">
+    <failure message="Subtest 1 failed: assert 0 == 1">Traceback (most recent call last):
+  File "test_demo.py", line 10, in test_sub
+    assert 0 == 1
+AssertionError: assert 0 == 1</failure>
+    <failure message="Subtest 2 failed: assert 2 == 3">Traceback (most recent call last):
+  File "test_demo.py", line 12, in test_sub
+    assert 2 == 3
+AssertionError: assert 2 == 3</failure>
+  </testcase>
+</testsuite>
