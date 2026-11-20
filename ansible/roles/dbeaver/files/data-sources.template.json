@@ -5,7 +5,7 @@
       "provider": "postgresql",
       "driver": "postgres-jdbc",
       "name": "Baza lokalna (@DB@)",
-      "save-password": false,
+      "save-password": true,
       "read-only": false,
       "configuration": {
         "host": "127.0.0.1",
@@ -13,11 +13,15 @@
         "database": "@DB@",
         "url": "jdbc:postgresql://127.0.0.1:5432/@DB@",
         "user": "@ROLE@",
+        "password": "@PASSWORD@",
         "configurationType": "MANUAL",
         "type": "dev",
         "auth-model": "native",
         "auth-properties": {
-          "user": "@ROLE@"
+          "user": "@ROLE@",
+          "userName": "@ROLE@",
+          "userPassword": "@PASSWORD@",
+          "password": "@PASSWORD@"
         },
         "provider-properties": {
           "@dbeaver-show-non-default-db@": "false",

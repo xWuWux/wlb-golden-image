@@ -2,7 +2,7 @@
 # /usr/local/bin/dbeaver — wrapper DBeaver CE z automatyczną konfiguracją połączenia WLB (#271).
 # Przy pierwszym uruchomieniu dla konta badacza (jupyter-uNN) instancjonuje profil połączenia
 # ~/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json z szablonu,
-# wykorzystując uwierzytelnianie przez ~/.pgpass (bez zapisywania hasła w pliku JSON).
+# pobierając hasło z ~/.pgpass (save-password: true, bez monitów o hasło w DBeaverze).
 
 set -euo pipefail
 
@@ -17,10 +17,19 @@ TEMPLATE_FILE="${WLB_DBEAVER_TEMPLATE:-/etc/wlb/dbeaver/data-sources.template.js
 
 if [[ ! -f "$TARGET_FILE" && -f "$TEMPLATE_FILE" ]]; then
   mkdir -p "$TARGET_DIR"
+  PGPASS_FILE="${WLB_PGPASS_FILE:-$HOME/.pgpass}"
+  DB_PASS=""
+  if [[ -f "$PGPASS_FILE" ]]; then
+    # Format .pgpass: hostname:port:database:username:password
+    DB_PASS=$(awk -F: -v h="127.0.0.1" -v p="5432" -v d="$DB" -v u="$ROLE" \
+      '$1 == h && $2 == p && ($3 == d || $3 == "*") && ($4 == u || $4 == "*") { print $5; exit }' "$PGPASS_FILE")
+  fi
+
   sed \
     -e "s/@ROLE@/${ROLE}/g" \
     -e "s/@USER@/${ROLE}/g" \
     -e "s/@DB@/${DB}/g" \
+    -e "s/@PASSWORD@/${DB_PASS}/g" \
     "$TEMPLATE_FILE" >"${TARGET_FILE}.tmp"
   chmod 0600 "${TARGET_FILE}.tmp"
   mv "${TARGET_FILE}.tmp" "$TARGET_FILE"

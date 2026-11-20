@@ -95,12 +95,49 @@ if grep -qx "WLB_IMAGE_NAME=wlb-pediatria" /etc/wlb/image-release 2>/dev/null; t
     '
 
   # shellcheck disable=SC2016
-  expect_ok "data-sources.json wskazuje poprawną bazę db_$R1 i rolę $R1 bez zapisanego hasła" \
+  expect_ok "data-sources.json wskazuje db_$R1, u01 i zawiera hasło z .pgpass (save-password: true)" \
     bash -c '
       f="/workspace/jupyter-'"$R1"'/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
+      p="/workspace/jupyter-'"$R1"'/.pgpass"
+      pw_pgpass=$(awk -F: "{print \$5}" "$p")
+      pw_dbeaver=$(grep -oE "\"userPassword\": \"[^\"]+\"" "$f" | cut -d\" -f4)
+      [ -n "$pw_pgpass" ] && [ "$pw_pgpass" = "$pw_dbeaver" ] &&
       grep -q "\"database\": \"db_'"$R1"'\"" "$f" &&
       grep -q "\"user\": \"'"$R1"'\"" "$f" &&
-      (! grep -iq "password" "$f" || grep -q "\"save-password\": false" "$f")
+      grep -q "\"save-password\": true" "$f"
+    '
+
+  # --- Weryfikacja połączenia end-to-end sterownikiem pgJDBC (#271) -----------------------
+  # Program pomocniczy WlbJdbcPing (tests/lib/WlbJdbcPing.java) zrzucany do katalogu tymczasowego.
+  # Uruchamiany pod JRE zbundlowanym z DBeaver CE z użyciem oficjalnego pgJDBC jar.
+  W72_TMP=$(mktemp -d)
+  # shellcheck disable=SC2064
+  trap "rm -rf '$W72_TMP'" EXIT
+  base64 -d <<'EOF' >"$W72_TMP/WlbJdbcPing.class"
+yv66vgAAADQAZgoAAgADBwAEDAAFAAYBABBqYXZhL2xhbmcvT2JqZWN0AQAGPGluaXQ+AQADKClWCQAIAAkHAAoMAAsADAEAEGphdmEvbGFuZy9TeXN0ZW0BAANlcnIBABVMamF2YS9pby9QcmludFN0cmVhbTsIAA4BACpVc2FnZTogV2xiSmRiY1BpbmcgPHVybD4gPHVzZXI+IFtwYXNzd29yZF0KABAAEQcAEgwAEwAUAQATamF2YS9pby9QcmludFN0cmVhbQEAB3ByaW50bG4BABUoTGphdmEvbGFuZy9TdHJpbmc7KVYKAAgAFgwAFwAYAQAEZXhpdAEABChJKVYKABoAGwcAHAwAHQAeAQAQamF2YS9sYW5nL1N0cmluZwEAB2lzRW1wdHkBAAMoKVoIACABABVvcmcucG9zdGdyZXNxbC5Ecml2ZXIKACIAIwcAJAwAJQAmAQAPamF2YS9sYW5nL0NsYXNzAQAHZm9yTmFtZQEAJShMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9DbGFzczsKACgAKQcAKgwAKwAsAQAWamF2YS9zcWwvRHJpdmVyTWFuYWdlcgEADWdldENvbm5lY3Rpb24BAE0oTGphdmEvbGFuZy9TdHJpbmc7TGphdmEvbGFuZy9TdHJpbmc7TGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL3NxbC9Db25uZWN0aW9uOwsALgAvBwAwDAAxADIBABNqYXZhL3NxbC9Db25uZWN0aW9uAQAPY3JlYXRlU3RhdGVtZW50AQAWKClMamF2YS9zcWwvU3RhdGVtZW50OwgANAEACFNFTEVDVCAxCwA2ADcHADgMADkAOgEAEmphdmEvc3FsL1N0YXRlbWVudAEADGV4ZWN1dGVRdWVyeQEAKChMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL3NxbC9SZXN1bHRTZXQ7CwA8AD0HADwMAP8AHgEAEmphdmEvc3FsL1Jlc3VsdFNldAEABG5leHQACAA8QQEAEmphdmEvc3FsL1Jlc3VsdFNldAQABmdldEludAEABChJKUkJAAgARQwARgAMAEAA291dAgASAEAC1dMQl9KREJDX09LCABKAQAXVW5leHBlY3RlZCBxdWVyeSByZXN1bHQLADwATAwATQAGAQAFY2xvc2UHAE8BABNqYXZhL2xhbmcvVGhyb3dhYmxlCgBOAFEMAFIAUwEADWFkZFN1cHByZXNzZWQBABgoTGphdmEvbGFuZy9UaHJvd2FibGU7KVYLADYATAsALgBMBwBXAQATamF2YS9sYW5nL0V4Y2VwdGlvbgoAVgBZDABaAAYBAA9wcmludFN0YWNrVHJhY2UHAFwBAAtXbGJKZGJjUGluZwEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBAARtYWluAQAWKFtMamF2YS9sYW5nL1N0cmluZzspVgEADVN0YWNrTWFwVGFibGUHAGMBABNbTGphdmEvbGFuZy9TdHJpbmc7AQAKU291cmNlRmlsZQEAEFdsYkpkYmNQaW5nLmphdmEAIQBbAAIAAAAAAAIAAQAFAAYAAQBdAAAAHQABAAEAAAAFKrcAAbEAAAABAF4AAAAGAAEAAAAGAAkAXwBgAAEAXQAAAocAAwAJAAABJCq+BaIAD7IABxINtgAPBbgAFSoDMkwqBDJNKr4GoQASKgUytgAZmgAJKgUypwAEAU4SH7gAIVctxgAMKywtuAAnpwAJKywBuAAnOgQZBLkALQEAOgUZBRIzuQA1AgA6BhkGuQA7AQCZAB4ZBgS5AEACAASgABKyAEQSR7YADwO4ABWnAA+yAAcSSbYADwS4ABUZBsYAKhkGuQBLAQCnACA6BxkGxgAWGQa5AEsBAKcADDoIGQcZCLYAUBkHvxkFxgAqGQW5AFQBAKcAIDoGGQXGABYZBbkAVAEApwAMOgcZBhkHtgBQGQa/GQTGACoZBLkAVQEApwAgOgUZBMYAFhkEuQBVAQCnAAw6BhkFGQa2AFAZBb+nAA46BBkEtgBYBLgAFbEABwBgAJEAoABOAKcArgCxAE4AVQC9AMwATgDTANoA3QBOAEwA6QD4AE4A/wEGAQkATgAxARUBGABWAAIAXgAAAHIAHAAAAAgABgAJAA4ACgASAAwAFgANABoADgAxABAANwARADsAEgBEABMATAAUAFUAFQBgABYAdgAXAH4AGACFABoAjQAbAJEAHQCgABEAvQAdAMwAEQDpAB0A+AARARUAIQEYAB4BGgAfAR8AIAEjACIAYQAAAKEAFRL9ABwHABoHABpABwAa/AATBwAaRQcALv4AOgcALgcANgcAPAtOBwBO/wAQAAgHAGIHABoHABoHABoHAC4HADYHADwHAE4AAQcATgj5AAJOBwBO/wAQAAcHAGIHABoHABoHABoHAC4HADYHAE4AAQcATgj5AAJOBwBO/wAQAAYHAGIHABoHABoHABoHAC4HAE4AAQcATgj5AAJCBwBWCgABAGQAAAACAGU=
+EOF
+  chmod 755 "$W72_TMP"
+  chmod 644 "$W72_TMP/WlbJdbcPing.class"
+
+  # Test 1: Połączenie TCP z jawnym hasłem z profilu DBeaver
+  # shellcheck disable=SC2016
+  expect_ok "Sterownik pgJDBC łączy się do db_$R1 przez TCP/SCRAM z hasłem z profilu DBeaver" \
+    bash -c '
+      f="/workspace/jupyter-'"$R1"'/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
+      pw=$(grep -oE "\"userPassword\": \"[^\"]+\"" "$f" | cut -d\" -f4)
+      [ -n "$pw" ] &&
+      as "'"$R1"'" /usr/share/dbeaver-ce/jre/bin/java \
+        -cp "'"$W72_TMP"':/opt/wlb/drivers/postgres/postgresql-42.7.14.jar" \
+        WlbJdbcPing "jdbc:postgresql://127.0.0.1:5432/db_'"$R1"'" "'"$R1"'" "$pw" | grep -q "WLB_JDBC_OK"
+    '
+
+  # Test 2: Połączenie TCP z automatycznym odczytem ~/.pgpass przez pgJDBC (bez podawania hasła)
+  # shellcheck disable=SC2016
+  expect_ok "Sterownik pgJDBC łączy się do db_$R1 natywnie z użyciem pliku ~/.pgpass" \
+    bash -c '
+      as "'"$R1"'" /usr/share/dbeaver-ce/jre/bin/java \
+        -cp "'"$W72_TMP"':/opt/wlb/drivers/postgres/postgresql-42.7.14.jar" \
+        WlbJdbcPing "jdbc:postgresql://127.0.0.1:5432/db_'"$R1"'" "'"$R1"'" | grep -q "WLB_JDBC_OK"
     '
 
   # --- Kafelek pulpitu XFCE ---------------------------------------------------------------
