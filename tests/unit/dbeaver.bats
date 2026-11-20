@@ -40,15 +40,15 @@ setup() {
 
 @test "wrapper: wstrzykuje hasło z ~/.pgpass do wygenerowanego profilu DBeaver (#271)" {
   export WLB_TEST_USER="jupyter-u01"
-  printf '127.0.0.1:5432:db_u01:u01:TajneHasloBadacza12345\n' >"$HOME/.pgpass"
+  printf '127.0.0.1:5432:db_u01:u01:mock-pass-u01\n' >"$HOME/.pgpass"
   chmod 600 "$HOME/.pgpass"
 
   run bash "$WRAPPER"
   [ "$status" -eq 0 ]
   target="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
   [ -f "$target" ]
-  grep -q '"userPassword": "TajneHasloBadacza12345"' "$target"
-  grep -q '"password": "TajneHasloBadacza12345"' "$target"
+  grep -q '"userPassword": "mock-pass-u01"' "$target"
+  grep -q '"password": "mock-pass-u01"' "$target"
   grep -q '"save-password": true' "$target"
 }
 
@@ -75,13 +75,13 @@ setup() {
 
 @test "wrapper: konto bez prefiksu jupyter- (np. u02) pobiera hasło dla u02 (#271)" {
   export WLB_TEST_USER="u02"
-  printf '127.0.0.1:5432:db_u02:u02:HasloU02Weryfikacja\n' >"$HOME/.pgpass"
+  printf '127.0.0.1:5432:db_u02:u02:mock-pass-u02\n' >"$HOME/.pgpass"
   run bash "$WRAPPER"
   [ "$status" -eq 0 ]
   target="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
   grep -q '"database": "db_u02"' "$target"
   grep -q '"user": "u02"' "$target"
-  grep -q '"userPassword": "HasloU02Weryfikacja"' "$target"
+  grep -q '"userPassword": "mock-pass-u02"' "$target"
 }
 
 @test "szablon: poprawny format JSON i brak jawnych haseł w repo (tylko placeholder) (#271)" {
