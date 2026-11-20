@@ -46,6 +46,12 @@ for cmd in qemu-system-x86_64:qemu-system-x86 qemu-img:qemu-utils cloud-localds:
   ssh:openssh-client make:make git:git; do
   if command -v "${cmd%%:*}" >/dev/null; then ok "${cmd%%:*}"; else fail "Brak ${cmd%%:*}" "sudo apt install ${cmd#*:}"; fi
 done
+# sqlite3 jest potrzebny tylko testom DR huba (#306), nie budowaniu obrazu — ostrzeżenie, nie blokada.
+if command -v sqlite3 >/dev/null; then
+  ok "sqlite3 (testy DR huba)"
+else
+  warn "Brak sqlite3" "Testy DR huba (#306) nie uruchomią się: sudo apt install sqlite3"
+fi
 # płyta z konfiguracją cloud-init dla maszyny budującej (Packer: cd_content) — dowolny z trzech
 if command -v xorriso >/dev/null || command -v genisoimage >/dev/null || command -v mkisofs >/dev/null; then
   ok "narzędzie ISO (xorriso / genisoimage / mkisofs)"

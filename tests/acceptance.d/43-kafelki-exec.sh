@@ -9,7 +9,7 @@
 #      /usr/local/bin, sesja XFCE/jrdp go NIE ma (#199/#202); `command -v` roota dałby fałszywy
 #      zielony dla gołego "Exec=wlb-fsleyes". PATH sesji odtwarzamy w tests/lib/kafelki-exec.sh
 #      (jrdp/xstartup nie ustawia PATH — dziedziczy PATH spawnera TLJH).
-#   4. cel musi istnieć i być wykonywalny; wrapper WLB (/usr/local/bin, /opt/wlb) musi wskazywać
+#   4. cel musi istnieć i być wykonywalny; wrapper WLB (/usr/local/bin, /opt/wlb/bin) musi wskazywać
 #      istniejący cel (np. fsleyes/fsl przez FSLDIR).
 #   5. TEST NEGATYWNY (obowiązkowy): kopia kafelka z zepsutym Exec musi dać FAIL — inaczej zielony
 #      wynik byłby fałszywy (bramka, która nic nie wykrywa).
