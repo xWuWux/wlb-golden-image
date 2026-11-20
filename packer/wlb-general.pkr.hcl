@@ -60,6 +60,7 @@ build {
       "--extra-vars", "wlb_image_name=${var.image_name} wlb_image_version=${var.image_version} wlb_image_date=${local.image_date} wlb_prepare_versioned_python=true",
       "--extra-vars", "wlb_artifacts_dir=${local.repo_root}/build/artifacts/${local.full_name}",
       "--extra-vars", "wlb_git_commit=${var.git_commit} wlb_git_describe=${var.git_describe} wlb_git_dirty=${var.git_dirty} wlb_build_run=${var.build_run}",
+      "--extra-vars", "wlb_enable_e2e_target=${local.wlb_e2e_target_enabled}",
     ]
   }
 

@@ -42,7 +42,9 @@ jobs:
       - name: QEMU i narzędzia obrazu
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage
+          sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage libguestfs-tools
+      - name: Sprawdź libguestfs (bramka E2E czyta qcow2 przez virt-ls)
+        run: LIBGUESTFS_BACKEND=direct libguestfs-test-tool >/dev/null
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -53,6 +55,8 @@ jobs:
         env:
           IMAGE_VERSION: ${{ steps.ver.outputs.version }}
       - name: Złóż pakiet wydania (metadane, SBOM, changelog, SHA256SUMS)
+        env:
+          LIBGUESTFS_BACKEND: direct # bramka E2E czyta qcow2 przez virt-ls, bez libvirtd
         run: ci/release.sh "${GITHUB_REF_NAME}"
       - name: Opublikuj GitHub Release
         env:

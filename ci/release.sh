@@ -41,6 +41,23 @@ rel_dirty=$(sed -n 's/^WLB_GIT_DIRTY=//p' "$ARTIFACTS/image-release")
 [[ $rel_commit == "$COMMIT" ]] || die "obraz zbudowano z commita '${rel_commit}', a HEAD to '${COMMIT}'"
 [[ $rel_dirty == 0 ]] || die "obraz zbudowano z brudnego drzewa (WLB_GIT_DIRTY=${rel_dirty})"
 
+# #277-S3: wydanie nie może zawierać fixture E2E pulpitu. Sprawdzamy drzewo artefaktów
+# oraz qcow2 wskazany przez metadane wydania (nie flavor testowy z output/); brak obrazu
+# to błąd (fail-closed), nie „czysto”. Ścieżka jak w ci/integration.sh: output/<full>/<full>.qcow2.
+rel_name=$(sed -n 's/^WLB_IMAGE_NAME=//p' "$ARTIFACTS/image-release")
+rel_date=$(sed -n 's/^WLB_IMAGE_DATE=//p' "$ARTIFACTS/image-release")
+RELEASE_IMAGE="output/${rel_name}-${VERSION}-${rel_date}/${rel_name}-${VERSION}-${rel_date}.qcow2"
+[[ -f $RELEASE_IMAGE ]] ||
+  die "brak obrazu ${RELEASE_IMAGE} — nie można zweryfikować braku fixture E2E (#277)"
+E2E_ARGS=(--tree "$ARTIFACTS" --image "$RELEASE_IMAGE")
+step "Bramka E2E (#277)"
+e2e_rc=0
+python3 ci/e2e_release_gate.py "${E2E_ARGS[@]}" || e2e_rc=$?
+endstep
+# Kod 3 = znaleziono artefakt E2E; kod 2 = nie można zweryfikować. Oba przerywają wydanie
+# i są przekazywane dalej bez zmiany, żeby CI mogło je rozróżnić.
+((e2e_rc == 0)) || exit "$e2e_rc"
+
 OUT=build/release
 rm -rf "$OUT"
 mkdir -p "$OUT"
