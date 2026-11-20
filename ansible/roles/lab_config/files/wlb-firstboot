@@ -508,6 +508,16 @@ EOF
   nft -c -f "$R/etc/nftables.conf" || die "błędne reguły nftables (sprawdź EGRESS_ALLOW i *_CIDR)"
   systemctl restart nftables
 }
+
+# verify_audit_ready — potwierdza w JĄDRZE, że audyt jest aktywny i zablokowany (#268, kryterium #2).
+# Tylko ODCZYT stanu runtime; sam kod wyjścia `systemctl start wlb-audit-rules.service` NIE dowodzi
+# załadowania reguł — ConditionPathExists może pominąć usługę, zwracając 0. Niepotwierdzony stan musi
+# blokować otwarcie huba (wywołujący robi `|| die`, trap zamyka bramkę; kanał SSH operatora zostaje).
+verify_audit_ready() {
+  auditctl -s 2>/dev/null | grep -qE '^enabled 2$' || return 1 # augenrules --load + auditctl -e 2 wykonane
+  auditctl -l 2>/dev/null | grep -qvE '^No rules$' || return 1 # reguły faktycznie w jądrze, nie pominięte
+}
+
 # Fail-closed (#251): jeśli firstboot zakończy się błędem PO otwarciu bramki huba, a PRZED
 # zapisaniem firstboot.done, bramka wraca do stanu zamkniętego. Flaga HUB_OPENED jest ustawiana
 # przed wywołaniem write_nftables 1, bo ta funkcja może paść w środku (plik z regułą huba już
@@ -929,6 +939,10 @@ fi
 # --- 8. Koniec: reguły audytu po montowaniach, potem blokada ---------------------------
 date -Is >"$AUDIT_READY"
 systemctl start wlb-audit-rules.service || die "nie udało się uruchomić finalizacji audytu"
+# #268 (kryterium #2): sam kod wyjścia systemctl NIE dowodzi, że reguły są w jądrze — ConditionPathExists
+# może pominąć usługę, zwracając 0. Potwierdzamy RUNTIME (auditctl -s enabled=2 + reguły) PRZED otwarciem
+# huba; brak potwierdzenia → die → trap fail_closed_on_exit zamyka bramkę (kanał SSH zostaje do naprawy).
+verify_audit_ready || die "audyt niepotwierdzony w jądrze (enabled=2 + reguły) — hub pozostaje zamknięty (#268)"
 # #251: konta i finalizacja audytu muszą poprzedzać publikację huba dla sieci.
 # Flaga PRZED wywołaniem: write_nftables 1 może paść już po zapisaniu otwartej reguły.
 HUB_OPENED=1

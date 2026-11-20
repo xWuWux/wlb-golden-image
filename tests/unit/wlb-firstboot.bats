@@ -107,6 +107,8 @@ EOF
   meminfo 16384
   stub nproc 0 8
   export WLB_MEMINFO="$SANDBOX/proc/meminfo"
+  # audyt potwierdzony w jądrze (#268 kryt. #2): happy-path ma enabled 2 + reguły; testy negatywne re-stubują
+  stub auditctl 0 "enabled 2"
 }
 
 @test "brak lab.env kończy się błędem" {
@@ -279,6 +281,28 @@ EOF
   [ "$status" -eq 1 ]
   [[ $output == *"brak certyfikatu huba"* ]]
   # przerwanie nastąpiło przed otwarciem portu huba: reguła portu huba nie została zapisana
+  nftcfg="$SANDBOX/etc/nftables.conf"
+  [ ! -e "$nftcfg" ] || ! grep -qE 'tcp dport (80|\{ 80, 443 \}) accept' "$nftcfg"
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "#268 audyt: enabled!=2 w jądrze nie otwiera bramki huba (runtime, nie kod systemctl; kryt. #2)" {
+  # augenrules/-e 2 pominięte przez ConditionPathExists -> systemctl start zwraca 0, ale audyt NIE
+  # jest zablokowany. verify_audit_ready musi to wykryć i zostawić hub zamknięty (fail-closed).
+  stub auditctl 0 "enabled 0"
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"audyt niepotwierdzony"* ]]
+  nftcfg="$SANDBOX/etc/nftables.conf"
+  [ ! -e "$nftcfg" ] || ! grep -qE 'tcp dport (80|\{ 80, 443 \}) accept' "$nftcfg"
+  [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
+}
+
+@test "#268 audyt: błąd auditctl (reguł nie ma w jądrze) nie otwiera bramki huba (fail-closed)" {
+  stub auditctl 1 ""
+  run "$FIRSTBOOT"
+  [ "$status" -eq 1 ]
+  [[ $output == *"audyt niepotwierdzony"* ]]
   nftcfg="$SANDBOX/etc/nftables.conf"
   [ ! -e "$nftcfg" ] || ! grep -qE 'tcp dport (80|\{ 80, 443 \}) accept' "$nftcfg"
   [ ! -e "$SANDBOX/var/lib/wlb/firstboot.done" ]
