@@ -13,6 +13,81 @@ else
 fi
 PASS=0 FAIL=0 SKIP=0
 
+# #349 A1: report-only JUnit XML for the acceptance harness.  The harness keeps
+# emitting its historical PASS/FAIL/SKIP lines; the XML is an additional
+# artifact consumed by the stage-5 parser.  No new dependency is required.
+WLB_JUNIT_TMP=${WLB_JUNIT_TMP:-/tmp/wlb-acceptance-junit.xml}
+WLB_JUNIT_OUT=${WLB_JUNIT_OUT:-/tmp/acceptance.xml}
+JUNIT_SUITE_START=${JUNIT_SUITE_START:-${SECONDS:-0}}
+JUNIT_START=${JUNIT_START:-${SECONDS:-0}}
+declare -A JUNIT_SEEN=()
+: >"$WLB_JUNIT_TMP" 2>/dev/null || true
+
+_xml_escape() {
+  local s=${1:-}
+  # W replacement Bash interpretuje & jako dopasowanie; \& daje literalny znak.
+  s=${s//&/\&amp;}
+  s=${s//</\&lt;}
+  s=${s//>/\&gt;}
+  s=${s//\"/\&quot;}
+  printf '%s' "$s"
+}
+
+# _junit_record STATUS OPIS [POWÓD] — dopisuje <testcase> do strumienia.
+# Czas jest liczony z SECONDS; to wystarcza do raportu, nie do benchmarku.
+_junit_record() {
+  local status=${1:-} desc=${2:-unnamed} reason=${3:-${2:-unnamed}}
+  local now=${SECONDS:-0}
+  local elapsed=$((now - JUNIT_START))
+  ((elapsed < 0)) && elapsed=0
+  JUNIT_START=$now
+  desc=${desc//$'\n'/ }
+  desc=${desc//$'\t'/ }
+  desc=${desc//$'\r'/ }
+  reason=${reason//$'\n'/ }
+  reason=${reason//$'\t'/ }
+  reason=${reason//$'\r'/ }
+  local prev=${JUNIT_SEEN["$desc"]:-0}
+  local count=$((prev + 1))
+  JUNIT_SEEN["$desc"]=$count
+  local name=$desc
+  ((count > 1)) && name="$desc #$count"
+  local xname xreason
+  xname=$(_xml_escape "$name")
+  xreason=$(_xml_escape "$reason")
+  case $status in
+    PASS)
+      printf '  <testcase name="%s" time="%d.000"/>\n' "$xname" "$elapsed" >>"$WLB_JUNIT_TMP" 2>/dev/null || true
+      ;;
+    FAIL)
+      printf '  <testcase name="%s" time="%d.000"><failure message="%s"/></testcase>\n' \
+        "$xname" "$elapsed" "$xreason" >>"$WLB_JUNIT_TMP" 2>/dev/null || true
+      ;;
+    SKIP)
+      printf '  <testcase name="%s" time="%d.000"><skipped message="%s"/></testcase>\n' \
+        "$xname" "$elapsed" "$xreason" >>"$WLB_JUNIT_TMP" 2>/dev/null || true
+      ;;
+  esac
+}
+
+# junit_finalize — owiń zebrane testcase w <testsuite> i zapisz na VM.
+junit_finalize() {
+  local tests failures skipped elapsed
+  [[ -f $WLB_JUNIT_TMP ]] || : >"$WLB_JUNIT_TMP"
+  tests=$(grep -c '<testcase ' "$WLB_JUNIT_TMP" 2>/dev/null || true)
+  failures=$(grep -c '<failure ' "$WLB_JUNIT_TMP" 2>/dev/null || true)
+  skipped=$(grep -c '<skipped ' "$WLB_JUNIT_TMP" 2>/dev/null || true)
+  elapsed=$((${SECONDS:-0} - JUNIT_SUITE_START))
+  ((elapsed < 0)) && elapsed=0
+  {
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n'
+    printf '<testsuite name="acceptance-stage5" tests="%s" failures="%s" skipped="%s" time="%d.000">\n' \
+      "${tests:-0}" "${failures:-0}" "${skipped:-0}" "$elapsed"
+    cat "$WLB_JUNIT_TMP"
+    printf '</testsuite>\n'
+  } >"$WLB_JUNIT_OUT"
+}
+
 # median LICZBY... — wypisuje medianę liczb całkowitych (dolna przy parzystej liczbie próbek).
 # Używane w pomiarach wydajności (#10): wartość kanoniczna metryki to mediana powtórzeń.
 median() {
@@ -25,23 +100,28 @@ median() {
 ok() {
   echo "  PASS  $*"
   PASS=$((PASS + 1))
+  _junit_record PASS "$*"
 }
 ko() {
   echo "  FAIL  $*"
   FAIL=$((FAIL + 1))
+  _junit_record FAIL "$*"
 }
 skip() {
   echo "  SKIP  $*"
   SKIP=$((SKIP + 1))
+  _junit_record SKIP "$*"
 }
 expect_ok() {
   local d=$1
   shift
+  JUNIT_START=${SECONDS:-0}
   if "$@" >/dev/null 2>&1; then ok "$d"; else ko "$d"; fi
 }
 expect_fail() {
   local d=$1
   shift
+  JUNIT_START=${SECONDS:-0}
   if "$@" >/dev/null 2>&1; then ko "$d"; else ok "$d"; fi
 }
 summary() {
@@ -81,13 +161,60 @@ hub_login() {
     "$HUB/hub/login"
 }
 
-# uruchomienie serwera notebooków zalogowanego użytkownika; czeka na konto systemowe
+# uruchomienie serwera notebooków zalogowanego użytkownika; czeka na konto systemowe i aktywną jednostkę
 hub_spawn() {
   local user=$1
   curl -s -o /dev/null -b "/tmp/wlb-test-$user.jar" -c "/tmp/wlb-test-$user.jar" -L "$HUB/hub/spawn"
   for _ in $(seq 1 60); do
-    id "jupyter-$user" &>/dev/null && return 0
+    id "jupyter-$user" &>/dev/null && systemctl is-active --quiet "jupyter-$user" && return 0
     sleep 2
+  done
+  return 1
+}
+
+# zatrzymanie serwera notebooków zalogowanego użytkownika; czeka na wyłączenie jednostki
+hub_stop() {
+  local user=$1 jar=/tmp/wlb-test-$1.jar xsrf code
+  if [ -f "$jar" ]; then
+    xsrf=$(grep -oP '\t_xsrf\t\K\S+' "$jar" | tail -1)
+    [ -n "$xsrf" ] || xsrf=$(curl -s -b "$jar" -c "$jar" "$HUB/hub/home" | grep -oP 'name="_xsrf"\s+value="\K[^"]+' | head -1)
+    code=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE -b "$jar" -c "$jar" \
+      -H "X-XSRFToken: $xsrf" -H "Referer: $HUB/hub/home" \
+      "$HUB/hub/api/users/$user/server?_xsrf=$xsrf")
+  else
+    code=000
+  fi
+  if [[ ! "$code" =~ ^(200|202|204)$ ]]; then
+    local tok
+    tok=$(/opt/tljh/hub/bin/python -c '
+import sys
+from jupyterhub.orm import User
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+db = sessionmaker(bind=create_engine("sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"))()
+u = db.query(User).filter_by(name=sys.argv[1]).first()
+if u:
+    t = u.new_api_token(note="hub_stop_token")
+    db.commit()
+    sys.stdout.write(t)
+' "$user" 2>/dev/null || true)
+    if [ -n "$tok" ]; then
+      curl -s -o /dev/null -X DELETE -H "Authorization: token $tok" "$HUB/hub/api/users/$user/server"
+      /opt/tljh/hub/bin/python -c '
+import sys
+from jupyterhub.orm import APIToken
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+db = sessionmaker(bind=create_engine("sqlite:////workspace/.wlb-hub/jupyterhub.sqlite"))()
+for t in db.query(APIToken).filter_by(note="hub_stop_token").all():
+    db.delete(t)
+db.commit()
+' 2>/dev/null || true
+    fi
+  fi
+  for _ in $(seq 1 30); do
+    systemctl is-active --quiet "jupyter-$user" || return 0
+    sleep 1
   done
   return 1
 }

@@ -10,8 +10,8 @@ przypadkami. Wynik 100% obejmuje wyłącznie te przypadki. Nie przyznajemy im wy
 |---|---|---|
 | Wartości wdrożenia | Jeden parser w dwóch ścieżkach odczytu: wzór env i cloud-init (główny i opcjonalny). | Komentarz, cudzysłów lub kolejność mogą zmienić wartość widzianą przez kontrolę CI. Uruchomienie firstboot sprawdzają odrębne testy. |
 | Zapora i ukończenie firstboot | Jedna implementacja, konfiguracje HTTP i HTTPS. Każda przechodzi osobno drogę poprawną i błąd przy otwarciu huba. | Raport dotyczy pliku z regułami i znaczników w piaskownicy. Zastosowanie polityki w jądrze wymaga testu VM. |
-| AppArmor | Jeden skrypt desktopowy, istniejące wiersze TSV sprawdzają sweep i wynik dla Ansible. | Tryb profili na obrazie wymaga pomiaru na VM. |
-| Śluza | Jeden eksporter snapshotów. Testy jednostkowe w `test_wlb_export_snapshot.py`. | Integralność danych i zachowanie storage wymagają odrębnych dowodów. Poza tą macierzą. |
+| AppArmor | Jeden skrypt desktopowy; macierz kontraktu sprawdza osobno early-exit, sygnał `WLB_SWITCHED`, fail-secure po nieudanym `aa-enforce` i wywołanie `aa-enforce`. | Tryb profili na obrazie wymaga pomiaru na VM; macierz nie zastępuje akceptacji. |
+| Śluza | Jeden eksporter snapshotów; macierz sprawdza osobno integralność payloadu, algorytm digestu i wersję manifestu w `test_wlb_export_snapshot.py`. | Integralność danych i zachowanie storage wymagają odrębnych dowodów; macierz nie obejmuje całego storage. |
 | SIEM | Zdarzenia z `observability/contract.yml`, dekodery i reguły Wazuh. | Kontrakt i próbki sprawdza etap 3.5. Ta macierz nie mutuje deklaracji zdarzeń. |
 
 Właścicielem operacyjnym katalogu jest rola utrzymania platformy. Nazwy konsumentów

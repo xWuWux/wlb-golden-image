@@ -1,0 +1,30 @@
+#cloud-config
+# Wariant logowania przez Microsoft Entra ID (#18) — UZUPEŁNIENIE cloud-init/lab-user-data.example.yaml.
+# Przenieś poniższe wpisy do write_files swojego user-data: zmienne dopisz do /etc/wlb/lab.env
+# (obok LAB_NAME, HUB_TLS itd.), a rejestr przypisań dodaj jako osobny plik.
+# Rejestracja aplikacji w Entra, role aplikacji i migracja istniejącego Laboratorium: docs/runbooks/RB-entra.md.
+
+write_files:
+  - path: /etc/wlb/lab.env
+    permissions: "0600"
+    content: |
+      AUTH_MODE=entra
+      ENTRA_TENANT_ID=3f1c2b4a-0000-4000-8000-000000000001
+      # Rola aplikacji „Laboratorium" (wartość z App roles); wejście wymaga jej I wpisu w rejestrze.
+      ENTRA_REQUIRED_ROLE=WLB.Lab.lab-example01
+      ENTRA_ACCOUNTS_FILE=/etc/wlb/entra-accounts
+      OIDC_CLIENT_ID=6c3e2f10-0000-4000-8000-0000000000c1
+      # Sekret aplikacji wstaw z menedżera sekretów przy renderowaniu user-data — nigdy z repozytorium.
+      OIDC_CLIENT_SECRET=<sekret aplikacji Entra>
+      OIDC_CALLBACK_URL=https://lab-example01.wlb.local/hub/oauth_callback
+
+  # Rejestr przypisań: tylko identyfikatory (tid, oid) i konto huba — bez imion i adresów e-mail.
+  # Konto może być stanowiskowe (u01, a01) albo istniejące konto nazwane sprzed IMG-002 (bez migracji).
+  # Mapowanie osoba↔konto z datami prowadzi rejestr organizacyjny (#102), nie ten plik.
+  - path: /etc/wlb/entra-accounts
+    permissions: "0600"
+    content: |
+      # tid (tenant GUMed)                    oid (obiekt użytkownika w Entra)        konto
+      3f1c2b4a-0000-4000-8000-000000000001   9a8b7c6d-0000-4000-8000-0000000000a1   a01
+      3f1c2b4a-0000-4000-8000-000000000001   9a8b7c6d-0000-4000-8000-0000000000b1   u01
+      3f1c2b4a-0000-4000-8000-000000000001   9a8b7c6d-0000-4000-8000-0000000000b2   u02

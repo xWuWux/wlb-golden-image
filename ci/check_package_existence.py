@@ -258,12 +258,27 @@ class LinuxIndexError(Exception):
     """Nie udało się pobrać/odczytać indeksu Ubuntu — fail-closed."""
 
 
-def _default_bytes(url: str, timeout: float = 30.0) -> bytes:
-    """GET całego zasobu (indeks Packages.xz); tylko HTTPS do archive/security.ubuntu.com."""
+def _default_bytes(url: str, timeout: float = 60.0, retries: int = 4, backoff: float = 2.0) -> bytes:
+    """GET całego zasobu (indeks Packages.xz) z ponowieniami na błędy przejściowe; tylko HTTPS do
+    archive/security.ubuntu.com. Indeks bywa ~10 MB, a archive.ubuntu.com pod obciążeniem CI
+    timeoutuje — pojedyncza próba (30 s, bez retry) dawała fałszywy fail-closed na etapie security
+    i blokowała PR-y (#306 i in.). Trwały błąd HTTP (np. 404) nadal fail-closed, bez ślepego retry."""
     req = urllib.request.Request(url, headers=_UA)
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
-        return resp.read()
+    last: Exception = TimeoutError(f"{url}: brak odpowiedzi")
+    for attempt in range(retries):
+        try:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _TRANSIENT:  # trwały błąd (np. 404/403) — nie zgadujemy
+                raise
+            last = exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = exc
+        if attempt < retries - 1:
+            time.sleep(backoff * (2**attempt))
+    raise last
 
 
 def _add_provides(names: set[str], value: str) -> None:

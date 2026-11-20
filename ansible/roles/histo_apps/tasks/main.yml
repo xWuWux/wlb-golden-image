@@ -15,9 +15,14 @@
 # bwrap mimo restrykcji. Realny start sandboxa weryfikuje akceptacja (47-histologia smoke) — jeśli
 # utwardzenie bazy zablokuje userns twardo, złapie to build+akceptacja, nie ciche przejście.
 
-- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+# Cache apt osobno, bez raportowania zmiany (#288) — patrz rola base.
+- name: Odśwież cache apt (#288 — cache to nie stan systemu)
   ansible.builtin.apt:
     update_cache: true
+  changed_when: false
+
+- name: Arkusz kalkulacyjny — LibreOffice Calc (+ natywny VCL GTK3 pod XFCE)
+  ansible.builtin.apt:
     name:
       # Sam Calc + libreoffice-core; bez Writer/Impress/Base — mniejszy obraz niż metapakiet libreoffice.
       - libreoffice-calc
@@ -29,7 +34,6 @@
 # --- jamovi (Flatpak) ---------------------------------------------------------------
 - name: Flatpak (menedżer aplikacji sandboxowanych dla jamovi)
   ansible.builtin.apt:
-    update_cache: true
     name: flatpak
     state: present
 
@@ -68,14 +72,23 @@
 # dane badacza, /workspace/jupyter-<login>) pozwala otwierać i zapisywać pliki z poziomu jamovi. Override
 # systemowy obejmuje wszystkie konta (1 badacz na VM, więc brak wycieku między badaczami w sesji).
 - name: Dostęp jamovi do danych badacza (/workspace)
-  ansible.builtin.command:
-    argv:
-      - flatpak
-      - override
-      - --system
-      - --filesystem={{ jamovi_data_path }}
-      - "{{ jamovi_flatpak_id }}"
-  changed_when: true
+  # Sonda różnicy (#288): flatpak override REALNIE zmienia politykę; changed liczymy z hash pliku
+  # overrides/<app> przed/po — no-op nie zmienia pliku, nowa polityka tak.
+  ansible.builtin.shell: |
+    set -o pipefail
+    f="/var/lib/flatpak/overrides/{{ jamovi_flatpak_id }}"
+    before=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1 || true)
+    flatpak override --system --filesystem={{ jamovi_data_path }} "{{ jamovi_flatpak_id }}"
+    after=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1 || true)
+    if [[ -n $before && $before == "$after" ]]; then
+      echo FLATPAK_OVERRIDE_UNCHANGED
+    else
+      echo FLATPAK_OVERRIDE_CHANGED
+    fi
+  args:
+    executable: /bin/bash
+  register: histo_apps_jamovi_override
+  changed_when: "'FLATPAK_OVERRIDE_CHANGED' in histo_apps_jamovi_override.stdout"
 
 # Kafelek w /usr/share/applications z ABSOLUTNYM Exec (#199): sesja XFCE ma /usr/bin w PATH, ale katalog
 # eksportów Flatpaka (/var/lib/flatpak/exports/share/applications) bywa poza XDG_DATA_DIRS spawnera —

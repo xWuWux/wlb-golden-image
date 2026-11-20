@@ -1,3 +1,8 @@
+- name: Sprawdź obecność instalatora TLJH (#288 — idempotencja za proxy testowym)
+  ansible.builtin.stat:
+    path: /opt/wlb/tljh-bootstrap.py
+  register: tljh_bootstrap_stat
+
 - name: Pobierz instalator TLJH (przypięta wersja)
   ansible.builtin.get_url:
     url: "https://raw.githubusercontent.com/jupyterhub/the-littlest-jupyterhub/{{ tljh_version }}/bootstrap/bootstrap.py"
@@ -7,6 +12,7 @@
   until: tljh_bootstrap_download is succeeded
   retries: 3
   delay: 30
+  when: not tljh_bootstrap_stat.stat.exists
 
 - name: Instalacja TLJH
   ansible.builtin.command: python3 /opt/wlb/tljh-bootstrap.py --version {{ tljh_version }}
@@ -56,6 +62,9 @@
     dest: /opt/tljh/config/config.yaml
     mode: "0640"
   notify: Reload hub
+  # Na działającej VM po wlb-firstboot plik zawiera dynamiczne certyfikaty TLS i cull.max_age
+  # (tljh-config set) — ponowne szablonowanie zresetowałoby stan i naruszyło idempotencję (#288).
+  when: not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Katalog dodatkowej konfiguracji JupyterHub
   ansible.builtin.file:
@@ -163,15 +172,19 @@
     path: /opt/tljh/user/share/jupyter/jupyter_app_launcher
     state: directory
     mode: "0755"
+  when: not (wlb_firstboot_completed | default(false) | bool)
 
 - name: Kafelek pomocy i strona pomocy (#54)
   ansible.builtin.copy:
     src: "launcher/{{ item }}"
     dest: "/opt/tljh/user/share/jupyter/jupyter_app_launcher/{{ item }}"
     mode: "0644"
+    force: false
   loop:
     - jp_app_launcher.yaml
     - pomoc.md
+  # Na zbudowanej VM jp_app_launcher.yaml ma ścieżki zrelokowane przez conda (#193) — nie nadpisujemy (#288).
+  when: not (wlb_firstboot_completed | default(false) | bool)
 
 # --- Blokada pobierania plików na urządzenie badacza (#7, Regulamin §14, §24.e — środek częściowy) ---
 # Po stronie serwera, w Traefiku przed hubem — poza zasięgiem badacza (ukrycie przycisków w JupyterLab
@@ -279,11 +292,42 @@
     dest: /usr/local/sbin/wlb-hub-user
     mode: "0750"
 
+# Odwołanie poświadczeń kont (ciasteczka, tokeny API/OAuth, serwery): wlb-firstboot przy zmianie AUTH_MODE
+# i administrator przed przekazaniem konta innej osobie (#18, #102 D3).
+- name: Narzędzie do odwołania poświadczeń kont huba (#18)
+  ansible.builtin.copy:
+    src: wlb-hub-revoke
+    dest: /usr/local/sbin/wlb-hub-revoke
+    mode: "0750"
+
+# Logowanie przez Entra ID (#18): authenticator i rejestr przypisań (tid, oid) -> konto. Nieaktywne, dopóki
+# wlb-firstboot nie wygeneruje 70-wlb-auth.py dla AUTH_MODE=entra; importuje je wtedy Python huba TLJH.
+- name: Katalog modułów huba WLB (#18)
+  ansible.builtin.file:
+    path: /opt/wlb/hub
+    state: directory
+    mode: "0755"
+
+- name: Moduły logowania Entra ID (#18)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /opt/wlb/hub/{{ item }}
+    mode: "0644"
+  loop:
+    - wlb_entra_accounts.py
+    - wlb_entra_auth.py
+
 # --- Spójna kopia bazy huba przed snapshotem storage (#8) -----------------------------
 - name: Narzędzie do spójnej kopii bazy huba (#8)
   ansible.builtin.copy:
     src: wlb-hub-db-backup
     dest: /usr/local/sbin/wlb-hub-db-backup
+    mode: "0750"
+
+- name: "Narzędzie odtworzenia bazy huba z kopii (DR, #288/RB-07b)"
+  ansible.builtin.copy:
+    src: wlb-hub-db-restore
+    dest: /usr/local/sbin/wlb-hub-db-restore
     mode: "0750"
 
 - name: Usługa kopii bazy huba (#8)
