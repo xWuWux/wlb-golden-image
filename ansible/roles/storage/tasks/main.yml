@@ -94,6 +94,12 @@
     dest: /usr/local/sbin/wlb-export-snapshot
     mode: "0750"
 
+- name: Operatorskie CLI inspekcji kolejki i przygotowania wydania (#20, interim)
+  ansible.builtin.copy:
+    src: wlb-export
+    dest: /usr/local/sbin/wlb-export
+    mode: "0750"
+
 - name: Usługa śluzy wyjściowej
   ansible.builtin.copy:
     dest: /etc/systemd/system/wlb-sluza-out.service

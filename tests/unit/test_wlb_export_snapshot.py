@@ -290,7 +290,7 @@ def test_main_create_verify_and_error(snapshot, tmp_path, monkeypatch, capsys):
     assert snapshot.main() == 0
     (bundle / "payload").write_text("changed")
     assert snapshot.main() == 1
-    assert "SnapshotError" in capsys.readouterr().err
+    assert "integrity_mismatch" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("fault", ["short_read", "growth", "zero_write", "fsync", "replace"])
