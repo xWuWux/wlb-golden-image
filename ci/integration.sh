@@ -67,11 +67,13 @@ build_image() {
   # RÓWNOLEGLE z bazą — a te mają disk_image=true z base_image=output/wlb-general.qcow2
   # (placeholder) i padają natychmiast, bo bazy jeszcze nie ma. Flavory buduje się warstwowo
   # osobno (runbooki RB-build-*), z realnym -var base_image. Integracja testuje bazę.
+  # Baza jest obrazem produkcyjnym: profil production i jawne wyłączenie fixture E2E (#277-S3).
   if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer.log" packer build -color=false -only='wlb.qemu.wlb' \
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
-    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" packer/; then
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" \
+    -var "wlb_build_profile=production" -var "wlb_enable_e2e_target=false" packer/; then
     # budowanie przerwane przez niedostępne repozytoria pakietów (PyPI, conda-forge, CRAN, apt), a nie
     # przez błąd w kodzie: adnotacja INFRA — ci-retry.yml ponowi przebieg jeden raz. Przy zbiegu
     # z prawdziwym błędem kosztem jest jedno zbędne ponowienie.
@@ -563,12 +565,13 @@ radiologia_flavor() {
   echo "== Build flavora wlb-radiologia (base_image=$IMAGE) =="
   # Target in-session E2E (#277-A) włącza się TYLKO w buildach testowych CI — obraz produkcyjny
   # badacza nie zawiera fixture. Bez tego etap 5 nie ma jak dowieść wejścia (markery /run/wlb/e2e).
+  # Profil test jest jawny: produkcja (domyślna) wymusza wlb_enable_e2e_target=false (#277-S3).
   if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-radiologia.log" packer build -color=false -only='wlb-radiologia.*' \
     -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
     -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
-    -var "wlb_enable_e2e_target=true" packer/; then
+    -var "wlb_build_profile=test" -var "wlb_enable_e2e_target=true" packer/; then
     echo "build flavora wlb-radiologia nieudany (packer-radiologia.log w artefaktach etapu 5)"
     return 1
   fi
@@ -599,7 +602,7 @@ memory_flavor() {
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
     -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
-    -var "wlb_enable_e2e_target=true" packer/; then
+    -var "wlb_build_profile=test" -var "wlb_enable_e2e_target=true" packer/; then
     echo "build flavora wlb-memory nieudany (packer-memory.log w artefaktach etapu 5)"
     return 1
   fi
@@ -629,7 +632,7 @@ histologia_flavor() {
     -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
     -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
     -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
-    -var "wlb_enable_e2e_target=true" packer/; then
+    -var "wlb_build_profile=test" -var "wlb_enable_e2e_target=true" packer/; then
     echo "build flavora wlb-histologia nieudany (packer-histologia.log w artefaktach etapu 5)"
     return 1
   fi

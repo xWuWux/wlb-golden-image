@@ -5,3 +5,10 @@ useDefault = true
 [allowlist]
 description = "Lokalne artefakty budowania i narzędzia CI (build/ zawiera tymczasowe klucze SSH maszyny budującej)"
 paths = ['''^build/''', '''^output/''', '''^\.tools/''', '''^packer_cache/''']
+# Hasła-fixtury w testach DBeaver (#271). Skan `gitleaks git` obejmuje wszystkie
+# gałęzie w checkoucie CI, więc bez tej allowlisty każdy PR pada na commicie z
+# gałęzi #271, dopóki poprawka #271 nie trafi do main. Wartości są zmyślone.
+stopwords = [
+  "TajneHasloBadacza12345",
+  "HasloU02Weryfikacja"
+]

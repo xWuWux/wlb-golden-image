@@ -81,6 +81,11 @@ pierwszym Laboratorium na klastrze).
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+- **Dryf locka: `libpkgconf` — biblioteka obok `pkgconf` (#360, etap 5):** conda dostarcza
+  `libpkgconf 3.0.11` jako osobną zależność od `pkgconf 3.0.11`; lock miał tylko pakiet CLI, więc
+  `ci/lock_drift.py` zgłaszał `DRYF: libpkgconf 3.0.11 tylko w obrazie (conda)` i blokował etap 5.
+  Dopisano `libpkgconf=3.0.11` do sekcji conda (między `libpciaccess` a `libpng`). Ta sama zasada:
+  lock = obraz; weryfikacja na locku z artefaktu daje 0 przy 423 pakietach.
 - **Logowanie przez Microsoft Entra ID (`AUTH_MODE=entra`, #18):** `WlbEntraAuthenticator`
   (podklasa `AzureAdOAuthenticator`, oauthenticator 17 z TLJH 2.0) loguje na konto wskazane
   w rejestrze przypisań `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`, root 0600, tylko
@@ -120,6 +125,13 @@ pierwszym Laboratorium na klastrze).
   oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
   WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
   (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
+
+- **Bramka wydania E2E (#277-S3):** produkcja jawnie wymusza `wlb_enable_e2e_target=false`
+  przez profil Packera `wlb_build_profile=production` (domyślny); profil `test` ustawia tylko
+  CI dla flavorów E2E. `ci/release.sh` odrzuca wydanie, gdy qcow2 zawiera którąkolwiek
+  z czterech ścieżek fixture (`/opt/wlb/e2e/`, wpis autostartu, kafelek myszy, tmpfiles) —
+  kod wyjścia 3, brak możliwości sprawdzenia = kod 2 (fail-closed). Release CI robi przed
+  buildem smoke-test bramki na małym qcow2.
 
 - **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
   target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów

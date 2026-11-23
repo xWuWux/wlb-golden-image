@@ -56,6 +56,26 @@ variable "wlb_enable_e2e_target" {
   description = "Zainstaluj target in-session dla testów E2E (#277); tylko buildy testowe."
 }
 
+# Profil budowy rozdziela obraz produkcyjny od buildów testowych CI (#277-S3).
+# Produkcja jest domyślna i NIE może włączyć fixture E2E, nawet jeśli ktoś poda
+# -var wlb_enable_e2e_target=true. Profil testowy ustawia wyłącznie ci/integration.sh.
+variable "wlb_build_profile" {
+  type        = string
+  default     = "production"
+  description = "Profil budowy: production (obrazy badacza) albo test (tylko CI E2E)."
+
+  validation {
+    condition     = contains(["production", "test"], var.wlb_build_profile)
+    error_message = "Nieprawidłowy profil budowy: dozwolone są 'production' i 'test'."
+  }
+}
+
+locals {
+  # Jawne false dla produkcji: nie polegamy na domyślnej wartości roli/group_vars.
+  # Fixture E2E może powstać tylko wtedy, gdy build jawnie zadeklaruje profil testowy.
+  wlb_e2e_target_enabled = var.wlb_build_profile == "test" ? var.wlb_enable_e2e_target : false
+}
+
 # Proweniencja: powiązanie obrazu z kodem (#12a). Puste = budowanie poza git/CI.
 variable "git_commit" {
   type        = string

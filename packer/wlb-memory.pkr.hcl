@@ -80,7 +80,7 @@ build {
     extra_arguments = [
       "--extra-vars", "wlb_image_name=${local.image_name_mem} wlb_image_version=${var.image_version} wlb_image_date=${local.image_date}",
       "--extra-vars", "wlb_artifacts_dir=${local.repo_root}/build/artifacts/${local.full_name_mem}",
-      "--extra-vars", "wlb_enable_e2e_target=${var.wlb_enable_e2e_target}",
+      "--extra-vars", "wlb_enable_e2e_target=${local.wlb_e2e_target_enabled}",
     ]
   }
 

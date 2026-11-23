@@ -44,7 +44,17 @@ wiadomo, z jakiego kodu powstał (zamyka DoD #32/#105 i scenariusz „dwa obrazy
 - `SHA256SUMS` — sumy wszystkich plików wydania.
 
 `ci/release.sh` **odmawia**, gdy: tag nie ma formatu `vX.Y.Z`, drzewo nie jest czyste, tag nie
-wskazuje HEAD, albo proweniencja obrazu nie zgadza się z tagiem/commitem.
+wskazuje HEAD, albo proweniencja obrazu nie zgadza się z tagiem/commitem. Od #277-S3 odmawia też,
+gdy qcow2 wydania zawiera którąkolwiek ze ścieżek fixture E2E pulpitu
+(`/opt/wlb/e2e/`, `/etc/xdg/autostart/wlb-e2e-target.desktop`,
+`/usr/share/applications/wlb-e2e-mouse.desktop`, `/etc/tmpfiles.d/wlb-e2e.conf`). Bramka
+`ci/e2e_release_gate.py` czyta obraz przez `virt-ls` (libguestfs-tools, w release CI
+`LIBGUESTFS_BACKEND=direct`); kod wyjścia **3** oznacza znaleziony artefakt E2E, **2** — brak
+możliwości sprawdzenia (fail-closed). Tryb `--tree` sprawdza rozpakowany rootfs, gdy wywołujący
+taki ma; `ci/release.sh` przekazuje wyłącznie qcow2, bo katalog artefaktów zawiera metadane,
+nie rootfs. Release CI robi przed buildem smoke-test bramki na małym qcow2 (czysty obraz
+przechodzi, obraz z fixture jest odrzucany), żeby zły `virt-ls` nie zablokował wydania po
+150-minutowym budowaniu.
 
 ## Jak wydać
 
