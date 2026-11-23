@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Hardening targetu E2E pulpitu — asercje negatywne w obrazie produkcyjnym (#277, S2):**
+  dodano bramkujące asercje negatywne `test ! -e` w `tests/acceptance.d/40-pulpit.sh` dla obrazu nie-E2E
+  (`wlb-general`), sprawdzające nieobecność 4 ścieżek targetu (`/opt/wlb/e2e`, autostart, kafelek, tmpfiles).
+  Dodano testy jednostkowe w `tests/unit/test_e2e_negative_acceptance.py`.
+
 - **#20 E1: czytnik wniosków eksportu po UUID** — `wlb-export-snapshot resolve <queue> <uuid>`
   oraz `resolve_request(queue, request_id)` wybierają dokładnie jeden pakiet v1 po `request_id`
   (nie po nazwie pliku). Zwracany `VerifiedBundle` trzyma przypięty `package_fd`; weryfikacja
