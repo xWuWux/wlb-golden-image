@@ -14,6 +14,15 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#349: lane detekcji niestabilności (losowa kolejność)** — nowy, NIEBRAMKUJĄCY job `4c. Detekcja
+  niestabilności`: `ci/flaky_detect.py` uruchamia testy jednostkowe wielokrotnie z różnymi ziarnami
+  `pytest-randomly` (osobny `venv-flaky`, poza bramką etapu 4, by nie tasować bramki) i klasyfikuje
+  każdy test jako `stable_pass`, `flaky` (różny wynik między ziarnami → zależność od kolejności,
+  dominująca przyczyna flaky w Pythonie — Gruber ICST 2021) albo `broken` (padł we WSZYSTKICH
+  przebiegach → realna porażka, NIE flaky — nie wolno kwarantannować). Report-only (nie zamienia
+  porażki na sukces — żadnego retry-do-zielonego), opt-in (nocny build / `workflow_dispatch` /
+  etykieta PR `flaky-detect`). Lock z hashami `ci/requirements-flaky.txt`; testy `tests/unit/test_flaky_detect.py`.
+
 - **#323 PR A: wiarygodne sondy egress etapu 5** — testowy helper `tests/lib/net_probe.py`
   klasyfikuje odpowiedź, odmowę, timeout, błąd środowiska i odmowę odczytu jądra; sekcja 6b
   wymaga korelacji z unikalnym wpisem `wlb-egress-deny` (cel/port), zamiast uznawać dowolny
