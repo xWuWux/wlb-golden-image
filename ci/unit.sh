@@ -13,6 +13,10 @@ COV=build/coverage
 rm -rf "$COV"
 mkdir -p "$COV"
 
+REPORTS=${REPORTS:-build/test-reports}
+rm -rf "$REPORTS"
+mkdir -p "$REPORTS/bats"
+
 shell_tests() {
   if ! command -v kcov >/dev/null; then
     if [[ -n ${CI:-} ]]; then
@@ -20,11 +24,12 @@ shell_tests() {
       return 1
     fi
     echo "kcov niedostępny — testy bez pomiaru pokrycia (sudo apt install kcov)"
-    bats tests/unit
+    bats --report-formatter junit --output "$REPORTS/bats" tests/unit
     return
   fi
   # pokrycie tylko skryptów instalowanych w obrazie (nie atrap i nie samych testów)
-  kcov --include-path="$REPO_ROOT/ansible/roles" "$COV/bash" bats tests/unit
+  kcov --include-path="$REPO_ROOT/ansible/roles" "$COV/bash" \
+    bats --report-formatter junit --output "$REPORTS/bats" tests/unit
 }
 
 shell_coverage_gate() {
@@ -46,7 +51,8 @@ PY
 
 python_tests() {
   coverage run --branch --data-file="$COV/.coverage" \
-    --include='ci/*.py,ansible/roles/tljh/files/*,ansible/roles/storage/files/wlb-export-snapshot,ansible/roles/monitoring/files/wlb-health' -m pytest -q -p no:cacheprovider tests/unit
+    --include='ci/*.py,ansible/roles/tljh/files/*,ansible/roles/storage/files/wlb-export-snapshot,ansible/roles/monitoring/files/wlb-health' \
+    -m pytest -q -p no:cacheprovider --junitxml="$REPORTS/pytest.xml" tests/unit
 }
 
 python_coverage_gate() {
@@ -66,4 +72,7 @@ run_check "Próg pokrycia powłoki (${BASH_COVERAGE_MIN}%)" shell_coverage_gate
 run_check "Testy Pythona (pytest)" python_tests
 run_check "Próg pokrycia Pythona (${PYTHON_COVERAGE_MIN}%)" python_coverage_gate
 cat "$COV"/*-summary.md 2>/dev/null | summary >/dev/null || true
+if [[ -d "$REPORTS" ]] && command -v python3 >/dev/null; then
+  python3 ci/flaky_report.py collect --reports "$REPORTS" --out build/ci-logs/flaky.json >/dev/null 2>&1 || true
+fi
 finish

@@ -35,6 +35,11 @@ pierwszym Laboratorium na klastrze).
   zdarzenie do SIEM. Decyzje interim: retencja staged **ręczna** (`staged-clear`), admin=Kontroler,
   bez wymuszonego powodu. `list`/`show`/`verify` są read-only. Testy: `tests/unit/wlb-export.bats`.
 
+- **Telemetria testów niestabilnych flaky per-test (#349, Phase 1):** dodano zbieranie ustrukturyzowanych
+  raportów JUnit XML z testów jednostkowych (pytest i bats) w etapie 4 (`ci/unit.sh`), agregację per-test w formacie
+  `build/ci-logs/flaky.json` (`ci/flaky_report.py collect`) z metadanymi commita, numerem próby (attempt) i podsumowaniem
+  w GITHUB_STEP_SUMMARY oraz upload długoterminowych artefaktów w potoku CI (retencja 90 dni dla `flaky.json`, 14 dni dla raportów).
+
 - **Normalizator raportów JUnit i testów niestabilnych (#349, PR A2):** dodano moduł `ci/flaky_report.py`
   parsujący i normalizujący raporty JUnit XML z etapu 4 (pytest) oraz etapu 5 (akceptacja VM). Moduł
   działa w trybie fail-closed, obsługuje wielokrotne znaczniki `<failure>` w pojedynczym `<testcase>`
