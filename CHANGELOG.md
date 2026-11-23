@@ -19,9 +19,12 @@ pierwszym Laboratorium na klastrze).
   `pytest-randomly` (osobny `venv-flaky`, poza bramką etapu 4, by nie tasować bramki) i klasyfikuje
   każdy test jako `stable_pass`, `flaky` (różny wynik między ziarnami → zależność od kolejności,
   dominująca przyczyna flaky w Pythonie — Gruber ICST 2021) albo `broken` (padł we WSZYSTKICH
-  przebiegach → realna porażka, NIE flaky — nie wolno kwarantannować). Report-only (nie zamienia
-  porażki na sukces — żadnego retry-do-zielonego), opt-in (nocny build / `workflow_dispatch` /
-  etykieta PR `flaky-detect`). Lock z hashami `ci/requirements-flaky.txt`; testy `tests/unit/test_flaky_detect.py`.
+  przebiegach → realna porażka, NIE flaky — nie wolno kwarantannować). Wykonawca zabezpieczony
+  kontraktem `RunResult` (fail-closed exit codes, czyszczenie starych raportów XML, timeout z zabijaniem
+  grupy procesów, obsługa przestrzeni nazw XML, precyzyjne wskazywanie ziarna awarii w podsumowaniu
+  i artefakty XML per-run). Report-only (nie zamienia porażki na sukces — żadnego retry-do-zielonego),
+  opt-in (nocny build / `workflow_dispatch` / etykieta PR `flaky-detect`). Lock z hashami `ci/requirements-flaky.txt`;
+  testy regresyjne w `tests/unit/test_flaky_detect.py` (25 testów).
 
 - **#323 PR A: wiarygodne sondy egress etapu 5** — testowy helper `tests/lib/net_probe.py`
   klasyfikuje odpowiedź, odmowę, timeout, błąd środowiska i odmowę odczytu jądra; sekcja 6b

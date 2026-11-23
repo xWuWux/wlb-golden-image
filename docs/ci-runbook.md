@@ -97,9 +97,11 @@ Jak działa: `ci/flaky_detect.py` uruchamia `tests/unit` kilka razy z różnymi 
   (albo test, albo kod). **Nie wolno go kwarantannować ani ukrywać** — napraw jak zwykły FAIL.
 
 Opt-in: nocny pełny build (wt., cron `0 3 * * 2`), ręcznie (`workflow_dispatch`) lub etykieta PR
-`flaky-detect`. Artefakt: `flaky-detect.json` (`counts`, `flaky`, `broken`, użyte `seeds`).
+`flaky-detect`. Artefakty: `flaky-detect.json` oraz per-run raporty JUnit XML `flaky-detect-seed*.xml`.
 Lokalnie: `.tools/venv-flaky/bin/python ci/flaky_detect.py --target tests/unit --runs 5` (dodaj
-`--gate` dla niezerowego kodu wyjścia przy flaky/broken — tylko lokalnie, nigdy w CI).
+`--gate` dla niezerowego kodu wyjścia przy flaky (kod 2) / broken (kod 1) — tylko lokalnie, nigdy w CI).
+Parametry bezpieczeństwa wykonawcy (`RunResult`): `--timeout` (domyślnie 600s, zabija grupę procesów `SIGKILL`),
+`--min-tests` (domyślnie 1, chroni przed fałszywym GREEN przy błędach kolekcji/pustym raporcie) oraz czyszczenie starych raportów XML.
 
 Uwaga bezpieczeństwa: test z bramki bezpieczeństwa/izolacji, który „zzieleniał po innym ziarnie”,
 mógł przejść **dlatego, że inny test zostawił stan** — to sygnał złamanej izolacji, nie kosmetyka.

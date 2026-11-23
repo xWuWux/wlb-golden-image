@@ -470,7 +470,9 @@ jobs:
         if: always()
         with:
           name: flaky-detect-${{ github.run_attempt }}
-          path: build/ci-logs/flaky-detect.json
+          path: |
+            build/ci-logs/flaky-detect.json
+            build/test-reports/flaky-detect/
           if-no-files-found: ignore
           retention-days: 90
 
