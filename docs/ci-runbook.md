@@ -324,14 +324,20 @@ Zakres: walidator manifestu wydania (`verify_platform_images`) oraz parser/walid
 (I/O na współdzielonym runnerze nie może dawać fałszywego `DeadlineExceeded`); `dev` = 15 przykładów,
 `deadline=5000`. Profil wybiera `CI` albo `HYPOTHESIS_PROFILE`.
 Testy mają własność idempotencji, niezależności kolejności, wykrywania zmiany payloadu/wersji/base,
-odrzucania brakujących/nadmiarowych/pustych/symlinkowanych obrazów i fail-closed dla dowolnego JSON.
+odrzucania brakujących/nadmiarowych/pustych/symlinkowanych obrazów oraz fail-closed dla dowolnego kształtu i uszkodzonego tekstu JSON.
 
 Przy czerwonym wyniku Hypothesis wypisuje zminimalizowany kontrprzykład. Odtwarzanie:
 
-1. seed z logu:
+1. seed z logu — to samo wywołanie pytest, które wykonuje `ci/unit.sh` (`python_tests`),
+   z jawnym profilem CI i seedem:
    ```bash
-   pytest --hypothesis-seed=<seed_z_logu> tests/unit/test_verify_platform_images_properties.py
+   CI=1 HYPOTHESIS_PROFILE=ci coverage run --branch \
+     --data-file=build/coverage/.coverage \
+     --include='ci/*.py,ansible/roles/tljh/files/*,ansible/roles/storage/files/wlb-export-snapshot,ansible/roles/monitoring/files/wlb-health' \
+     -m pytest -q -p no:cacheprovider --hypothesis-seed=<seed_z_logu> \
+     tests/unit/test_verify_platform_images_properties.py
    ```
+   Dla lokalnego profilu `dev` użyj `HYPOTHESIS_PROFILE=dev` bez `CI=1`.
 2. dekorator wygenerowany przez Hypothesis: dodaj `@reproduce_failure(...)` nad daną funkcją testową.
 
 Lokalna baza `.hypothesis/` jest ignorowana przez Git; w CI nie polega na trwałości bazy.

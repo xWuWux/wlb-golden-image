@@ -9,7 +9,8 @@ Tutaj Hypothesis generuje dane i sprawdza niezmienniki kontraktu:
 4. zmiana wersji pojedynczego obrazu jest zawsze odrzucana;
 5. `base_sha256` obrazu pochodnego musi wskazywać na bieżący digest rodzica;
 6. brak lub nadmiarowy wariant jest odrzucany;
-7. dowolny kształt JSON jest odrzucany jako `ValueError` (fail-closed).
+7. dowolny kształt JSON oraz uszkodzony/ucięty tekst JSON są odrzucane jako `ValueError`
+   (fail-closed; nie tylko poprawne struktury).
 
 Limity są w profilu Hypothesis (`tests/conftest.py`): CI 50 przykładów bez deadline,
 lokalnie 15 przykładów z deadline 5 s. Shrinking i raportowanie kontrprzykładu są
@@ -175,10 +176,33 @@ MALFORMED = st.recursive(
 
 
 @given(payload=MALFORMED)
-def test_malformed_candidate_is_rejected_as_value_error(payload):
+def test_malformed_candidate_shape_is_rejected_as_value_error(payload):
     with TemporaryDirectory() as temp:
         directory = Path(temp)
         manifest = directory / "candidate.json"
         manifest.write_text(json.dumps(payload))
+        with pytest.raises(ValueError):
+            verify("1.2.0", manifest, directory)
+
+
+INVALID_JSON_TEXT = st.one_of(
+    st.text(max_size=200),
+    st.binary(max_size=200).map(lambda raw: raw.decode("utf-8", errors="replace")),
+    st.sampled_from(["{", "[", '{"schema":', "not json", '{"schema": 1,', "\x00"]),
+)
+
+
+@given(raw=INVALID_JSON_TEXT)
+def test_broken_json_text_is_rejected_as_value_error(raw: str):
+    try:
+        json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+    else:
+        assume(False)
+    with TemporaryDirectory() as temp:
+        directory = Path(temp)
+        manifest = directory / "candidate.json"
+        manifest.write_text(raw, encoding="utf-8")
         with pytest.raises(ValueError):
             verify("1.2.0", manifest, directory)

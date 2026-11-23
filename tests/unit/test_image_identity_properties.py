@@ -5,7 +5,8 @@ sprawdza niezmienniki:
 
 1. wartości w cudzysłowach i bez cudzysłowów są parsowane literalnie i casefoldowane;
 2. dwukrotny odczyt tego samego pliku daje identyczną tożsamość (idempotence);
-3. `validate_scan_identity` akceptuje dokładnie tę samą, wspieraną parę ID/VERSION_ID;
+3. każda reprezentacja wspieranej pary ID/VERSION_ID (wielkość liter, cudzysłowy, whitespace)
+   po normalizacji parsera jest akceptowana przez `validate_scan_identity`;
 4. wspierany target z innym skanerem jest odrzucany jako `IdentityError`;
 5. target spoza wspieranego zbioru jest odrzucany jako `IdentityError`.
 
@@ -15,6 +16,7 @@ i mogą być odtworzone przez `--hypothesis-seed` lub `@reproduce_failure`.
 """
 
 import string
+from collections.abc import Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -43,12 +45,28 @@ def test_quoted_values_round_trip_and_reading_is_idempotent(id_value: str, versi
         assert first.version_id == version_value.casefold()
 
 
-@given(pair=st.sampled_from(sorted(SUPPORTED)))
-def test_validation_accepts_exact_supported_identical_pair(pair: tuple[str, str]):
+@given(
+    pair=st.sampled_from(sorted(SUPPORTED)),
+    quote=st.sampled_from([("", ""), ('"', '"'), ("'", "'")]),
+    whitespace=st.text(alphabet=" \t", max_size=3),
+    normalize=st.sampled_from([str.lower, str.upper, str.capitalize]),
+)
+def test_supported_pair_is_accepted_after_parser_normalization(
+    pair: tuple[str, str], quote: tuple[str, str], whitespace: str, normalize: Callable[[str], str]
+):
     distro_id, version_id = pair
-    target = OsIdentity(id=distro_id, version_id=version_id)
-    scanner = OsIdentity(id=distro_id, version_id=version_id)
-    validate_scan_identity(target, scanner)
+    left, right = quote
+    body = (
+        f"{whitespace}ID={left}{normalize(distro_id)}{right}{whitespace}\n"
+        f"{whitespace}VERSION_ID={left}{normalize(version_id)}{right}{whitespace}\n"
+    )
+    with TemporaryDirectory() as temp:
+        path = Path(temp) / "os-release"
+        path.write_text(body, encoding="utf-8")
+        identity = read_os_identity(str(path))
+    assert identity == OsIdentity(id=distro_id, version_id=version_id)
+    assert identity.is_supported
+    validate_scan_identity(identity, identity)
 
 
 @given(
