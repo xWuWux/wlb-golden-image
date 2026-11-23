@@ -41,7 +41,20 @@ if [[ ${WLB_SYMBOL_REFS_GATING:-0} == 1 ]]; then
 fi
 run_check "odwołania do symboli w dokumentacji (symbol_refs, raport; bramka z WLB_SYMBOL_REFS_GATING=1)" \
   python3 ci/symbol_refs.py --root . --scope docs "${symbol_refs_args[@]}"
-# historia commitów (to, co trafia do repozytorium) i drzewo robocze (niezacommitowane zmiany)
-run_check "gitleaks (historia git)" gitleaks git --redact --no-banner .
+# Drzewo robocze (bieżące pliki) ZAWSZE — to główna obrona: żaden sekret w aktualnym stanie repo.
 run_check "gitleaks (drzewo robocze)" gitleaks dir --redact --no-banner .
+# Historię skanujemy TYLKO w zakresie commitów WŁASNYCH zmian (base..HEAD), nie całej historii repo.
+# Checkout ma fetch-depth:0, więc `gitleaks git .` widział commity INNYCH gałęzi i fałszywie czerwienił
+# PR-y na fiksturach testowych z cudzej historii (np. hasła-mocki z gałęzi flavorów), wymuszając
+# duplikowanie allowlisty w każdym PR. Zakres base..HEAD obejmuje dokładnie to, co PR dodaje.
+gitleaks_base=${WLB_GITLEAKS_BASE:-} # jawne nadpisanie (lokalnie/make)
+[[ -n $gitleaks_base ]] || { [[ -n ${GITHUB_BASE_REF:-} ]] && gitleaks_base="origin/${GITHUB_BASE_REF}"; }
+if [[ -n $gitleaks_base ]] && git rev-parse --verify --quiet "${gitleaks_base}^{commit}" >/dev/null; then
+  run_check "gitleaks (commity zmian: ${gitleaks_base}..HEAD)" \
+    gitleaks git --redact --no-banner --log-opts="${gitleaks_base}..HEAD" .
+else
+  # Brak bazy (push/lokalnie bez WLB_GITLEAKS_BASE): pełny skan historii całego repo pominięty świadomie —
+  # drzewo robocze pokrywa bieżący stan; skan pełnej historii dawał cross-branch fałszywe trafienia.
+  echo "gitleaks: brak bazy (GITHUB_BASE_REF/WLB_GITLEAKS_BASE) — skan historii pominięty, skan drzewa wykonany"
+fi
 finish
