@@ -571,9 +571,25 @@ def extract_code_spans(text: str, file_path: str = "") -> list[Span]:
             # W blokach diagramów (mermaid) lub skryptów szukamy identyfikatorów
             if fence_info in ("mermaid", "bash", "sh", "shell", ""):
                 line_planned = check_planned_marker(raw_line, "")
+                # Ignoruj linie komentarzy wewnątrz bloku kodu
+                if stripped.startswith("#"):
+                    continue
+
                 for m in identifier_pattern.finditer(raw_line):
                     word = m.group(0)
-                    if "_" in word or word.startswith("wlb-"):
+                    # Ignoruj przypisania zmiennych lokalnych w powłoce (np. local var=..., typeset var=..., var=...)
+                    if re.search(rf"\b(local|typeset)\s+{re.escape(word)}\b", raw_line):
+                        continue
+                    if re.search(rf"^\s*{re.escape(word)}=", raw_line):
+                        continue
+
+                    # W blokach fenced filtrujemy zmienne lokalne z przykładów:
+                    # sprawdzamy tylko symbole projektowe (wlb_*, wlb-*, WLB_*)
+                    # lub jawne wywołania funkcji bash/sh (token przed nawiasem '(').
+                    is_wlb_token = word.startswith("wlb-") or word.startswith("wlb_") or word.startswith("WLB_")
+                    is_func_call = bool(re.search(rf"\b{re.escape(word)}\s*\(", raw_line))
+
+                    if is_wlb_token or is_func_call:
                         spans.append(
                             Span(
                                 token=word,
@@ -698,7 +714,7 @@ def resolve(
         or "/" in token_str
         or token_str.endswith((".sh", ".yml", ".yaml", ".hcl", ".bats", ".py", ".md", ".json", ".conf", ".service"))
     ):
-        norm_path = token_str.lstrip("./")
+        norm_path = token_str.removeprefix("./")
 
         # Ścieżka VM z allowlisty
         if token_str in ALLOWLIST_VM_PATHS or any(token_str.startswith(vm) for vm in ("/workspace", "/sluza", "/etc")):
@@ -783,18 +799,19 @@ def resolve(
 # --- Skanowanie dokumentacji i CLI --------------------------------------------
 
 
-def scan_documents(root: Path, scope: str = "docs") -> list[tuple[Span, Resolution]]:
+def scan_documents(root: Path | str, scope: str = "docs") -> list[tuple[Span, Resolution]]:
     """Skanuje pliki Markdown w zadanym zakresie i zwraca listę (Span, Resolution)."""
-    index = build_symbol_index(root)
+    root_path = Path(root)
+    index = build_symbol_index(root_path)
     results: list[tuple[Span, Resolution]] = []
 
     if scope == "docs":
-        doc_dir = root / "docs" / "architektura"
+        doc_dir = root_path / "docs" / "architektura"
         if not doc_dir.is_dir():
             raise FileNotFoundError(f"Katalog zakresu docs nie istnieje: {doc_dir}")
         md_files = sorted(doc_dir.glob("*.md"))
     else:
-        target = root / scope
+        target = root_path / scope
         if target.is_file():
             md_files = [target]
         elif target.is_dir():
@@ -803,7 +820,7 @@ def scan_documents(root: Path, scope: str = "docs") -> list[tuple[Span, Resoluti
             raise FileNotFoundError(f"Zakres nie został znaleziony: {target}")
 
     for md_file in md_files:
-        rel_path = str(md_file.relative_to(root))
+        rel_path = str(md_file.relative_to(root_path))
         text = md_file.read_text(encoding="utf-8", errors="replace")
         spans = extract_code_spans(text, file_path=rel_path)
         for span in spans:

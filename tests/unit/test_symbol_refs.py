@@ -305,7 +305,60 @@ def test_cli_clean_returns_0(tmp_path: Path):
     assert main(["--root", str(tmp_path), "--scope", "docs", "--gate"]) == 0
 
 
-# --- 5. Weryfikacja bieżących dokumentów repozytorium -------------------------
+# --- 5. Poprawki z recenzji: ukryte ścieżki i zmienne w blokach fenced --------
+
+
+def test_hidden_path_prefix_preservation(tmp_path: Path):
+    """Ścieżki ukryte (np. .github/workflows/ci.yml) nie mogą tracić kropki przez stripowanie."""
+    gh_dir = tmp_path / ".github" / "workflows"
+    gh_dir.mkdir(parents=True)
+    (gh_dir / "ci.yml").write_text("name: CI\n", encoding="utf-8")
+
+    index = build_symbol_index(tmp_path)
+
+    # Bez prefiksu ./
+    res1 = resolve(".github/workflows/ci.yml", index)
+    assert res1.status == "defined", f"Oczekiwano statusu 'defined', otrzymano: {res1}"
+    assert res1.location == ".github/workflows/ci.yml"
+
+    # Z prefiksem ./
+    res2 = resolve("./.github/workflows/ci.yml", index)
+    assert res2.status == "defined", f"Oczekiwano statusu 'defined', otrzymano: {res2}"
+    assert res2.location == ".github/workflows/ci.yml"
+
+
+def test_fenced_code_blocks_local_variables_ignored(tmp_path: Path):
+    """Zmienne lokalne w blokach kodu fenced nie generują fałszywych trafień (undefined)."""
+    doc_dir = tmp_path / "docs" / "architektura"
+    doc_dir.mkdir(parents=True)
+
+    doc_content = """# Przykładowy skrypt
+```bash
+# Komentarz w bloku: funkcja_w_komentarzu()
+local przykladowa_zmienna_lokalna="wartosc"
+druga_zmienna_lokalna=123
+echo "$przykladowa_zmienna_lokalna"
+
+# Wywołanie funkcji z prefiksem wlb lub z nawiasami:
+wlb_brakujaca_funkcja()
+wlb_nieistniejaca_zmienna=1
+```
+"""
+    (doc_dir / "snippet.md").write_text(doc_content, encoding="utf-8")
+
+    results = scan_documents(tmp_path, scope="docs")
+    undefined_tokens = {span.token for span, res in results if res.status == "undefined"}
+
+    # Zmienne lokalne bez prefiksu wlb_* nie mogą być raportowane jako undefined
+    assert "przykladowa_zmienna_lokalna" not in undefined_tokens
+    assert "druga_zmienna_lokalna" not in undefined_tokens
+    assert "funkcja_w_komentarzu" not in undefined_tokens
+
+    # Symbole projektowe wlb_* i wywołania funkcji powinny być wykryte
+    assert "wlb_brakujaca_funkcja" in undefined_tokens
+
+
+# --- 6. Weryfikacja bieżących dokumentów repozytorium -------------------------
 
 
 def test_real_repo_docs_architektura_clean():
