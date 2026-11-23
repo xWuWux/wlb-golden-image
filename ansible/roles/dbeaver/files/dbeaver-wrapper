@@ -3,6 +3,18 @@
 # Przy pierwszym uruchomieniu dla konta badacza (jupyter-uNN) instancjonuje profil połączenia
 # ~/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json z szablonu,
 # pobierając hasło z ~/.pgpass (save-password: true, bez monitów o hasło w DBeaverze).
+#
+# ARCHITEKTURA I MODEL BEZPIECZEŃSTWA AUTH:
+# 1. Wymóg warstwy GUI DBeaver: Choć pgJDBC 42.7.14 natywnie obsługuje ~/.pgpass na poziomie
+#    sterownika (co weryfikuje Test 2 w 72-pediatria.sh), warstwa desktopowa DBeaver CE (Eclipse RCP)
+#    przy save-password=false lub braku userPassword wyświetla modalne okno dialogowe z promptem
+#    o hasło. Badacz w środowisku WLB nie zna losowo generowanego hasła SCRAM (32 znaki),
+#    więc one-click access ("klik-klik") ze skrótu na pulpicie wymaga obecności hasła w profilu.
+# 2. Równoważność uprawnień (0600): Plik data-sources.json jest tworzony z uprawnieniami 0600
+#    i właścicielem jupyter-uNN:jupyter-uNN — dokładnie takimi samymi jak ~/.pgpass (0600).
+#    Żadne inne konto w systemie nie ma do niego dostępu.
+# 3. Szablon w repozytorium (data-sources.template.json) zawiera wyłącznie placeholder @PASSWORD@,
+#    dzięki czemu repozytorium Git i artefakty obrazu są w 100% wolne od poświadczeń.
 
 set -euo pipefail
 

@@ -109,17 +109,95 @@ if grep -qx "WLB_IMAGE_NAME=wlb-pediatria" /etc/wlb/image-release 2>/dev/null; t
 
   # --- Weryfikacja połączenia end-to-end sterownikiem pgJDBC (#271) -----------------------
   # Program pomocniczy WlbJdbcPing (tests/lib/WlbJdbcPing.java) zrzucany do katalogu tymczasowego.
-  # Uruchamiany pod JRE zbundlowanym z DBeaver CE z użyciem oficjalnego pgJDBC jar.
+  # Jeśli w środowisku obecny jest kompilator javac (np. pełny JDK), klasa jest kompilowana ze źródła.
+  # W minimalnym środowisku JRE (zbundlowanym z DBeaverem) odtwarzany jest zaaudytowany bytecode
+  # weryfikowany kontraktem tests/unit/test_jdbc_ping_contract.py.
   W72_TMP=$(mktemp -d)
   # shellcheck disable=SC2064
   trap "rm -rf '$W72_TMP'" EXIT
-  base64 -d <<'EOF' >"$W72_TMP/WlbJdbcPing.class"
-yv66vgAAADQAZgoAAgADBwAEDAAFAAYBABBqYXZhL2xhbmcvT2JqZWN0AQAGPGluaXQ+AQADKClWCQAIAAkHAAoMAAsADAEAEGphdmEvbGFuZy9TeXN0ZW0BAANlcnIBABVMamF2YS9pby9QcmludFN0cmVhbTsIAA4BACpVc2FnZTogV2xiSmRiY1BpbmcgPHVybD4gPHVzZXI+IFtwYXNzd29yZF0KABAAEQcAEgwAEwAUAQATamF2YS9pby9QcmludFN0cmVhbQEAB3ByaW50bG4BABUoTGphdmEvbGFuZy9TdHJpbmc7KVYKAAgAFgwAFwAYAQAEZXhpdAEABChJKVYKABoAGwcAHAwAHQAeAQAQamF2YS9sYW5nL1N0cmluZwEAB2lzRW1wdHkBAAMoKVoIACABABVvcmcucG9zdGdyZXNxbC5Ecml2ZXIKACIAIwcAJAwAJQAmAQAPamF2YS9sYW5nL0NsYXNzAQAHZm9yTmFtZQEAJShMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9DbGFzczsKACgAKQcAKgwAKwAsAQAWamF2YS9zcWwvRHJpdmVyTWFuYWdlcgEADWdldENvbm5lY3Rpb24BAE0oTGphdmEvbGFuZy9TdHJpbmc7TGphdmEvbGFuZy9TdHJpbmc7TGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL3NxbC9Db25uZWN0aW9uOwsALgAvBwAwDAAxADIBABNqYXZhL3NxbC9Db25uZWN0aW9uAQAPY3JlYXRlU3RhdGVtZW50AQAWKClMamF2YS9zcWwvU3RhdGVtZW50OwgANAEACFNFTEVDVCAxCwA2ADcHADgMADkAOgEAEmphdmEvc3FsL1N0YXRlbWVudAEADGV4ZWN1dGVRdWVyeQEAKChMamF2YS9sYW5nL1N0cmluZzspTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL3NxbC9SZXN1bHRTZXQ7CwA8AD0HADwMAP8AHgEAEmphdmEvc3FsL1Jlc3VsdFNldAEABG5leHQACAA8QQEAEmphdmEvc3FsL1Jlc3VsdFNldAQABmdldEludAEABChJKUkJAAgARQwARgAMAEAA291dAgASAEAC1dMQl9KREJDX09LCABKAQAXVW5leHBlY3RlZCBxdWVyeSByZXN1bHQLADwATAwATQAGAQAFY2xvc2UHAE8BABNqYXZhL2xhbmcvVGhyb3dhYmxlCgBOAFEMAFIAUwEADWFkZFN1cHByZXNzZWQBABgoTGphdmEvbGFuZy9UaHJvd2FibGU7KVYLADYATAsALgBMBwBXAQATamF2YS9sYW5nL0V4Y2VwdGlvbgoAVgBZDABaAAYBAA9wcmludFN0YWNrVHJhY2UHAFwBAAtXbGJKZGJjUGluZwEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBAARtYWluAQAWKFtMamF2YS9sYW5nL1N0cmluZzspVgEADVN0YWNrTWFwVGFibGUHAGMBABNbTGphdmEvbGFuZy9TdHJpbmc7AQAKU291cmNlRmlsZQEAEFdsYkpkYmNQaW5nLmphdmEAIQBbAAIAAAAAAAIAAQAFAAYAAQBdAAAAHQABAAEAAAAFKrcAAbEAAAABAF4AAAAGAAEAAAAGAAkAXwBgAAEAXQAAAocAAwAJAAABJCq+BaIAD7IABxINtgAPBbgAFSoDMkwqBDJNKr4GoQASKgUytgAZmgAJKgUypwAEAU4SH7gAIVctxgAMKywtuAAnpwAJKywBuAAnOgQZBLkALQEAOgUZBRIzuQA1AgA6BhkGuQA7AQCZAB4ZBgS5AEACAASgABKyAEQSR7YADwO4ABWnAA+yAAcSSbYADwS4ABUZBsYAKhkGuQBLAQCnACA6BxkGxgAWGQa5AEsBAKcADDoIGQcZCLYAUBkHvxkFxgAqGQW5AFQBAKcAIDoGGQXGABYZBbkAVAEApwAMOgcZBhkHtgBQGQa/GQTGACoZBLkAVQEApwAgOgUZBMYAFhkEuQBVAQCnAAw6BhkFGQa2AFAZBb+nAA46BBkEtgBYBLgAFbEABwBgAJEAoABOAKcArgCxAE4AVQC9AMwATgDTANoA3QBOAEwA6QD4AE4A/wEGAQkATgAxARUBGABWAAIAXgAAAHIAHAAAAAgABgAJAA4ACgASAAwAFgANABoADgAxABAANwARADsAEgBEABMATAAUAFUAFQBgABYAdgAXAH4AGACFABoAjQAbAJEAHQCgABEAvQAdAMwAEQDpAB0A+AARARUAIQEYAB4BGgAfAR8AIAEjACIAYQAAAKEAFRL9ABwHABoHABpABwAa/AATBwAaRQcALv4AOgcALgcANgcAPAtOBwBO/wAQAAgHAGIHABoHABoHABoHAC4HADYHADwHAE4AAQcATgj5AAJOBwBO/wAQAAcHAGIHABoHABoHABoHAC4HADYHAE4AAQcATgj5AAJOBwBO/wAQAAYHAGIHABoHABoHABoHAC4HAE4AAQcATgj5AAJCBwBWCgABAGQAAAACAGU=
-EOF
-  chmod 755 "$W72_TMP"
-  chmod 644 "$W72_TMP/WlbJdbcPing.class"
 
-  # Test 1: Połączenie TCP z jawnym hasłem z profilu DBeaver
+  cat <<'EOF' >"$W72_TMP/WlbJdbcPing.java"
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+
+public class WlbJdbcPing {
+    public static void main(String[] args) {
+        if (args.length < 2) {
+            System.err.println("Usage: WlbJdbcPing <url> <user> [password]");
+            System.exit(2);
+        }
+        String url = args[0];
+        String user = args[1];
+        String password = (args.length >= 3 && !args[2].isEmpty()) ? args[2] : null;
+        try {
+            Class.forName("org.postgresql.Driver");
+            try (Connection conn = (password != null)
+                    ? DriverManager.getConnection(url, user, password)
+                    : DriverManager.getConnection(url, user, null);
+                 Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
+                if (rs.next() && rs.getInt(1) == 1) {
+                    System.out.println("WLB_JDBC_OK");
+                    System.exit(0);
+                } else {
+                    System.err.println("Unexpected query result");
+                    System.exit(1);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+}
+EOF
+
+  if command -v javac >/dev/null 2>&1; then
+    javac -source 8 -target 8 "$W72_TMP/WlbJdbcPing.java"
+  else
+    base64 -d <<'EOF' >"$W72_TMP/WlbJdbcPing.class"
+yv66vgAAADQAZgoAAgADBwAEDAAFAAYBABBqYXZhL2xhbmcvT2JqZWN0AQAGPGluaXQ+AQADKClW
+CQAIAAkHAAoMAAsADAEAEGphdmEvbGFuZy9TeXN0ZW0BAANlcnIBABVMamF2YS9pby9QcmludFN0
+cmVhbTsIAA4BACpVc2FnZTogV2xiSmRiY1BpbmcgPHVybD4gPHVzZXI+IFtwYXNzd29yZF0KABAA
+EQcAEgwAEwAUAQATamF2YS9pby9QcmludFN0cmVhbQEAB3ByaW50bG4BABUoTGphdmEvbGFuZy9T
+dHJpbmc7KVYKAAgAFgwAFwAYAQAEZXhpdAEABChJKVYKABoAGwcAHAwAHQAeAQAQamF2YS9sYW5n
+L1N0cmluZwEAB2lzRW1wdHkBAAMoKVoIACABABVvcmcucG9zdGdyZXNxbC5Ecml2ZXIKACIAIwcA
+JAwAJQAmAQAPamF2YS9sYW5nL0NsYXNzAQAHZm9yTmFtZQEAJShMamF2YS9sYW5nL1N0cmluZzsp
+TGphdmEvbGFuZy9DbGFzczsKACgAKQcAKgwAKwAsAQAWamF2YS9zcWwvRHJpdmVyTWFuYWdlcgEA
+DWdldENvbm5lY3Rpb24BAE0oTGphdmEvbGFuZy9TdHJpbmc7TGphdmEvbGFuZy9TdHJpbmc7TGph
+dmEvbGFuZy9TdHJpbmc7KUxqYXZhL3NxbC9Db25uZWN0aW9uOwsALgAvBwAwDAAxADIBABNqYXZh
+L3NxbC9Db25uZWN0aW9uAQAPY3JlYXRlU3RhdGVtZW50AQAWKClMamF2YS9zcWwvU3RhdGVtZW50
+OwgANAEACFNFTEVDVCAxCwA2ADcHADgMADkAOgEAEmphdmEvc3FsL1N0YXRlbWVudAEADGV4ZWN1
+dGVRdWVyeQEAKChMamF2YS9sYW5nL1N0cmluZzspTGphdmEvc3FsL1Jlc3VsdFNldDsLADwAPQcA
+PgwAPwAeAQASamF2YS9zcWwvUmVzdWx0U2V0AQAEbmV4dAsAPABBDABCAEMBAAZnZXRJbnQBAAQo
+SSlJCQAIAEUMAEYADAEAA291dAgASAEAC1dMQl9KREJDX09LCABKAQAXVW5leHBlY3RlZCBxdWVy
+eSByZXN1bHQLADwATAwATQAGAQAFY2xvc2UHAE8BABNqYXZhL2xhbmcvVGhyb3dhYmxlCgBOAFEM
+AFIAUwEADWFkZFN1cHByZXNzZWQBABgoTGphdmEvbGFuZy9UaHJvd2FibGU7KVYLADYATAsALgBM
+BwBXAQATamF2YS9sYW5nL0V4Y2VwdGlvbgoAVgBZDABaAAYBAA9wcmludFN0YWNrVHJhY2UHAFwB
+AAtXbGJKZGJjUGluZwEABENvZGUBAA9MaW5lTnVtYmVyVGFibGUBAARtYWluAQAWKFtMamF2YS9s
+YW5nL1N0cmluZzspVgEADVN0YWNrTWFwVGFibGUHAGMBABNbTGphdmEvbGFuZy9TdHJpbmc7AQAK
+U291cmNlRmlsZQEAEFdsYkpkYmNQaW5nLmphdmEAIQBbAAIAAAAAAAIAAQAFAAYAAQBdAAAAHQAB
+AAEAAAAFKrcAAbEAAAABAF4AAAAGAAEAAAAGAAkAXwBgAAEAXQAAAocAAwAJAAABJCq+BaIAD7IA
+BxINtgAPBbgAFSoDMkwqBDJNKr4GoQASKgUytgAZmgAJKgUypwAEAU4SH7gAIVctxgAMKywtuAAn
+pwAJKywBuAAnOgQZBLkALQEAOgUZBRIzuQA1AgA6BhkGuQA7AQCZAB4ZBgS5AEACAASgABKyAEQS
+R7YADwO4ABWnAA+yAAcSSbYADwS4ABUZBsYAKhkGuQBLAQCnACA6BxkGxgAWGQa5AEsBAKcADDoI
+GQcZCLYAUBkHvxkFxgAqGQW5AFQBAKcAIDoGGQXGABYZBbkAVAEApwAMOgcZBhkHtgBQGQa/GQTG
+ACoZBLkAVQEApwAgOgUZBMYAFhkEuQBVAQCnAAw6BhkFGQa2AFAZBb+nAA46BBkEtgBYBLgAFbEA
+BwBgAJEAoABOAKcArgCxAE4AVQC9AMwATgDTANoA3QBOAEwA6QD4AE4A/wEGAQkATgAxARUBGABW
+AAIAXgAAAHIAHAAAAAgABgAJAA4ACgASAAwAFgANABoADgAxABAANwARADsAEgBEABMATAAUAFUA
+FQBgABYAdgAXAH4AGACFABoAjQAbAJEAHQCgABEAvQAdAMwAEQDpAB0A+AARARUAIQEYAB4BGgAf
+AR8AIAEjACIAYQAAAKEAFRL9ABwHABoHABpABwAa/AATBwAaRQcALv4AOgcALgcANgcAPAtOBwBO
+/wAQAAgHAGIHABoHABoHABoHAC4HADYHADwHAE4AAQcATgj5AAJOBwBO/wAQAAcHAGIHABoHABoH
+ABoHAC4HADYHAE4AAQcATgj5AAJOBwBO/wAQAAYHAGIHABoHABoHABoHAC4HAE4AAQcATgj5AAJC
+BwBWCgABAGQAAAACAGU=
+EOF
+  fi
+  chmod 755 "$W72_TMP"
+  [ -f "$W72_TMP/WlbJdbcPing.class" ] && chmod 644 "$W72_TMP/WlbJdbcPing.class"
+
+  # Test 1: Połączenie TCP z jawnym hasłem z profilu DBeaver (wymóg menedżera połączeń GUI)
   # shellcheck disable=SC2016
   expect_ok "Sterownik pgJDBC łączy się do db_$R1 przez TCP/SCRAM z hasłem z profilu DBeaver" \
     bash -c '
@@ -138,6 +216,21 @@ EOF
       as "'"$R1"'" /usr/share/dbeaver-ce/jre/bin/java \
         -cp "'"$W72_TMP"':/opt/wlb/drivers/postgres/postgresql-42.7.14.jar" \
         WlbJdbcPing "jdbc:postgresql://127.0.0.1:5432/db_'"$R1"'" "'"$R1"'" | grep -q "WLB_JDBC_OK"
+    '
+
+  # Test 3 (negatywny): Próba połączenia TCP bez ~/.pgpass kończy się odmową autoryzacji (wymóg sekretu)
+  # shellcheck disable=SC2016
+  expect_ok "Próba połączenia TCP bez ~/.pgpass kończy się odmową autoryzacji (wymóg sekretu)" \
+    bash -c '
+      p="/workspace/jupyter-'"$R1"'/.pgpass"
+      trap "mv \"$p.tmp_neg\" \"$p\" 2>/dev/null || true" EXIT
+      mv "$p" "$p.tmp_neg"
+      if as "'"$R1"'" /usr/share/dbeaver-ce/jre/bin/java \
+        -cp "'"$W72_TMP"':/opt/wlb/drivers/postgres/postgresql-42.7.14.jar" \
+        WlbJdbcPing "jdbc:postgresql://127.0.0.1:5432/db_'"$R1"'" "'"$R1"'" >/dev/null 2>&1; then
+        exit 1
+      fi
+      exit 0
     '
 
   # --- Kafelek pulpitu XFCE ---------------------------------------------------------------
