@@ -18,6 +18,7 @@ concurrency:
 env:
   TOOLS_DIR: ${{ github.workspace }}/.tools
   PYTHON_VERSION: "3.12"
+  LIBGUESTFS_BACKEND: direct # bramka E2E czyta qcow2 przez virt-ls; direct nie wymaga libvirtd
 
 jobs:
   release:
@@ -44,7 +45,28 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -yq --no-install-recommends qemu-system-x86 qemu-utils cloud-image-utils genisoimage libguestfs-tools
       - name: Sprawdź libguestfs (bramka E2E czyta qcow2 przez virt-ls)
-        run: LIBGUESTFS_BACKEND=direct libguestfs-test-tool >/dev/null
+        run: libguestfs-test-tool >/dev/null
+      # Bramka E2E jest runtime'owa, więc mocki jednostkowe nie wystarczą (#360).
+      # Przed 150-minutowym buildem dowodzimy, że virt-ls czyta qcow2: czysty obraz
+      # przechodzi (0), a obraz z fixture E2E jest odrzucany (3).
+      - name: Smoke-test bramki E2E na małym qcow2
+        run: |
+          root=$(mktemp -d)
+          mkdir -p "$root"/{etc,usr/lib,usr/bin,usr/share/applications,bin,sbin,lib,lib64,var/lib,tmp,root,home,run,proc,sys,dev,boot,opt/wlb/bin}
+          printf 'ID=ubuntu\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n' >"$root/etc/os-release"
+          cp "$root/etc/os-release" "$root/usr/lib/os-release"
+          printf 'proc /proc proc defaults 0 0\n' >"$root/etc/fstab"
+          printf 'root:x:0:0:root:/root:/bin/sh\n' >"$root/etc/passwd"
+          printf 'root:x:0:\n' >"$root/etc/group"
+          printf '#!/bin/sh\nexit 0\n' >"$root/opt/wlb/bin/wlb-health"
+          virt-make-fs --format=qcow2 --type=ext4 "$root" /tmp/e2e-clean.qcow2
+          python3 ci/e2e_release_gate.py --image /tmp/e2e-clean.qcow2
+          mkdir -p "$root/opt/wlb/e2e"
+          printf '{}\n' >"$root/opt/wlb/e2e/target.json"
+          virt-make-fs --format=qcow2 --type=ext4 "$root" /tmp/e2e-dirty.qcow2
+          rc=0
+          python3 ci/e2e_release_gate.py --image /tmp/e2e-dirty.qcow2 || rc=$?
+          [[ $rc -eq 3 ]] || { echo "Bramka nie odrzuciła obrazu z E2E (rc=$rc)" >&2; exit 1; }
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -55,8 +77,6 @@ jobs:
         env:
           IMAGE_VERSION: ${{ steps.ver.outputs.version }}
       - name: Złóż pakiet wydania (metadane, SBOM, changelog, SHA256SUMS)
-        env:
-          LIBGUESTFS_BACKEND: direct # bramka E2E czyta qcow2 przez virt-ls, bez libvirtd
         run: ci/release.sh "${GITHUB_REF_NAME}"
       - name: Opublikuj GitHub Release
         env:

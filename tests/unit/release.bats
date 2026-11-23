@@ -45,8 +45,13 @@ EOF
   E2E_BIN="$BATS_TEST_TMPDIR/bin"
   E2E_LISTING="$BATS_TEST_TMPDIR/virt-ls-listing"
   mkdir -p "$E2E_BIN"
+  # Atrapa pilnuje argv bramki: `-i` jest opcją guestfish, nie virt-ls (#360).
   cat >"$E2E_BIN/virt-ls" <<'EOF'
 #!/usr/bin/env bash
+if [[ ${1:-} != --format=qcow2 || ${2:-} != -a || ${4:-} != -R || ${5:-} != / ]]; then
+  echo "virt-ls: nieoczekiwane argv: $*" >&2
+  exit 1
+fi
 cat "$E2E_LISTING"
 EOF
   chmod +x "$E2E_BIN/virt-ls"

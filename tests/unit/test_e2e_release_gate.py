@@ -84,10 +84,31 @@ def test_nieistniejace_drzewo_to_blad_konfiguracji(gate, tmp_path, capsys):
 
 
 def fake_virt_ls(monkeypatch, gate, *, stdout="", stderr="", returncode=0):
-    def run(*args, **kwargs):
-        return subprocess.CompletedProcess(args[0], returncode, stdout, stderr)
+    """Podstawia virt-ls i pilnuje kształtu argv w KAŻDYM teście trybu obrazu.
+
+    Regresja #360: `-i` to opcja guestfish, nie virt-ls — produkcyjne wydanie
+    kończyło się kodem 2, a mock tego nie widział.
+    """
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        assert "-i" not in cmd, "virt-ls nie ma opcji -i (to składnia guestfish)"
+        assert cmd[:3] == ["virt-ls", "--format=qcow2", "-a"], f"zły początek argv: {cmd}"
+        assert cmd[-2:] == ["-R", "/"], f"zły koniec argv: {cmd}"
+        return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
 
     monkeypatch.setattr(gate.subprocess, "run", run)
+    return calls
+
+
+def test_argv_virt_ls_bez_opcji_inspektora(gate, tmp_path, monkeypatch):
+    image = tmp_path / "obraz.qcow2"
+    image.write_bytes(b"qcow2")
+    calls = fake_virt_ls(monkeypatch, gate, stdout="etc/os-release\n")
+    assert gate.list_image_paths(image) == ["etc/os-release"]
+    assert calls == [["virt-ls", "--format=qcow2", "-a", str(image), "-R", "/"]]
+    assert "-i" not in calls[0]
 
 
 def test_obraz_z_e2e_pada(gate, tmp_path, monkeypatch, capsys):

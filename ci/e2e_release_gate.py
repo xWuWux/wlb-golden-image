@@ -10,6 +10,9 @@ Kontrakt czterech ścieżek, których obraz produkcyjny nie może zawierać:
 Dwa tryby:
   --tree DIR   sprawdza drzewo artefaktów (np. rozpakowany rootfs) — tanie i testowalne;
   --image IMG  sprawdza zawartość qcow2 przez virt-ls z libguestfs (release CI).
+               virt-ls montuje rootfs przez inspekcję systemu (bez opcji -i, której
+               virt-ls nie ma — to składnia guestfish). Format qcow2 jest jawny,
+               żeby nie zgadywać formatu obrazu.
 
 Bramka jest fail-closed: brak możliwości sprawdzenia obrazu to błąd, nie „czysto”.
 Kody wyjścia (stabilne, używane przez ci/release.sh):
@@ -91,7 +94,8 @@ def list_image_paths(image: Path) -> list[str]:
         raise GateError(f"obraz nie istnieje: {image}")
     try:
         done = subprocess.run(  # noqa: S603 - stała lista argumentów, brak powłoki
-            ["virt-ls", "-a", str(image), "-i", "-R", "/"],  # noqa: S607 - virt-ls z PATH CI
+            # virt-ls nie ma opcji -i (to guestfish); rootfs wybiera inspekcja libguestfs.
+            ["virt-ls", "--format=qcow2", "-a", str(image), "-R", "/"],  # noqa: S607 - virt-ls z PATH CI
             capture_output=True,
             check=False,
             text=True,
