@@ -85,3 +85,22 @@ EOF
   [[ "$output" == *"nic do zrobienia"* ]]
   [ ! -s "$PSQL_LOG" ]
 }
+
+@test "provision W2: >1 konto -> ostrzeżenie SIEM o braku izolacji zasobów, ale WSZYSTKIE prowizjonowane (#369)" {
+  # setup ma jupyter-u01 + jupyter-u02 (2 badaczy) -> poza modelem RESEARCHERS_PER_VM=1
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  called 'WLB_PG_SHARED_CLUSTER'              # twarde ostrzeżenie (authpriv -> SIEM)
+  grep -q 'CREATE ROLE "u01"' "$PSQL_LOG"     # NIE blokujemy — każdy badacz musi móc się połączyć
+  grep -q 'CREATE ROLE "u02"' "$PSQL_LOG"
+  [ -f "$HOMEBASE/jupyter-u01/.pgpass" ]
+  [ -f "$HOMEBASE/jupyter-u02/.pgpass" ]
+}
+
+@test "provision W2: dokładnie 1 konto -> brak ostrzeżenia (model RESEARCHERS_PER_VM=1, #369)" {
+  printf 'root:x:0:0::/root:/bin/bash\njupyter-u01:x:10001:10001::/workspace/jupyter-u01:/bin/bash\n' >"$SANDBOX/passwd"
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  refute called 'WLB_PG_SHARED_CLUSTER'
+  grep -q 'CREATE ROLE "u01"' "$PSQL_LOG"
+}

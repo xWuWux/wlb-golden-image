@@ -36,6 +36,11 @@ die() {
   echo "wlb-postgres-provision BŁĄD: $*" >&2
   exit 1
 }
+# Ostrzeżenie bezpieczeństwa widoczne w SIEM (authpriv) — używane przy konfiguracji poza modelem.
+warn() {
+  logger -t wlb-postgres-provision -p authpriv.warning -- "$*" 2>/dev/null || true
+  echo "wlb-postgres-provision OSTRZEŻENIE: $*" >&2
+}
 
 # psql superusera. Jedno miejsce — testy podstawiają WLB_PG_PSQL. -v ON_ERROR_STOP=1: błąd = niezerowy kod.
 psql_super() { ${WLB_PG_PSQL:-sudo -u postgres psql} -v ON_ERROR_STOP=1 -tAqX "$@"; }
@@ -94,12 +99,15 @@ SQL
   # ~/.pgpass dla DBeavera/psql-TCP (peer działa tylko po sokecie; JDBC idzie po TCP -> wymaga hasła).
   if [[ -d "$home" ]]; then
     pgpass="$home/.pgpass"
+    # Zapis atomowy: .tmp (umask 077) -> chown/chmod -> mv. Awaria w połowie nie zostawia częściowego
+    # .pgpass; hasło PG ustawiono WCZEŚNIEJ (ALTER ROLE), więc kolejny boot reconciliuje spójnie (#369).
     (
       umask 077
-      printf '127.0.0.1:5432:%s:%s:%s\n' "$db" "$role" "$pw" >"$pgpass"
+      printf '127.0.0.1:5432:%s:%s:%s\n' "$db" "$role" "$pw" >"$pgpass.tmp"
     )
-    chown "$osuser:$osuser" "$pgpass"
-    chmod 0600 "$pgpass"
+    chown "$osuser:$osuser" "$pgpass.tmp"
+    chmod 0600 "$pgpass.tmp"
+    mv -f "$pgpass.tmp" "$pgpass"
     log "konto $osuser: rola $role, baza $db, .pgpass w $pgpass"
   else
     log "konto $osuser: rola $role, baza $db (brak $home — .pgpass pominięty)"
@@ -110,6 +118,14 @@ mapfile -t accounts < <($GETENT | awk -F: -v p="$PREFIX" '$1 ~ "^" p "u[0-9]+$" 
 if ((${#accounts[@]} == 0)); then
   log "brak kont ${PREFIX}uNN — nic do zrobienia"
   exit 0
+fi
+# #369 (decyzja właściciela — wariant W2): izolacja per-uNN jest LOGICZNA (poufność zachowana: db_uNN
+# OWNER uNN + REVOKE PUBLIC + peer/scram), ale NIE zasobowa — jeden współdzielony klaster na współdzielonym
+# /workspace. Przy >1 koncie badacz MOŻE wyczerpać dysk/pamięć/połączenia pozostałym (DoS, nie wyciek).
+# Modelem WLB jest RESEARCHERS_PER_VM=1; przy >1 NIE blokujemy (każdy badacz musi móc podłączyć DBeavera do
+# swojej bazy), lecz emitujemy twarde ostrzeżenie do SIEM, żeby operator wiedział o braku izolacji zasobów.
+if ((${#accounts[@]} > 1)); then
+  warn "WLB_PG_SHARED_CLUSTER: ${#accounts[@]} kont badaczy na jednej VM — izolacja logiczna (poufność OK), BEZ izolacji zasobów (dysk/pamięć/połączenia współdzielone, #369). Zalecany model: RESEARCHERS_PER_VM=1 / osobna VM per badacz."
 fi
 for acct in "${accounts[@]}"; do
   provision_account "$acct"
