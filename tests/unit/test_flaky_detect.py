@@ -312,3 +312,59 @@ def test_main_rejects_negative_repeat(tmp_path):
 def test_main_rejects_invalid_timeout(tmp_path):
     rc = detect.main(["--timeout", "0", "--reports", str(tmp_path)])
     assert rc == 2
+
+
+def test_classify_skip_plus_missing_is_flaky():
+    """Weryfikuje, że test obecny jako skip w jednym przebiegu, a brakujący w innym, jest flaky."""
+    runs = [{"m::t": "skip"}, {}]
+    res = detect.classify(runs, [1000, 1001])
+    assert res["m::t"] == detect.VERDICT_FLAKY
+    assert res.details["m::t"]["missing_seeds"] == [1001]
+    assert res.details["m::t"]["skip_seeds"] == [1000]
+
+
+def test_run_suite_handles_popen_oserror(tmp_path, monkeypatch):
+    """Weryfikuje fail-closed przy błędzie uruchomienia procesu (np. brakujący plik wykonywalny)."""
+    reports_dir = tmp_path / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    def fake_popen(*args, **kwargs):
+        raise OSError("Exec format error")
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    res = detect.run_suite("tests/unit", 1, reports_dir)
+    assert res.exit_code == 127
+    assert res.tests == 0
+
+
+def test_main_rejects_nonexistent_cwd(tmp_path):
+    """Weryfikuje walidację parametru --cwd."""
+    rc = detect.main(["--cwd", str(tmp_path / "nonexistent-dir-12345"), "--reports", str(tmp_path)])
+    assert rc == 2
+
+
+def test_main_handles_relative_reports_with_cwd(tmp_path, monkeypatch):
+    """Weryfikuje, że względna ścieżka --reports działa poprawnie ze wskazanym --cwd."""
+    sub_dir = tmp_path / "sub"
+    sub_dir.mkdir(parents=True, exist_ok=True)
+
+    def fake_run_suite(target, seed, reports_dir, repeat=0, timeout=600, cwd=None):
+        assert reports_dir.is_absolute()
+        assert str(reports_dir).startswith(str(sub_dir))
+        xml = _junit(reports_dir / f"flaky-detect-seed{seed}.xml", [("m", "t", "pass")])
+        return detect.RunResult(seed=seed, xml=xml, exit_code=0, tests=1, duration_s=0.1)
+
+    monkeypatch.setattr(detect, "run_suite", fake_run_suite)
+    rc = detect.main(
+        [
+            "--runs",
+            "2",
+            "--cwd",
+            str(sub_dir),
+            "--reports",
+            "relative-reports",
+            "--out",
+            str(sub_dir / "out.json"),
+        ]
+    )
+    assert rc == 0

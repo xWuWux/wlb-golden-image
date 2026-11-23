@@ -160,14 +160,14 @@ def classify(
             elif st == STATUS_SKIP:
                 skip_seeds.append(seed)
 
-        if not fail_seeds and not pass_seeds:
+        if missing_seeds and (fail_seeds or pass_seeds or skip_seeds):
+            # Brak testu w części przebiegów oznacza niespójność wykonania (kolekcja/wyścig)
+            verdict = VERDICT_FLAKY
+        elif not fail_seeds and not pass_seeds and not missing_seeds:
             verdict = VERDICT_SKIPPED
         elif fail_seeds and not pass_seeds and not missing_seeds:
             verdict = VERDICT_BROKEN
         elif fail_seeds and pass_seeds:
-            verdict = VERDICT_FLAKY
-        elif missing_seeds and (fail_seeds or pass_seeds):
-            # Brak testu w części przebiegów oznacza niespójność wykonania (kolekcja/wyścig)
             verdict = VERDICT_FLAKY
         elif pass_seeds and not fail_seeds and not missing_seeds:
             verdict = VERDICT_STABLE
@@ -295,7 +295,19 @@ def run_suite(
 
     t0 = time.monotonic()
     timed_out = False
-    proc = subprocess.Popen(cmd, env=env, cwd=str(work_dir), start_new_session=True)  # noqa: S603
+    try:
+        proc = subprocess.Popen(cmd, env=env, cwd=str(work_dir), start_new_session=True)  # noqa: S603
+    except OSError as exc:
+        print(f"BŁĄD: Nie udało się uruchomić procesu testów ({exc}).", file=sys.stderr)
+        return RunResult(
+            seed=seed,
+            xml=xml,
+            exit_code=127,
+            tests=0,
+            duration_s=0.0,
+            timed_out=False,
+        )
+
     try:
         proc.communicate(timeout=timeout)
         exit_code = proc.returncode
@@ -360,8 +372,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("BŁĄD: --min-tests musi być >= 1.", file=sys.stderr)
         return 2
 
-    work_cwd = Path(args.cwd).resolve() if args.cwd else Path.cwd()
-    reports_dir = Path(args.reports)
+    if args.cwd:
+        work_cwd = Path(args.cwd).resolve()
+        if not work_cwd.is_dir():
+            print(f"BŁĄD: Wskazany katalog --cwd '{args.cwd}' nie istnieje lub nie jest katalogiem.", file=sys.stderr)
+            return 2
+    else:
+        work_cwd = Path.cwd()
+
+    raw_reports = Path(args.reports)
+    reports_dir = raw_reports if raw_reports.is_absolute() else (work_cwd / raw_reports).resolve()
+    reports_dir.mkdir(parents=True, exist_ok=True)
     seeds = [args.seed_base + i for i in range(args.runs)]
     runs: list[dict[str, str]] = []
 

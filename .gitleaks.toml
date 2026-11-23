@@ -5,7 +5,3 @@ useDefault = true
 [allowlist]
 description = "Lokalne artefakty budowania i narzędzia CI (build/ zawiera tymczasowe klucze SSH maszyny budującej)"
 paths = ['''^build/''', '''^output/''', '''^\.tools/''', '''^packer_cache/''']
-stopwords = [
-  "TajneHasloBadacza12345",
-  "HasloU02Weryfikacja"
-]

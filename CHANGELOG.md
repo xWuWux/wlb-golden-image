@@ -24,7 +24,7 @@ pierwszym Laboratorium na klastrze).
   grupy procesów, obsługa przestrzeni nazw XML, precyzyjne wskazywanie ziarna awarii w podsumowaniu
   i artefakty XML per-run). Report-only (nie zamienia porażki na sukces — żadnego retry-do-zielonego),
   opt-in (nocny build / `workflow_dispatch` / etykieta PR `flaky-detect`). Lock z hashami `ci/requirements-flaky.txt`;
-  testy regresyjne w `tests/unit/test_flaky_detect.py` (25 testów).
+  testy regresyjne w `tests/unit/test_flaky_detect.py` (30 testów).
 
 - **#323 PR A: wiarygodne sondy egress etapu 5** — testowy helper `tests/lib/net_probe.py`
   klasyfikuje odpowiedź, odmowę, timeout, błąd środowiska i odmowę odczytu jądra; sekcja 6b
