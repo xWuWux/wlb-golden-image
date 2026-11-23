@@ -41,7 +41,7 @@ ALLOWLIST_BOOLEANS = {
 
 ALLOWLIST_NETWORKING = {
     "127.0.0.1",
-    "0.0.0.0",  # noqa: S104
+    "0.0.0.0",  # noqa: S104  # nosec B104
     "::1",
     "localhost",
     "5432",
@@ -152,7 +152,7 @@ ALLOWLIST_VM_PATHS = {
     "/sluza-odrzucone",
     "/sluza-out",
     "/sluza-potwierdzenia",
-    "/tmp",  # noqa: S108
+    "/tmp",  # noqa: S108  # nosec B108
     "/usr/local/bin/dbeaver",
     "/usr/local/sbin/wlb-sluza-out-mover",
     "/var/log",
