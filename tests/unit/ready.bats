@@ -56,3 +56,10 @@ needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
   [[ $output == *"Gotowe do code review i merge"* ]]
 }
 
+@test "ready: generuje karte inspekcji PR w GITHUB_STEP_SUMMARY" {
+  run env NEEDS="$(needs_json success success)" "$READY"
+  [ "$status" -eq 0 ]
+  [ -f "$GITHUB_STEP_SUMMARY" ]
+  grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"
+}
+
