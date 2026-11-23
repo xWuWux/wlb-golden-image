@@ -326,7 +326,7 @@ class SymbolIndex:
 
     root: Path
     files: set[str]
-    file_basenames: dict[str, str]
+    file_basenames: dict[str, list[str]]
     bash_funcs: dict[str, str]
     hcl_vars: dict[str, str]
     ansible_vars: dict[str, str]
@@ -385,7 +385,7 @@ def extract_bash_functions(file_path: Path) -> set[str]:
 def extract_hcl_variables(file_path: Path) -> set[str]:
     """Wyszukuje zmienne HCL: variable \"name\" {...}.
 
-    Ignoruje komentarze (#, //) i stringi.
+    Ignoruje komentarze (#, //, /* ... */) i stringi.
     """
     vars_set: set[str] = set()
     try:
@@ -394,9 +394,20 @@ def extract_hcl_variables(file_path: Path) -> set[str]:
         return vars_set
 
     hcl_pattern = re.compile(r'^\s*variable\s+"([a-zA-Z0-9_-]+)"\s*\{')
+    in_block_comment = False
     for line in text.splitlines():
         stripped = line.strip()
+        if in_block_comment:
+            if "*/" in line:
+                in_block_comment = False
+            continue
         if stripped.startswith("#") or stripped.startswith("//"):
+            continue
+        if "/*" in line:
+            # Komentarz blokowy może zaczynać się i kończyć w tej samej linii;
+            # definicja po nim nie jest już analizowana.
+            if "*/" not in line.split("/*", 1)[1]:
+                in_block_comment = True
             continue
         m = hcl_pattern.match(line)
         if m:
@@ -423,7 +434,7 @@ def extract_ansible_variables(file_path: Path) -> set[str]:
 def build_symbol_index(root: Path) -> SymbolIndex:
     """Skanuje repozytorium i indeksuje istniejące pliki, funkcje bash oraz zmienne HCL i Ansible."""
     files: set[str] = set()
-    file_basenames: dict[str, str] = {}
+    file_basenames: dict[str, list[str]] = {}
     bash_funcs: dict[str, str] = {}
     hcl_vars: dict[str, str] = {}
     ansible_vars: dict[str, str] = {}
@@ -458,7 +469,7 @@ def build_symbol_index(root: Path) -> SymbolIndex:
             fpath = Path(dirpath) / fname
             rel = str(fpath.relative_to(root))
             files.add(rel)
-            file_basenames[fname] = rel
+            file_basenames.setdefault(fname, []).append(rel)
 
             # Ignoruj pliki binarne oraz pliki > 2 MB
             if fpath.suffix in binary_extensions:
@@ -587,14 +598,16 @@ def extract_code_spans(text: str, file_path: str = "") -> list[Span]:
                     # sprawdzamy tylko symbole projektowe (wlb_*, wlb-*, WLB_*)
                     # lub jawne wywołania funkcji bash/sh (token przed nawiasem '(').
                     is_wlb_token = word.startswith("wlb-") or word.startswith("wlb_") or word.startswith("WLB_")
-                    is_func_call = bool(re.search(rf"\b{re.escape(word)}\s*\(", raw_line))
+                    is_func_call = fence_info in ("bash", "sh", "shell") and bool(
+                        re.search(rf"\b{re.escape(word)}\s*\(\s*\)", raw_line)
+                    )
 
                     if is_wlb_token or is_func_call:
                         spans.append(
                             Span(
                                 token=word,
                                 line=line_no,
-                                kind_hint=_classify_token(word),
+                                kind_hint="bash_func" if is_func_call else _classify_token(word),
                                 raw=raw_line,
                                 is_planned=line_planned or check_planned_marker(raw_line, word),
                                 file_path=file_path,
@@ -700,13 +713,16 @@ def resolve(
             reason="na allowliście nie-symboli",
         )
 
-    # 2.5. Pliki w repozytorium dopasowane po nazwie (np. wlb-sluza-out-mover, wlb-export-snapshot)
-    if token_str in index.file_basenames:
-        return Resolution(
-            status="defined",
-            kind="file",
-            location=index.file_basenames[token_str],
-        )
+    # 2.5. Pliki w repozytorium dopasowane po jednoznacznej nazwie (np. wlb-sluza-out-mover).
+    # Token ze ścieżką musi przejść przez weryfikację ścieżki poniżej, a nie przez basename.
+    if "/" not in token_str:
+        basename_matches = index.file_basenames.get(token_str, [])
+        if len(basename_matches) == 1:
+            return Resolution(
+                status="defined",
+                kind="file",
+                location=basename_matches[0],
+            )
 
     # 3. Weryfikacja ścieżki pliku (path)
     if (
@@ -742,13 +758,15 @@ def resolve(
                     location=str((doc_dir / norm_path).relative_to(index.root)),
                 )
 
-        # Dopasowanie po nazwie pliku (basename)
-        if norm_path in index.file_basenames:
-            return Resolution(
-                status="defined",
-                kind="path",
-                location=index.file_basenames[norm_path],
-            )
+        # Dopasowanie po jednoznacznej nazwie pliku tylko dla tokenu bez ścieżki.
+        if "/" not in norm_path:
+            basename_matches = index.file_basenames.get(norm_path, [])
+            if len(basename_matches) == 1:
+                return Resolution(
+                    status="defined",
+                    kind="path",
+                    location=basename_matches[0],
+                )
 
         return Resolution(
             status="undefined",
@@ -780,8 +798,9 @@ def resolve(
             location=index.bash_funcs[token_str],
         )
 
-    # 7. Słowa generyczne bez podkreśleń ani myślników (np. nagłówki, proza w backtickach)
-    if "_" not in token_str and "-" not in token_str and not token_str.startswith("wlb"):
+    # 7. Słowa generyczne bez podkreśleń ani myślników (np. nagłówki, proza w backtickach).
+    # Wyjątek: jawne wywołanie funkcji bez definicji jest halucynacją, nie prozą.
+    if kind_hint != "bash_func" and "_" not in token_str and "-" not in token_str and not token_str.startswith("wlb"):
         return Resolution(
             status="defined",
             kind="prose_token",

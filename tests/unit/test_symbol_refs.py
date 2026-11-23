@@ -366,3 +366,56 @@ def test_real_repo_docs_architektura_clean():
     results = scan_documents(REPO_ROOT, scope="docs")
     findings = [(span, res) for span, res in results if res.status == "undefined"]
     assert not findings, f"Wykryto nieoczekiwane naruszenia w docs/architektura: {findings}"
+
+
+# --- 7. Regresje po review #371 ------------------------------------------------
+
+
+def test_generic_function_without_underscore_is_undefined(tmp_path: Path):
+    """Jawne wywołanie funkcji bez definicji nie może przejść jako proza."""
+    doc_dir = tmp_path / "docs" / "architektura"
+    doc_dir.mkdir(parents=True)
+    (doc_dir / "functions.md").write_text(
+        "Inline: `foo()`\n\n```bash\nbar()\n```\n",
+        encoding="utf-8",
+    )
+
+    results = scan_documents(tmp_path, scope="docs")
+    undefined = {span.token for span, res in results if res.status == "undefined"}
+
+    assert "foo" in undefined
+    assert "bar" in undefined
+
+
+def test_hcl_multiline_block_comment_is_not_a_definition(tmp_path: Path):
+    """Zmienna HCL wewnątrz /* ... */ nie może być indeksowana jako istniejąca."""
+    packer_dir = tmp_path / "packer"
+    packer_dir.mkdir(parents=True)
+    (packer_dir / "variables.pkr.hcl").write_text(
+        """/*
+variable "fake_hcl_var" {
+  type = string
+}
+*/
+variable "real_hcl_var" { type = string }
+""",
+        encoding="utf-8",
+    )
+
+    index = build_symbol_index(tmp_path)
+    assert "real_hcl_var" in index.hcl_vars
+    assert "fake_hcl_var" not in index.hcl_vars
+    assert resolve("fake_hcl_var", index).status == "undefined"
+    assert resolve("real_hcl_var", index).status == "defined"
+
+
+def test_ambiguous_basename_requires_path(tmp_path: Path):
+    """Niejednoznaczna basename nie może udawać istniejącej ścieżki."""
+    for directory in ("a", "b"):
+        (tmp_path / directory).mkdir()
+        (tmp_path / directory / "main.yml").write_text("name: test\n", encoding="utf-8")
+
+    index = build_symbol_index(tmp_path)
+
+    assert resolve("main.yml", index).status == "undefined"
+    assert resolve("a/main.yml", index).status == "defined"
