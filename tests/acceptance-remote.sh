@@ -391,9 +391,63 @@ else
   skip "Faktyczna instalacja z kuratorowanego mirrora — wymaga mirrora z allowlistą pakietów (#16)"
 fi
 
-echo "== 6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2) =="
+echo "== 6b. Aktywne próby izolacji/eskalacji z konta badacza (#288, klasa 2, #323) =="
 # Dotąd izolacja u01 była testowana pozytywną ścieżką (brak sudo, egress TCP, blokada eksportu).
 # Tu dokładamy AKTYWNE próby: egress po innych protokołach, eskalacja uprawnień, obejścia eksportu.
+# #323: każda sonda musi odróżnić odmowę polityki od awarii środowiska. Sam timeout, brak trasy
+# lub błąd DNS nie jest dowodem blokady; wymagamy korelacji z wpisem nft dla unikalnego celu/portu.
+
+w6b_probe() { as "$R1" python3 /tmp/wlb-net-probe.py "$@"; }
+w6b_nft_log_has() {
+  local pattern=$1
+  for _ in $(seq 1 10); do
+    journalctl -k --since '-2 min' 2>/dev/null | grep -q "$pattern" && return 0
+    sleep 1
+  done
+  return 1
+}
+w6b_udp_dns_denied() {
+  local sport=$1 rc=0
+  w6b_probe udp-dns 1.1.1.1 53 "$sport" >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 2 || $rc -eq 3 ]] || {
+    echo "sonda UDP DNS: rc=$rc (oczekiwano timeout/refused/error z wpisem nft)"
+    return 1
+  }
+  w6b_nft_log_has "wlb-egress-deny .*DST=1\.1\.1\.1 .*PROTO=UDP .*SPT=${sport} DPT=53" ||
+    {
+      echo "brak wpisu nft dla UDP SPT=${sport} DPT=53"
+      return 1
+    }
+}
+w6b_tcp6_denied() {
+  local rc=0
+  w6b_probe tcp6 2606:4700:4700::1111 80 >/dev/null 2>&1 || rc=$?
+  [[ $rc -eq 2 || $rc -eq 3 ]] || {
+    echo "sonda IPv6/TCP: rc=$rc"
+    return 1
+  }
+  w6b_nft_log_has 'wlb-egress-deny .*DST=2606:4700:4700::1111 .*PROTO=TCP .*DPT=80' ||
+    {
+      echo "brak wpisu nft dla IPv6/TCP DPT=80"
+      return 1
+    }
+}
+w6b_icmp_denied() {
+  as "$R1" ping -c1 -W2 192.0.2.174 >/dev/null 2>&1 && return 1
+  w6b_nft_log_has 'wlb-egress-deny .*DST=192\.0\.2\.174 .*PROTO=ICMP' ||
+    {
+      echo "brak wpisu nft dla ICMP DST=192.0.2.174"
+      return 1
+    }
+}
+w6b_icmp6_denied() {
+  as "$R1" ping -6 -c1 -W2 2001:db8::1 >/dev/null 2>&1 && return 1
+  w6b_nft_log_has 'wlb-egress-deny .*DST=2001:db8::1' ||
+    {
+      echo "brak wpisu nft dla ICMPv6 DST=2001:db8::1"
+      return 1
+    }
+}
 
 # --- Egress po protokołach innych niż dozwolony TCP (researcher_egress: allow-list + reject+log) ---
 expect_ok "Egress: ruch badacza (skuid) kierowany do researcher_egress (#288)" \
@@ -402,35 +456,32 @@ expect_ok "Egress: researcher_egress kończy się reject — default-deny (#288)
   bash -c "nft list chain inet wlb researcher_egress | grep -qE 'reject with icmpx'"
 
 if as "$R1" sh -c 'command -v ping >/dev/null 2>&1'; then
-  expect_fail "Egress ICMP do zewnętrznego IP odrzucony (#288)" \
-    as "$R1" ping -c1 -W3 192.0.2.1
-  expect_fail "Egress ICMPv6 do zewnętrznego IPv6 odrzucony (#288)" \
-    as "$R1" ping -6 -c1 -W3 2001:db8::1
+  expect_ok "Egress ICMP do zewnętrznego IP odrzucony z wpisem nft (#288, #323)" w6b_icmp_denied
 else
-  skip "Egress ICMP/ICMPv6: brak ping w środowisku badacza (#288)"
+  skip "Egress ICMP: brak ping w środowisku badacza (#288)"
 fi
 
-expect_fail "Egress IPv6/TCP do zewnętrznego hosta odrzucony (#288)" \
-  as "$R1" curl -6 -s --noproxy '*' --max-time 5 'http://[2606:4700:4700::1111]/'
+# IPv6 w QEMU user może nie mieć trasy — wtedy odmowa nie jest dowodem zapory, tylko brakiem trasy.
+# Test wykonujemy tylko przy realnej trasie IPv6; brak trasy = SKIP, nie PASS.
+w6b_ipv6_routed() {
+  command -v ip >/dev/null 2>&1 || return 1
+  # Sam default route nie wystarcza: QEMU user może mieć trasę przez link-local bez
+  # globalnego adresu IPv6; wtedy pakiety nie wychodzą i brak wpisu nft nie jest dowodem.
+  ip -6 -o addr show scope global 2>/dev/null | grep -q 'inet6' || return 1
+  ip -6 route show default 2>/dev/null | grep -q .
+}
+if w6b_ipv6_routed; then
+  expect_ok "Egress ICMPv6 do zewnętrznego IPv6 odrzucony z wpisem nft (#288, #323)" w6b_icmp6_denied
+  expect_ok "Egress IPv6/TCP do zewnętrznego hosta odrzucony z wpisem nft (#288, #323)" w6b_tcp6_denied
+else
+  skip "Egress IPv6/ICMPv6: brak trasy IPv6 w VM — nie testujemy (#288, #323)"
+fi
 
-# UDP (zapytanie DNS do zewnętrznego resolvera) — python3 zawsze dostępny; exit 0 = zablokowane.
-expect_ok "Egress UDP/DNS do zewnętrznego resolvera zablokowany (#288)" \
-  as "$R1" python3 -c 'import socket,sys
-q=b"\x00\x00\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01"
-s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(3)
-try:
-    s.sendto(q,("1.1.1.1",53));s.recvfrom(512);sys.exit(1)
-except OSError:
-    sys.exit(0)'
-
-# Odrzucony egress badacza trafia do logu jądra (nft log "wlb-egress-deny") -> journald -> SIEM (§21).
-as "$R1" ping -c1 -W2 192.0.2.173 >/dev/null 2>&1 || true
-for _ in $(seq 1 10); do
-  journalctl -k --since "-3 min" 2>/dev/null | grep -q 'wlb-egress-deny' && break
-  sleep 1
-done
-expect_ok "Odrzucony egress badacza jest logowany (wlb-egress-deny -> SIEM, #288)" \
-  bash -c "journalctl -k --since '-3 min' 2>/dev/null | grep -q 'wlb-egress-deny'"
+# UDP (zapytanie DNS do zewnętrznego resolvera) — źródłowy port jest unikalny w tym przebiegu,
+# żeby wpis nft nie mógł pochodzić z innego testu. Timeout/refused bez wpisu nft = FAIL.
+w6b_udp_sport=$((40000 + RANDOM % 20000))
+expect_ok "Egress UDP/DNS do zewnętrznego resolvera odrzucony z wpisem nft (SPT=${w6b_udp_sport}, #288, #323)" \
+  w6b_udp_dns_denied "$w6b_udp_sport"
 
 # --- Eskalacja uprawnień: polkit/pkexec, cron, SUID/SGID, capabilities ---
 if as "$R1" sh -c 'command -v pkexec >/dev/null 2>&1'; then
@@ -469,14 +520,21 @@ expect_ok "Zbiór capabilities procesu badacza jest pusty/minimalny (CapBnd/CapE
     test -n "$eff" && test -n "$bnd" && [[ "$eff" =~ ^0+$ ]] && { [ -z "$amb" ] || [[ "$amb" =~ ^0+$ ]]; }
   '
 
-# --- Izolacja pamięci jądra z Ring 3: siłowa próba odczytu struktur Ring 0 -> odmowa (EACCES/EPERM) (#288) ---
+# --- Izolacja pamięci jądra z Ring 3: odczyt struktur Ring 0 -> oczekiwana odmowa EACCES/EPERM (#288, #323) ---
+# Nie uznajemy dowolnej porażki `head`: brak pliku, EIO i inne błędy nie są dowodem blokady.
 for target in /dev/mem /proc/kcore /dev/kmem /dev/port; do
-  if [[ -e "$target" ]]; then
-    expect_fail "Odczyt $target zablokowany dla badacza (Ring3->Ring0, #288)" \
-      as "$R1" head -c1 "$target"
-  else
+  if [[ ! -e "$target" ]]; then
     skip "Odczyt $target: urządzenie nie występuje na obrazie (#288)"
+    continue
   fi
+  rc=0
+  w6b_probe kernel-read "$target" >/dev/null 2>&1 || rc=$?
+  case $rc in
+    0) ok "Odczyt $target zablokowany dla badacza (EACCES/EPERM, #288, #323)" ;;
+    3) skip "Odczyt $target: urządzenie nie występuje na obrazie (#288)" ;;
+    1) ko "Odczyt $target NIE jest zablokowany dla badacza (#288, #323)" ;;
+    *) ko "Odczyt $target: nieoczekiwany błąd środowiska, nie dowód odmowy (rc=$rc, #323)" ;;
+  esac
 done
 
 # --- Obejście blokady eksportu innymi metodami HTTP (reguła Traefika jest method-agnostic) ---

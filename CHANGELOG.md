@@ -19,6 +19,12 @@ pierwszym Laboratorium na klastrze).
   (`wlb-general`), sprawdzające nieobecność 4 ścieżek targetu (`/opt/wlb/e2e`, autostart, kafelek, tmpfiles).
   Dodano testy jednostkowe w `tests/unit/test_e2e_negative_acceptance.py`.
 
+- **#323 PR A: wiarygodne sondy egress etapu 5** — testowy helper `tests/lib/net_probe.py`
+  klasyfikuje odpowiedź, odmowę, timeout, błąd środowiska i odmowę odczytu jądra; sekcja 6b
+  wymaga korelacji z unikalnym wpisem `wlb-egress-deny` (cel/port), zamiast uznawać dowolny
+  timeout lub `OSError` za blokadę. Dodane testy klasyfikacji `tests/unit/test_net_probe.py`;
+  helper jest wstrzykiwany wyłącznie do skryptu akceptacji, nie do obrazu produkcyjnego.
+
 - **#20 E1: czytnik wniosków eksportu po UUID** — `wlb-export-snapshot resolve <queue> <uuid>`
   oraz `resolve_request(queue, request_id)` wybierają dokładnie jeden pakiet v1 po `request_id`
   (nie po nazwie pliku). Zwracany `VerifiedBundle` trzyma przypięty `package_fd`; weryfikacja
