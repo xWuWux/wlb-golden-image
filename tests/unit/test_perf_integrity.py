@@ -65,8 +65,8 @@ class PerfEntrypointTests(unittest.TestCase):
             (root / "ci/perf-budget.env").write_text("boot_to_ready_s=600\nprobe_ms=100\n")
             (root / "ci/common.sh").write_text("set -euo pipefail\nsummary() { cat; }\n")
             (root / "tests/lib/local-common.sh").write_text(
-                'SSH=(true)\n'
-                'perf_vm_resources() { export VM_CPUS=1 VM_MEMORY=1024; }\n'
+                "SSH=(true)\n"
+                "perf_vm_resources() { export VM_CPUS=1 VM_MEMORY=1024; }\n"
                 'remote_run() { cat remote.fixture; return "$REMOTE_STATUS"; }\n'
             )
             for name in ("run-local.sh", "stop-local.sh"):
