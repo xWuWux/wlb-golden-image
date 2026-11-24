@@ -1,24 +1,36 @@
 # shellcheck shell=bash
 # Pomiary wydajności w VM testowej (przez ci/perf.sh, z remote-common.sh).
 # Argument: liczba powtórzeń (PERF_REPEAT, domyślnie 1). Każda metryka:
-#   - sprawdza, czy operacja się UDAŁA (kod 302, Rscript=0, is-active) — nieudana nie jest liczona
-#     jako „szybka”, lecz pomijana, więc ci/perf.sh potraktuje ją jako brak pomiaru (przekroczenie);
+#   - wymaga kompletu udanych prób (kod 302, Rscript=0, is-active); częściowa seria
+#     zachowuje surowe próbki, ale nie emituje mediany i kończy skrypt błędem;
 #   - przy >1 powtórzeniu wypisuje medianę jako wartość kanoniczną oraz linię „SAMPLE metryka v1 v2…”
 #     (ci/perf.sh zapisuje ją osobno do kalibracji; porównanie z budżetem bierze tylko medianę).
 set -uo pipefail
 REPEAT=${1:-1}
 [[ $REPEAT =~ ^[0-9]+$ ]] && ((REPEAT >= 1)) || REPEAT=1
 U=perf
+MEASUREMENT_FAILED=0
 ms() { date +%s%3N; }
 
-# emit METRYKA JEDNOSTKA PRÓBKA... — mediana jako wartość metryki + surowe próbki (SAMPLE).
-# Brak próbek (same niepowodzenia) → nic nie wypisuje = „brak pomiaru” w budżecie.
+# emit METRYKA JEDNOSTKA OCZEKIWANE PRÓBKA... — tylko komplet poprawnych próbek daje medianę.
+# OCZEKIWANE: dodatnia liczba całkowita. Próby nieudane nie mogą zniknąć z oceny serii.
 emit() {
-  local metric=$1 unit=$2
-  shift 2
-  (($# > 0)) || return 0
-  echo "$metric $(median "$@") $unit"
+  local metric=$1 unit=$2 expected=$3 value
+  shift 3
   echo "SAMPLE $metric $*"
+  if (($# != expected)); then
+    echo "ERROR $metric expected=$expected observed=$#"
+    MEASUREMENT_FAILED=1
+    return 0
+  fi
+  for value in "$@"; do
+    if [[ ! $value =~ ^[0-9]+$ ]]; then
+      echo "ERROR $metric invalid_sample"
+      MEASUREMENT_FAILED=1
+      return 0
+    fi
+  done
+  echo "$metric $(median "$@") $unit"
 }
 
 password=$(/usr/local/sbin/wlb-hub-user "$U")
@@ -29,7 +41,7 @@ for _ in 1 2 3 4 5; do
   t0=$(ms)
   [[ $(hub_login "$U" "$password") == 302 ]] && login_times+=("$(($(ms) - t0))")
 done
-emit hub_login_ms ms "${login_times[@]}"
+emit hub_login_ms ms 5 "${login_times[@]}"
 
 # pierwsze uruchomienie serwera notebooków — REPEAT powtórzeń, każde na nowym koncie.
 # Pierwsze (U=perf) zostaje do dalszych benchmarków (katalog domowy, środowiska).
@@ -54,7 +66,7 @@ for i in $(seq 1 "$REPEAT"); do
   # Bez tego 5 serwerów naraz zapycha pamięć małej VM i ciężkie metryki thrashują (OOM/zawieszenie).
   [[ $su == "$U" ]] || systemctl stop "jupyter-$su" &>/dev/null || true
 done
-emit spawn_first_ms ms "${spawn_times[@]}"
+emit spawn_first_ms ms "$REPEAT" "${spawn_times[@]}"
 
 # benchmarki w katalogu domowym badacza perf (wymaga udanego spawnu U=perf)
 home=/workspace/jupyter-$U
@@ -102,8 +114,9 @@ PY
     rm -f "$home/dd.bin"
   done
 fi
-emit python_import_pandas_ms ms "${import_times[@]}"
-emit pandas_groupby_5m_ms ms "${groupby_times[@]}"
-emit r_load_hades_ms ms "${hades_times[@]}"
-emit workspace_write_mbps MB/s "${write_mbps[@]}"
-emit workspace_read_mbps MB/s "${read_mbps[@]}"
+emit python_import_pandas_ms ms "$REPEAT" "${import_times[@]}"
+emit pandas_groupby_5m_ms ms "$REPEAT" "${groupby_times[@]}"
+emit r_load_hades_ms ms "$REPEAT" "${hades_times[@]}"
+emit workspace_write_mbps MB/s "$REPEAT" "${write_mbps[@]}"
+emit workspace_read_mbps MB/s "$REPEAT" "${read_mbps[@]}"
+exit "$MEASUREMENT_FAILED"

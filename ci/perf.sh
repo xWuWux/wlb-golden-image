@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage 6a: benchmarki wydajności zbudowanego obrazu względem ci/perf-budget.env.
 #   ci/perf.sh [obraz.qcow2]       # domyślnie najnowszy z output/
-#   PERF_ENFORCE=0 ci/perf.sh      # tylko raport, bez bramki
+#   PERF_ENFORCE=0 ci/perf.sh      # przekroczenia budżetu tylko raportowane; błędy pomiaru blokują
 # shellcheck source=ci/common.sh
 . "$(dirname "$0")/common.sh"
 # shellcheck source=tests/lib/local-common.sh
@@ -51,22 +51,24 @@ echo "SAMPLE boot_to_ready_s ${boot_samples[*]}" >>"$SAMPLES"
 } >build/perf/env.txt
 
 # pozostałe metryki w działającej VM (ostatni boot zostawił ją uruchomioną)
-remote_run tests/perf-remote.sh "$REPEAT" >build/perf/remote.out || true
+remote_status=0
+remote_run tests/perf-remote.sh "$REPEAT" >build/perf/remote.out || remote_status=$?
 grep '^SAMPLE ' build/perf/remote.out >>"$SAMPLES" || true
 grep -v '^SAMPLE ' build/perf/remote.out >>"$RESULTS" || true
 tests/stop-local.sh >/dev/null
 
 status=0
-python3 - "$RESULTS" ci/perf-budget.env "${PERF_ENFORCE:-1}" <<'PY' || status=$?
+python3 - "$RESULTS" ci/perf-budget.env "${PERF_ENFORCE:-1}" "$remote_status" <<'PY' || status=$?
 import sys
 results, budget_file, enforce = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+remote_status = int(sys.argv[4])
 budget = {}
 for line in open(budget_file):
     line = line.split("#", 1)[0].strip()
     if line:
         key, value = line.split("=")
         budget[key.strip()] = float(value)
-rows, over = [], 0
+rows, over, missing = [], 0, 0
 measured = {}
 for line in open(results):
     parts = line.split()
@@ -74,17 +76,18 @@ for line in open(results):
         measured[parts[0]] = (float(parts[1]), parts[2])
 for key, limit in budget.items():
     if key not in measured:
-        rows.append(f"| {key} | — | {limit:g} | brak pomiaru |")
-        over += 1
+        rows.append(f"| {key} | — | {limit:g} | BŁĄD POMIARU |")
+        missing += 1
         continue
     value, unit = measured[key]
     ok = value >= limit if key.endswith("_mbps") else value <= limit
     over += not ok
     rows.append(f"| {key} | {value:g} {unit} | {'≥' if key.endswith('_mbps') else '≤'} {limit:g} | {'OK' if ok else 'PRZEKROCZONY'} |")
-text = "\n".join(["### Benchmarki wydajności", "", "| Metryka | Wynik | Budżet | Status |", "|---|---|---|---|", *rows, ""])
+notes = [f"BŁĄD POMIARU: skrypt zdalny zakończył się kodem {remote_status}."] if remote_status else []
+text = "\n".join(["### Benchmarki wydajności", "", "| Metryka | Wynik | Budżet | Status |", "|---|---|---|---|", *rows, "", *notes, ""])
 print(text)
 open("build/perf/summary.md", "w").write(text)
-sys.exit(1 if over and enforce else 0)
+sys.exit(1 if missing or remote_status or (over and enforce) else 0)
 PY
 summary <build/perf/summary.md >/dev/null
 exit $status
