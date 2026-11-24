@@ -82,6 +82,27 @@ flowchart TD
 - `5` (integracja) buduje flavory **na bazie** z `5a` i uruchamia je jako prawdziwe VM.
 - `6a/6b` są pomijane poza ścieżką pełną (zależnie od `changes.sh` i limitów konta).
 
+### Tabela zależności i warunków etapów
+
+Odwzorowanie `.github/workflows/ci.yml` (stan main). **Bramkuje** = job jest w `needs:` bramki „Gotowe do code review" (`ready`), więc jego porażka blokuje merge. Joby warunkowe z fałszywym `if` są **pomijane** (`skipped`) — `ci/ready.sh` traktuje pominięcie warunkowego etapu jako OK, nie jako porażkę.
+
+| Etap (job) | `needs:` | Kiedy biegnie (`if`) | Bramkuje? | Główny artefakt |
+|---|---|---|---|---|
+| 1. Lint (`lint`) | — | zawsze | tak | wyjścia `image` / `flavors` (sterują etapami 5–6) |
+| 2. Build test (`build-check`) | `lint` | zawsze | tak | — |
+| 3. Security (`security`) | `build-check` | zawsze | tak | SARIF (semgrep, checkov) |
+| 3r. Code scanning (`security-report`) | `security` | `!cancelled()` i `security` ∈ {success, failure} | tak | publikacja SARIF do GitHub Code Scanning |
+| 3.5. Kontrakty obrazu (`observability`) | `security` | zawsze | tak | — (kontrakt obserwowalności + Wazuh) |
+| 4. Testy jednostkowe (`unit`) | `observability` | zawsze | tak | `coverage`, `test-reports`, `flaky.json` |
+| 4b. Mutacje (`mutation`) | `unit` | zawsze | tak | `mutation` |
+| 5a. Budowa bazy (`build-base`) | `lint`, `unit` | `needs.lint.outputs.image == 'true'` | tak (gdy biegnie) | `image-<run_id>` (bazowy qcow2) |
+| 5. Integracja (`integration`) | `lint`, `unit`, `build-base` | `image == 'true'`; macierz `flavor = fromJSON(flavors)` | tak (gdy biegnie) | `acceptance.xml`, `image-sca` |
+| 6a. Benchmarki (`perf`) | `lint`, `integration` | etykieta `perf` / dispatch / nightly | tak (gdy biegnie) | wyniki benchmarków |
+| 6b. Wdrożenie tymczasowe (`ephemeral`) | `lint`, `integration` | etykieta `deploy-test` / dispatch | tak (gdy biegnie) | — (OpenStack) |
+| Gotowe do code review (`ready`) | wszystkie powyższe | zawsze (`!cancelled()`) | — (to **jest** bramka) | karta oceny (`ci/ready.sh`) |
+
+**Raportowe (nie-bramkujące) elementy w bramkujących jobach:** część KROKÓW biegnie `continue-on-error` i nie czerwieni joba — m.in. skan SCA zbudowanego obrazu (`image-sca`, etap 5), Lynis oraz lustro akceptacji. To świadome „raport, nie bramka" (#138): wynik jest widoczny w podsumowaniu, ale nie blokuje. Granicę bramkujące ↔ raportowe trzyma `ci/ready.sh` i flagi `WLB_*_GATING`.
+
 ---
 
 ## Diagram 2 — co dzieje się wewnątrz budowy obrazu (Packer)
@@ -172,13 +193,13 @@ sequenceDiagram
 
   CI->>FB: start przy pierwszym boocie (lab.env gotowe)
   FB->>FB: walidacja lab.env, TLS, CIDR (część przed zamknięciem)
-  FB->>NFT: write_nftables 0 (faza 1 - port huba ZAMKNIĘTY; SSH z ADMIN_SSH_CIDR, reguła z roli lab_config)
+  FB->>NFT: write_nftables 0 (faza 1 - port huba ZAMKNIĘTY — SSH z ADMIN_SSH_CIDR, reguła z roli lab_config)
   FB->>HUB: hub_ready - czeka na lokalne API huba (bramka zamknięta)
   FB->>HUB: provision_hub_account - admin a01 + konta uNN (do bazy huba, nie przez port)
-  FB->>AU: audit-config.requested + systemctl start wlb-audit-rules (augenrules --load; warunkowo auditctl -e 2)
-  FB->>NFT: HUB_OPENED=1; write_nftables 1 (faza 2 - port huba OTWARTY dla HUB_ALLOWED_CIDR)
+  FB->>AU: audit-config.requested + systemctl start wlb-audit-rules (augenrules --load, warunkowo auditctl -e 2)
+  FB->>NFT: HUB_OPENED=1, write_nftables 1 (faza 2 - port huba OTWARTY dla HUB_ALLOWED_CIDR)
   FB->>FB: zapis firstboot.done (atomowo)
-  Note over FB,NFT: trap zamyka bramkę TYLKO przy HUB_OPENED=1 i braku firstboot.done;<br/>reboot / SIGKILL / established / nieudane zamknięcie - poza zakresem (#268)
+  Note over FB,NFT: trap zamyka bramkę TYLKO przy HUB_OPENED=1 i braku firstboot.done —<br/>reboot / SIGKILL / established / nieudane zamknięcie - poza zakresem (#268)
 ```
 
 **Uwaga do #268 (NIEzrealizowane w main):** kryterium 2 #268 proponuje `verify_audit_ready` — odczyt `auditctl -s` (enabled=2) i porównanie reguł **przed** otwarciem portu, bo sam kod wyjścia `systemctl start wlb-audit-rules` może być 0, gdy `ConditionPathExists` pominie usługę. **W main tej funkcji nie ma** (jest w otwartym PR #365). Diagram powyżej pokazuje stan main: po `systemctl start` następuje `write_nftables 1` bez dodatkowego odczytu stanu jądra.
@@ -226,6 +247,14 @@ flowchart LR
 
 ---
 
-> **Status elementów** (konwencja indeksu): potok CI, budowa, sanityzacja i sekwencja pierwszego bootu **DZIAŁAJĄ w CI/DEV** (dowód: `ci.yml`, `cleanup.sh`, testy `wlb-firstboot.bats`). Wydanie (tag → `release.yml` → `release.sh` → GitHub Release metadanych) **DZIAŁA**, ale **częściowo**: magazyn qcow2, podpis/weryfikacja importu, wywołanie `verify_platform_images.py` w release i promocja tego samego digestu — **luki #71/#224**. Per-boot re-weryfikacja gotowości (`verify_audit_ready`, bramka huba przed `established`) — **propozycja #268 (kryteria 1–3), niezaimplementowana w main; PR #365 realizuje kryterium 2**.
+> **Status elementów — co jest dowiedzione testem, a co tylko opisane / zaplanowane** (konwencja indeksu):
 >
-> **Dowód wykonania ≠ dowód poprawności:** „DZIAŁAJĄ w CI" znaczy, że mechanizm jest wdrożony i testy go pokrywają — nie że każdy flavor/etap wykonał się w danym przebiegu. Skan sekretów/CVE wykrywa wzorce wg konfiguracji; brak znalezisk **nie dowodzi** braku podatności. Skan obrazu w CI jest `continue-on-error` i dla `wlb-general`, nie każdego flavora.
+> | Element | Stan | Dowód / uwaga |
+> |---|---|---|
+> | Potok CI (kolejność, `needs`, warunki) | działa (dowiedziony) | `ci.yml` + tabela zależności wyżej; `ci/ready.sh` z testami `test_ready.py` |
+> | Budowa obrazu (Packer → Ansible → sanityzacja) | działa (dowiedziony) | `packer/`, `ansible/site.yml`, `cleanup.sh`; dowód wykonania: etap 5, gdy biegnie |
+> | Sekwencja pierwszego bootu (dwufazowa bramka nftables) | działa (dowiedziony) | testy jednostkowe `wlb-firstboot.bats`; akceptacja na realnej VM w etapie 5 |
+> | Wydanie: tag → `release.yml` → `release.sh` → GitHub Release metadanych | **częściowo** | mechanizm jest w repo, ale **opisany/niepełny**: magazyn qcow2, podpis i weryfikacja importu, wywołanie `verify_platform_images.py` w release oraz promocja tego samego digestu — **luki #71/#224** |
+> | Per-boot re-weryfikacja gotowości (`verify_audit_ready`, bramka huba przed `established`) | **tylko opisane** | **propozycja #268** (kryteria 1–3), **niezaimplementowana w main**; PR #365 realizuje kryterium 2 |
+>
+> **Dowód wykonania ≠ dowód poprawności:** „działa (dowiedziony)" znaczy, że mechanizm jest wdrożony **i pokryty testem** — nie że każdy flavor/etap wykonał się w danym przebiegu. Skan sekretów/CVE wykrywa wzorce wg konfiguracji; brak znalezisk **nie dowodzi** braku podatności. Skan obrazu w CI jest `continue-on-error` i tylko dla `wlb-general`, nie każdego flavora. Diagramy Mermaid zweryfikowane renderem (`mermaid-cli`).
