@@ -52,6 +52,11 @@ pierwszym Laboratorium na klastrze).
   zdarzenie do SIEM. Decyzje interim: retencja staged **ręczna** (`staged-clear`), admin=Kontroler,
   bez wymuszonego powodu. `list`/`show`/`verify` są read-only. Testy: `tests/unit/wlb-export.bats`.
 
+- **Telemetria testów niestabilnych flaky per-test (#349, Phase 1):** dodano zbieranie ustrukturyzowanych
+  raportów JUnit XML z testów jednostkowych (pytest i bats) w etapie 4 (`ci/unit.sh`), agregację per-test w formacie
+  `build/ci-logs/flaky.json` (`ci/flaky_report.py collect`) z metadanymi commita, numerem próby (attempt) i podsumowaniem
+  w GITHUB_STEP_SUMMARY oraz upload długoterminowych artefaktów w potoku CI (retencja 90 dni dla `flaky.json`, 14 dni dla raportów).
+
 - **Property-based testing (#351):** dodano `hypothesis` do etapu 4 i testy własności w
   `tests/unit/test_verify_platform_images_properties.py` oraz `tests/unit/test_image_identity_properties.py`.
   Obejmują idempotencję walidacji, niezależność kolejności rekordów, wykrywanie zmiany payloadu/wersji/base,
