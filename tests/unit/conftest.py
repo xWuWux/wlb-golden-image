@@ -14,6 +14,7 @@ def load_script(name: str, path: Path):
     loader = importlib.machinery.SourceFileLoader(name, str(path))
     spec = importlib.util.spec_from_loader(name, loader)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
     loader.exec_module(module)
     return module
 
