@@ -20,6 +20,11 @@ pierwszym Laboratorium na klastrze).
   Karta oceny i pytania pomocnicze dla recenzenta są publikowane w podsumowaniu joba `ready` (`ci/ready.sh`).
   Testy jednostkowe: `tests/unit/test_pr_inspector.py` oraz `tests/unit/ready.bats`.
 
+- **CI: pin `libpkgconf=3.0.11` w `envs/python/environment.lock.yml`** — obraz (conda) zawiera bibliotekę
+  `libpkgconf` obok narzędzia `pkgconf`, ale lock pinował tylko `pkgconf`. Bramka `lock_drift` etapu 5
+  czerwieniła przez to KAŻDY PR budujący obraz („DRYF: libpkgconf 3.0.11 tylko w obrazie"). Dopięcie
+  biblioteki usuwa dryf u źródła (0 dryfu, 423 pakiety).
+
 - **#323 PR A: wiarygodne sondy egress etapu 5** — testowy helper `tests/lib/net_probe.py`
   klasyfikuje odpowiedź, odmowę, timeout, błąd środowiska i odmowę odczytu jądra; sekcja 6b
   wymaga korelacji z unikalnym wpisem `wlb-egress-deny` (cel/port), zamiast uznawać dowolny
