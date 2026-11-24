@@ -1,0 +1,11 @@
+# ŹRÓDŁO pinów top-level (edytuj tutaj). Po zmianie uruchom ci/lock-requirements.sh flaky i zacommituj
+# wygenerowany lock z hashami ci/requirements-flaky.txt (instalowany w CI z --require-hashes, IMG-008 5b).
+#
+# Lane NIEBRAMKUJĄCY detekcji niestabilności (#349): te same zależności co etap 4 (dziedziczone z
+# requirements-unit.in) PLUS tasowanie kolejności i powtórzenia. pytest-randomly tasuje kolejność
+# testów — to wykrywa dominującą w Pythonie przyczynę flaky (zależność od kolejności; Gruber ICST 2021).
+# CELOWO trzymamy te pakiety POZA venv-unit (bramkującym): zainstalowany pytest-randomly tasowałby też
+# bramkę etapu 4, czyniąc ją niedeterministyczną. Tu, w osobnym venv-flaky, tasowanie jest zamierzone.
+-r requirements-unit.in
+pytest-randomly==3.16.0
+pytest-repeat==0.9.4
