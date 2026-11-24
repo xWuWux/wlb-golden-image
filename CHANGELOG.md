@@ -14,6 +14,14 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Pre-Review Inspector w etapie „Gotowe do code review” (`ci/pr_inspector.py`):** dodano automatyczną inspekcję
+  diffu PR pod kątem rozmiaru (kategorie XS–XL), korelacji kodu wykonawczego z testami (regress-first), stref ryzyka
+  architektury (firewall, AppArmor, uprawnienia, pipeline) oraz podejrzanych wzorców powłoki (chmod 777, curl | bash).
+  Karta oceny i pytania pomocnicze dla recenzenta są publikowane w podsumowaniu joba `ready` (`ci/ready.sh`).
+  Inspekcja jest fail-closed: błąd `git diff` kończy CLI kodem 2, a brak `GITHUB_BASE_REF` pomija kartę
+  zamiast pokazywać fałszywe `XS/LOW`. Testy jednostkowe: `tests/unit/test_pr_inspector.py` oraz
+  `tests/unit/ready.bats`.
+
 - **#349: lane detekcji niestabilności (losowa kolejność)** — nowy, NIEBRAMKUJĄCY job `4c. Detekcja
   niestabilności`: `ci/flaky_detect.py` uruchamia testy jednostkowe wielokrotnie z różnymi ziarnami
   `pytest-randomly` (osobny `venv-flaky`, poza bramką etapu 4, by nie tasować bramki) i klasyfikuje
