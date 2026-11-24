@@ -56,3 +56,47 @@ needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
   [[ $output == *"Gotowe do code review i merge"* ]]
 }
 
+setup_card_repo() {
+  # Test karty nie może zależeć od historii głównego repo (CI checkout bywa shallow).
+  local repo="$BATS_TEST_TMPDIR/card-repo"
+  git init -q "$repo"
+  git -C "$repo" config user.email test@example.invalid
+  git -C "$repo" config user.name test
+  printf 'base\n' >"$repo/file.txt"
+  git -C "$repo" add file.txt
+  git -C "$repo" commit -q -m base
+  local base
+  base=$(git -C "$repo" rev-parse HEAD)
+  printf 'head\n' >"$repo/file.txt"
+  git -C "$repo" commit -q -am head
+  git -C "$repo" update-ref refs/remotes/origin/main "$base"
+  cp -R "$REPO_ROOT/ci" "$repo/ci"
+  READY="$repo/ci/ready.sh"
+  cd "$repo" || return 1
+}
+
+@test "ready: generuje karte inspekcji PR w GITHUB_STEP_SUMMARY" {
+  setup_card_repo
+  run env GITHUB_BASE_REF=main NEEDS="$(needs_json success success)" "$READY"
+  [ "$status" -eq 0 ]
+  [ -f "$GITHUB_STEP_SUMMARY" ]
+  grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"
+}
+
+@test "ready: bez GITHUB_BASE_REF nie generuje karty inspekcji" {
+  setup_card_repo
+  run env -u GITHUB_BASE_REF NEEDS="$(needs_json success success)" "$READY"
+  [ "$status" -eq 0 ]
+  if grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"; then
+    false
+  fi
+}
+
+@test "ready: nieistniejacy GITHUB_BASE_REF nie generuje karty inspekcji" {
+  setup_card_repo
+  run env GITHUB_BASE_REF="no-such-base-376" NEEDS="$(needs_json success success)" "$READY"
+  [ "$status" -eq 0 ]
+  if grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"; then
+    false
+  fi
+}

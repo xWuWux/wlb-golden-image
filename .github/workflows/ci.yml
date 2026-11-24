@@ -734,9 +734,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - run: ci/ready.sh
         env:
           NEEDS: ${{ toJSON(needs) }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
       # kategoria każdego nieudanego joba i ścieżka z docs/ci-runbook.md (ponowienie: ci-retry.yml)
       - name: Diagnoza niepowodzenia
         if: failure()
