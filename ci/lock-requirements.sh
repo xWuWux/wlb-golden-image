@@ -18,7 +18,7 @@ command -v uv >/dev/null 2>&1 || {
 
 cd "$(dirname "$0")/.."
 names=("$@")
-((${#names[@]})) || names=(lint security unit e2e)
+((${#names[@]})) || names=(lint security unit e2e flaky)
 for name in "${names[@]}"; do
   in="ci/requirements-$name.in"
   out="ci/requirements-$name.txt"
