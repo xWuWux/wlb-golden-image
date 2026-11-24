@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **CI: pin `libpkgconf=3.0.11` w `envs/python/environment.lock.yml`** — obraz (conda) zawiera bibliotekę
+  `libpkgconf` obok narzędzia `pkgconf`, ale lock pinował tylko `pkgconf`. Bramka `lock_drift` etapu 5
+  czerwieniła przez to KAŻDY PR budujący obraz („DRYF: libpkgconf 3.0.11 tylko w obrazie"). Dopięcie
+  biblioteki usuwa dryf u źródła (0 dryfu, 423 pakiety).
+
 - **#323 PR A: wiarygodne sondy egress etapu 5** — testowy helper `tests/lib/net_probe.py`
   klasyfikuje odpowiedź, odmowę, timeout, błąd środowiska i odmowę odczytu jądra; sekcja 6b
   wymaga korelacji z unikalnym wpisem `wlb-egress-deny` (cel/port), zamiast uznawać dowolny
@@ -39,6 +44,13 @@ pierwszym Laboratorium na klastrze).
   raportów JUnit XML z testów jednostkowych (pytest i bats) w etapie 4 (`ci/unit.sh`), agregację per-test w formacie
   `build/ci-logs/flaky.json` (`ci/flaky_report.py collect`) z metadanymi commita, numerem próby (attempt) i podsumowaniem
   w GITHUB_STEP_SUMMARY oraz upload długoterminowych artefaktów w potoku CI (retencja 90 dni dla `flaky.json`, 14 dni dla raportów).
+
+- **Property-based testing (#351):** dodano `hypothesis` do etapu 4 i testy własności w
+  `tests/unit/test_verify_platform_images_properties.py` oraz `tests/unit/test_image_identity_properties.py`.
+  Obejmują idempotencję walidacji, niezależność kolejności rekordów, wykrywanie zmiany payloadu/wersji/base,
+  odrzucanie brakujących/nadmiarowych/pustych/symlinkowanych obrazów, fail-closed dla dowolnego JSON
+  oraz parser/validator tożsamości OS. Profile Hypothesis w `tests/conftest.py`: CI 50 przykładów bez deadline,
+  lokalnie 15 przykładów z deadline 5 s; kontrprzykłady są raportowane przez Hypothesis.
 
 - **Normalizator raportów JUnit i testów niestabilnych (#349, PR A2):** dodano moduł `ci/flaky_report.py`
   parsujący i normalizujący raporty JUnit XML z etapu 4 (pytest) oraz etapu 5 (akceptacja VM). Moduł
