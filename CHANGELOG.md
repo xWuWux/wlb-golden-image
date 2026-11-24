@@ -14,6 +14,18 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#349: lane detekcji niestabilności (losowa kolejność)** — nowy, NIEBRAMKUJĄCY job `4c. Detekcja
+  niestabilności`: `ci/flaky_detect.py` uruchamia testy jednostkowe wielokrotnie z różnymi ziarnami
+  `pytest-randomly` (osobny `venv-flaky`, poza bramką etapu 4, by nie tasować bramki) i klasyfikuje
+  każdy test jako `stable_pass`, `flaky` (różny wynik między ziarnami → zależność od kolejności,
+  dominująca przyczyna flaky w Pythonie — Gruber ICST 2021) albo `broken` (padł we WSZYSTKICH
+  przebiegach → realna porażka, NIE flaky — nie wolno kwarantannować). Wykonawca zabezpieczony
+  kontraktem `RunResult` (fail-closed exit codes, czyszczenie starych raportów XML, timeout z zabijaniem
+  grupy procesów, obsługa przestrzeni nazw XML, precyzyjne wskazywanie ziarna awarii w podsumowaniu
+  i artefakty XML per-run). Report-only (nie zamienia porażki na sukces — żadnego retry-do-zielonego),
+  opt-in (nocny build / `workflow_dispatch` / etykieta PR `flaky-detect`). Lock z hashami `ci/requirements-flaky.txt`;
+  testy regresyjne w `tests/unit/test_flaky_detect.py` (30 testów).
+
 - **CI: pin `libpkgconf=3.0.11` w `envs/python/environment.lock.yml`** — obraz (conda) zawiera bibliotekę
   `libpkgconf` obok narzędzia `pkgconf`, ale lock pinował tylko `pkgconf`. Bramka `lock_drift` etapu 5
   czerwieniła przez to KAŻDY PR budujący obraz („DRYF: libpkgconf 3.0.11 tylko w obrazie"). Dopięcie
