@@ -1,0 +1,8 @@
+# Ścieżki fixture E2E pulpitu (#277), których NIE może zawierać obraz produkcyjny.
+# Jedyne źródło prawdy: ten plik czytają bramka wydania (ci/e2e_release_gate.py),
+# testy jednostkowe i akceptacja (tests/acceptance.sh wstrzykuje tablicę do skryptu VM).
+# Jedna ścieżka na linię, bezwzględna, bez duplikatów; komentarze i puste linie są pomijane.
+/opt/wlb/e2e
+/etc/xdg/autostart/wlb-e2e-target.desktop
+/usr/share/applications/wlb-e2e-mouse.desktop
+/etc/tmpfiles.d/wlb-e2e.conf

@@ -1,11 +1,9 @@
 """Bramka wydania: obraz i artefakt nie mogą zawierać fixture E2E pulpitu (#277-S3).
 
-Kontrakt czterech ścieżek, których obraz produkcyjny nie może zawierać:
-
-  /opt/wlb/e2e/
-  /etc/xdg/autostart/wlb-e2e-target.desktop
-  /usr/share/applications/wlb-e2e-mouse.desktop
-  /etc/tmpfiles.d/wlb-e2e.conf
+Kontrakt ścieżek, których obraz produkcyjny nie może zawierać, jest w
+`ci/e2e-fixture-paths.txt` — tym samym pliku, który czyta akceptacja i testy.
+Dzięki temu zmiana destination w roli Ansible wymaga zmiany jednego kontraktu,
+a nie trzech niezależnych kopii.
 
 Dwa tryby:
   --tree DIR   sprawdza drzewo artefaktów (np. rozpakowany rootfs) — tanie i testowalne;
@@ -33,16 +31,45 @@ EXIT_OK = 0
 EXIT_ERROR = 2
 EXIT_E2E_FOUND = 3
 
-CONTRACT_PATHS = (
-    "/opt/wlb/e2e",
-    "/etc/xdg/autostart/wlb-e2e-target.desktop",
-    "/usr/share/applications/wlb-e2e-mouse.desktop",
-    "/etc/tmpfiles.d/wlb-e2e.conf",
-)
+CONTRACT_FILE = Path(__file__).with_name("e2e-fixture-paths.txt")
 
 
 class GateError(RuntimeError):
     """Bramka nie może rozstrzygnąć, czy artefakt jest czysty (fail-closed)."""
+
+
+def load_contract(path: Path = CONTRACT_FILE) -> tuple[str, ...]:
+    """Czyta kontrakt ścieżek; brak pliku, duplikat lub ścieżka względna to błąd."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise GateError(f"nie można odczytać kontraktu {path}: {exc}") from exc
+
+    paths: list[str] = []
+    for number, line in enumerate(lines, 1):
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        if not text.startswith("/"):
+            raise GateError(f"{path}:{number}: ścieżka musi być bezwzględna: {text!r}")
+        normalized = text.rstrip("/")
+        if normalized == "" or ".." in Path(normalized).parts:
+            raise GateError(f"{path}:{number}: nieprawidłowa ścieżka: {text!r}")
+        if normalized in paths:
+            raise GateError(f"{path}:{number}: duplikat ścieżki {normalized!r}")
+        paths.append(normalized)
+    if not paths:
+        raise GateError(f"{path}: kontrakt jest pusty")
+    return tuple(paths)
+
+
+try:
+    CONTRACT_PATHS = load_contract()
+    CONTRACT_ERROR: GateError | None = None
+except GateError as exc:
+    # Import nie może wywalać tracebackiem: main() ma zgłosić fail-closed z kodem 2.
+    CONTRACT_PATHS = ()
+    CONTRACT_ERROR = exc
 
 
 def normalize_listing_path(line: str) -> str:
@@ -128,6 +155,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if CONTRACT_ERROR is not None:
+        print(f"BŁĄD: bramka E2E: {CONTRACT_ERROR} (#277)", file=sys.stderr)
+        return EXIT_ERROR
     trees = [Path(path) for path in args.tree]
     images = [Path(path) for path in args.image]
     if not trees and not images:

@@ -28,18 +28,15 @@ pytestmark = pytest.mark.skipif(
 )
 
 GATE = REPO_ROOT / "ci/e2e_release_gate.py"
-E2E_FILES = (
-    "opt/wlb/e2e/target.json",
-    "etc/xdg/autostart/wlb-e2e-target.desktop",
-    "usr/share/applications/wlb-e2e-mouse.desktop",
-    "etc/tmpfiles.d/wlb-e2e.conf",
-)
+CONTRACT_FILE = REPO_ROOT / "ci/e2e-fixture-paths.txt"
 # Bramka raportuje ścieżki kontraktu: katalog /opt/wlb/e2e, nie plik w nim.
-E2E_REPORTED = (
-    "/opt/wlb/e2e",
-    "/etc/xdg/autostart/wlb-e2e-target.desktop",
-    "/usr/share/applications/wlb-e2e-mouse.desktop",
-    "/etc/tmpfiles.d/wlb-e2e.conf",
+E2E_REPORTED = tuple(
+    line.strip()
+    for line in CONTRACT_FILE.read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+)
+E2E_FILES = tuple(
+    f"{path.lstrip('/')}/target.json" if path == "/opt/wlb/e2e" else path.lstrip("/") for path in E2E_REPORTED
 )
 BASE_DIRS = (
     "etc",

@@ -10,14 +10,36 @@ require_vm
 # po nazwie) + summary. Sklejanie na HOŚCIE — VM dostaje pojedynczy plik (remote_run dokłada
 # remote-common.sh). Dzięki temu nowy feature = nowy plik fragmentu, bez konfliktów na wspólnym pliku.
 shopt -s nullglob
+# #277: ścieżki fixture E2E są jednym kontraktem (ci/e2e-fixture-paths.txt) — ten sam plik
+# czyta bramka wydania. Wstrzykujemy tablicę do sklejonego skryptu, żeby fragment akceptacji
+# nie powtarzał listy ścieżek.
+e2e_contract="$ROOT/ci/e2e-fixture-paths.txt"
+[[ -s $e2e_contract ]] || {
+  echo "Brak kontraktu ścieżek E2E: $e2e_contract (#277)" >&2
+  exit 1
+}
+e2e_paths=()
+while IFS= read -r line || [[ -n $line ]]; do
+  line=${line%$'\r'}
+  case $line in '' | '#'*) continue ;; esac
+  e2e_paths+=("$line")
+done <"$e2e_contract"
+((${#e2e_paths[@]})) || {
+  echo "Pusty kontrakt ścieżek E2E: $e2e_contract (#277)" >&2
+  exit 1
+}
 combined=$(mktemp)
 {
+  printf '\nWLB_E2E_FIXTURE_PATHS=('
+  printf ' %q' "${e2e_paths[@]}"
+  printf ' )\n'
   # #323: helper sond egress jest testowy; nie trafia do obrazu produkcyjnego. Tworzymy go
   # w VM przed rdzeniem akceptacji, bo sekcja 6b wywołuje go jako badacz.
   printf "\ncat >/tmp/wlb-net-probe.py <<'WLB_NET_PROBE'\n"
   cat "$ROOT/tests/lib/net_probe.py"
   printf "\nWLB_NET_PROBE\n"
-  cat "$ROOT/tests/lib/kafelki-exec.sh" "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh
+  cat "$ROOT/tests/lib/e2e-fixture.sh" "$ROOT/tests/lib/kafelki-exec.sh" \
+    "$ROOT/tests/acceptance-remote.sh" "$ROOT"/tests/acceptance.d/*.sh
 } >"$combined"
 # #292: WLB_CHANNEL_GATING=1 promuje niezgodności matrycy kanałów do FAIL (domyślnie SKIP, jak #138).
 channel_gating=

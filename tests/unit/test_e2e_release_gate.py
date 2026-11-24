@@ -10,11 +10,11 @@ import subprocess
 import pytest
 from conftest import REPO_ROOT, load_script
 
-CONTRACT_PATHS = (
-    "/opt/wlb/e2e",
-    "/etc/xdg/autostart/wlb-e2e-target.desktop",
-    "/usr/share/applications/wlb-e2e-mouse.desktop",
-    "/etc/tmpfiles.d/wlb-e2e.conf",
+CONTRACT_FILE = REPO_ROOT / "ci/e2e-fixture-paths.txt"
+CONTRACT_PATHS = tuple(
+    line.strip()
+    for line in CONTRACT_FILE.read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
 )
 
 
@@ -38,6 +38,35 @@ def make_path(root, contract):
 
 def test_kontrakt_sciezek_jest_zamrozony(gate):
     assert gate.CONTRACT_PATHS == CONTRACT_PATHS
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("wzgledna/sciezka\n", "musi być bezwzględna"),
+        ("/a\n/a/\n", "duplikat"),
+        ("/a/../b\n", "nieprawidłowa"),
+        ("# tylko komentarz\n\n", "pusty"),
+    ],
+)
+def test_kontrakt_odrzuca_niepoprawne_wpisy(gate, tmp_path, content, message):
+    path = tmp_path / "kontrakt.txt"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(gate.GateError, match=message):
+        gate.load_contract(path)
+
+
+def test_brak_pliku_kontraktu_jest_bledem(gate, tmp_path):
+    with pytest.raises(gate.GateError, match="nie można odczytać kontraktu"):
+        gate.load_contract(tmp_path / "brak.txt")
+
+
+def test_brak_kontraktu_zatrzymuje_bramke(gate, tmp_path, monkeypatch, capsys):
+    """Brak kontraktu to fail-closed (kod 2), nie ciche „czysto” (#277)."""
+    monkeypatch.setattr(gate, "CONTRACT_PATHS", ())
+    monkeypatch.setattr(gate, "CONTRACT_ERROR", gate.GateError("brak kontraktu"))
+    assert gate.main(["--tree", str(tmp_path)]) == gate.EXIT_ERROR
+    assert "brak kontraktu" in capsys.readouterr().err
 
 
 # --- drzewo artefaktów ---------------------------------------------------------

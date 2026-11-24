@@ -21,7 +21,7 @@ run_check "shellcheck (testy bats)" shellcheck -x "${BATS_FILES[@]}"
 # shellcheck disable=SC2016
 run_check "shellcheck (acceptance złożone)" bash -c '
   f=$(mktemp)
-  cat tests/lib/remote-common.sh tests/acceptance-remote.sh tests/acceptance.d/*.sh >"$f"
+  cat tests/lib/remote-common.sh tests/lib/e2e-fixture.sh tests/acceptance-remote.sh tests/acceptance.d/*.sh >"$f"
   printf "\nsummary\n" >>"$f"
   shellcheck -x "$f"; rc=$?; rm -f "$f"; exit $rc'
 run_check "shfmt (formatowanie powłoki)" shfmt -d "${SHFMT_FLAGS[@]}" "${SHELL_SCRIPTS[@]}" tests/unit/helpers.bash tests/*-remote.sh tests/acceptance.d/*.sh
