@@ -265,6 +265,54 @@ ALLOWLIST_DOMAIN_CONCEPTS = {
     "wlb-export-queue",
 }
 
+# Słownik CI / obrazu / wdrożenia (#366): nazwy jobów ci.yml, artefaktów, zmiennych wdrożenia, flavorów,
+# ról i słów kluczowych Ansible, usług i kont administratora — realne, stabilne pojęcia projektu opisywane
+# w docs/architektura, których walidator nie wyprowadzi z kodu (job to nie funkcja bash, flavor to nie
+# plik, WLB_IMAGE_* to zmienna lab.env, nie zmienna ansible). Nowy flavor/job dopisać tutaj.
+ALLOWLIST_CI = {
+    # joby etapów ci.yml
+    "lint",
+    "build-check",
+    "security",
+    "security-report",
+    "observability",
+    "unit",
+    "mutation",
+    "build-base",
+    "integration",
+    "perf",
+    "ephemeral",
+    "ready",
+    # artefakty CI
+    "test-reports",
+    "image-sca",
+    "flaky.json",
+    # flavory / obrazy
+    "wlb-general",
+    "wlb-memory",
+    "wlb-histologia",
+    "wlb-radiologia",
+    "wlb-pediatria",
+    # zmienne wdrożenia (cloud-init/lab.env, image.conf)
+    "WLB_IMAGE_NAME",
+    "WLB_IMAGE_VERSION",
+    "WLB_IMAGE_DATE",
+    # role i słowa kluczowe Ansible, zmienne wdrożenia w diagramach
+    "lab_config",
+    "python_env",
+    "r_env",
+    "julia_env",
+    "post_tasks",
+    "deployment_vars",
+    "metrics_check",
+    "jupyterhub_cookie_secret",
+    # usługa audytu, konto administratora platformy (cloud-init), klucze workflow
+    "wlb-audit-rules",
+    "wlbadmin",
+    "continue-on-error",
+    "deploy-test",
+}
+
 ALLOWLIST: set[str] = (
     ALLOWLIST_BOOLEANS
     | ALLOWLIST_NETWORKING
@@ -274,6 +322,7 @@ ALLOWLIST: set[str] = (
     | ALLOWLIST_GENERIC
     | ALLOWLIST_SYSTEMD_SERVICES
     | ALLOWLIST_DOMAIN_CONCEPTS
+    | ALLOWLIST_CI
 )
 
 # Znaczniki planowanych / przyszłych elementów
