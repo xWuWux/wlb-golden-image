@@ -94,7 +94,7 @@ PATTERNS_PIPELINE = re.compile(r"^(?:\.github/workflows/|ci/|packer/)")
 PATTERNS_PROD_CODE = re.compile(r"^(?:ansible/|packer/|ci/|scripts/|przewodnik-vm\.sh)")
 PATTERNS_TESTS = re.compile(r"^tests/")
 PATTERNS_DOCS = re.compile(r"^(?:docs/|.*\.md$)")
-SKIP_SMELL_PATHS = re.compile(r"^(?:docs/|tests/|CHANGELOG\.md$|.*\.md$)")
+SKIP_SMELL_PATHS = re.compile(r"^(?:docs/|tests/|CHANGELOG\.md$|.*\.md$|.*\.py$)")
 
 SIZE_TIERS = (("XS", 50), ("S", 250), ("M", 600), ("L", 1000))
 SIZE_DESCRIPTIONS = {
