@@ -6,6 +6,8 @@ coverage==7.17.3
 # mutmut — testy mutacyjne w stage 4b; mutuje walidator wydania platformy
 mutmut==3.8.1
 defusedxml==0.7.1  # bezpieczny odczyt lokalnych raportów JUnit w etapie 4b
+# property-based testing (#351): Hypothesis + shrinking; limity w testach
+hypothesis==6.170.17
 # Pin pośredni: bez niego re-resolve locka podbija tornado do 6.6.1 (poza zakresem zmian mutacji).
 tornado==6.6.1
 PyYAML==6.0.3
