@@ -15,7 +15,8 @@ QUEUE=${WLB_EXPORT_QUEUE:-/workspace/.wlb-export-queue}
 REJECTED=${WLB_SLUZA_REJECTED:-/sluza-odrzucone}     # katalog zwrotny widoczny dla badacza (#162/IMG-008)
 RECEIPTS=${WLB_SLUZA_RECEIPTS:-/sluza-potwierdzenia} # potwierdzenia przyjęcia do kolejki, widoczne dla badacza (#208)
 SNAPSHOT="$(dirname -- "$(readlink -f -- "$0")")/wlb-export-snapshot"
-DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
+DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120}  # katalog uznajemy za kompletny po 2 min bez zmian
+FILE_SETTLE_SECONDS=${WLB_FILE_SETTLE_SECONDS:-20} # pojedynczy plik: przyjmujemy po 20 s bez zapisu (#20)
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
 
@@ -157,7 +158,7 @@ queue_entry() {
 }
 
 sweep() {
-  local entry newest
+  local entry newest mtime
   # Nie ponawiaj przyjęć po przerwanym przejęciu/kopii. Źródło może nadal być
   # w /sluza-out (EXDEV/ENOSPC); ponawianie tworzyłoby kolejne częściowe kopie.
   for entry in "$QUEUE"/.incoming.*; do
@@ -171,6 +172,13 @@ sweep() {
     if [[ -f $entry && ! -L $entry ]]; then
       # plik wciąż otwarty przez proces badacza — poczekaj na zamknięcie
       fuser -s -- "$entry" 2>/dev/null && continue
+      # Stabilność (#20): kopiowanie menedżerem plików (Thunar/GIO) ma okna, w których duży plik NIE
+      # jest otwarty — fuser trafia wtedy w środek zapisu i zabiera UCIĘTE archiwum. Jak dla katalogów:
+      # przyjmujemy plik dopiero, gdy mtime przestaje się zmieniać (brak zapisu od FILE_SETTLE_SECONDS).
+      if ((FILE_SETTLE_SECONDS > 0)); then
+        mtime=$(stat -c %Y -- "$entry" 2>/dev/null) || continue
+        (($(date +%s) - mtime >= FILE_SETTLE_SECONDS)) || continue
+      fi
       queue_entry "$entry" || return 0
     elif [[ -d $entry && ! -L $entry ]]; then
       # badacz może w tym czasie usuwać pliki — błąd find nie może zatrzymać usługi

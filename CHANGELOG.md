@@ -14,6 +14,14 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#20: śluza wyjściowa przyjmowała UCIĘTE pliki w trakcie kopiowania (utrata danych)** — dla pojedynczego
+  pliku jedynym warunkiem gotowości był `fuser` (czy plik jest otwarty). Kopiowanie menedżerem plików
+  (Thunar/GIO) ma okna, w których duży plik nie jest otwarty — `wlb-sluza-out-mover` trafiał wtedy w środek
+  zapisu i zabierał początek archiwum (np. 12,6 GB → 8 MB), a sumę liczył z tego, co zabrał. Teraz plik, tak
+  jak katalog, jest przyjmowany dopiero gdy `mtime` przestaje się zmieniać (`WLB_FILE_SETTLE_SECONDS`,
+  domyślnie 20 s). Obejście doraźne (kopiuj jako `*.part`, zmień nazwę po zakończeniu) nadal działa. Testy
+  stabilności w `tests/unit/wlb-sluza-out-mover.bats`.
+
 - **CI: pin `libpkgconf=3.0.11` w `envs/python/environment.lock.yml`** — obraz (conda) zawiera bibliotekę
   `libpkgconf` obok narzędzia `pkgconf`, ale lock pinował tylko `pkgconf`. Bramka `lock_drift` etapu 5
   czerwieniła przez to KAŻDY PR budujący obraz („DRYF: libpkgconf 3.0.11 tylko w obrazie"). Dopięcie

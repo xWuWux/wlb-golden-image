@@ -13,6 +13,7 @@ setup() {
   stub logger
   stub chown
   stub fuser 1 # domyślnie: plik nie jest otwarty
+  export WLB_FILE_SETTLE_SECONDS=0 # domyślnie bez okna stabilności — testy sprawdzają je jawnie (#20)
   ME=$(id -un)
 }
 
@@ -42,6 +43,28 @@ setup() {
   [ "$status" -eq 0 ]
   [ -e "$WLB_SLUZA_OUT/duzy.csv" ]
   [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]  # pusta = brak wpisu widocznego dla badacza; dotfiles ignorowane
+}
+
+@test "duży plik ze świeżym mtime (kopiowanie w toku) NIE trafia do kolejki — okno stabilności (#20)" {
+  # fuser bywa pusty w oknie między zapisami menedżera plików (Thunar/GIO); bez settle śluza zabrałaby
+  # UCIĘTE archiwum (12 GB -> 8 MB). Świeży mtime (< settle) musi wstrzymać przyjęcie.
+  WLB_FILE_SETTLE_SECONDS=300
+  echo "czesc-archiwum" >"$WLB_SLUZA_OUT/processed.zip"
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ -e "$WLB_SLUZA_OUT/processed.zip" ]  # plik nietknięty, nadal u badacza
+  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]     # nic nie zabrane
+}
+
+@test "plik ze stabilnym mtime (kopiowanie zakończone) trafia do kolejki (#20)" {
+  WLB_FILE_SETTLE_SECONDS=30
+  echo "cale-archiwum" >"$WLB_SLUZA_OUT/processed.zip"
+  touch -d '-120 seconds' "$WLB_SLUZA_OUT/processed.zip" # mtime starszy niż settle = zapis zakończony
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ ! -e "$WLB_SLUZA_OUT/processed.zip" ] # zabrane po ustabilizowaniu
+  queued=$(ls "$WLB_EXPORT_QUEUE")
+  [[ $queued =~ ^[0-9]{8}T[0-9]{6}Z_${ME}_processed\.zip$ ]]
 }
 
 @test "pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)" {
