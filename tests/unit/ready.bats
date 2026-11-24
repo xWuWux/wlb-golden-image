@@ -57,9 +57,24 @@ needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
 }
 
 @test "ready: generuje karte inspekcji PR w GITHUB_STEP_SUMMARY" {
-  run env NEEDS="$(needs_json success success)" "$READY"
+  run env GITHUB_BASE_REF=main NEEDS="$(needs_json success success)" "$READY"
   [ "$status" -eq 0 ]
   [ -f "$GITHUB_STEP_SUMMARY" ]
   grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"
 }
 
+@test "ready: bez GITHUB_BASE_REF nie generuje karty inspekcji" {
+  run env -u GITHUB_BASE_REF NEEDS="$(needs_json success success)" "$READY"
+  [ "$status" -eq 0 ]
+  if grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"; then
+    false
+  fi
+}
+
+@test "ready: nieistniejacy GITHUB_BASE_REF nie generuje karty inspekcji" {
+  run env GITHUB_BASE_REF="no-such-base-376" NEEDS="$(needs_json success success)" "$READY"
+  [ "$status" -eq 0 ]
+  if grep -q "Automatyczna Karta PR" "$GITHUB_STEP_SUMMARY"; then
+    false
+  fi
+}

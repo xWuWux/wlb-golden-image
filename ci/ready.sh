@@ -50,16 +50,21 @@ try:
     sys.path.insert(0, str(Path("ci").resolve()))
     import pr_inspector
 
-    base_ref = os.environ.get("GITHUB_BASE_REF", "origin/main")
-    if not base_ref.startswith("origin/") and "/" not in base_ref:
-        base_ref = f"origin/{base_ref}"
+    base_ref = os.environ.get("GITHUB_BASE_REF", "").strip()
+    if not base_ref:
+        print("Uwaga: brak GITHUB_BASE_REF — inspekcja PR pominięta", file=sys.stderr)
+    else:
+        if not base_ref.startswith("origin/"):
+            base_ref = f"origin/{base_ref}"
 
-    report = pr_inspector.inspect_pr(base=base_ref, head="HEAD")
-    inspector_md = pr_inspector.render_markdown_report(report)
-    print("\n" + inspector_md)
-    if path := os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(path, "a", encoding="utf-8") as f:
-            f.write("\n" + inspector_md + "\n")
+        report = pr_inspector.inspect_pr(base=base_ref, head="HEAD")
+        if report.total_files == 0:
+            raise RuntimeError("inspekcja zwróciła pusty diff")
+        inspector_md = pr_inspector.render_markdown_report(report)
+        print("\n" + inspector_md)
+        if path := os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("\n" + inspector_md + "\n")
 except Exception as exc:
     # Inspekcja jest narzędziem pomocniczym i nie może wywrócić bramki gotowości
     print(f"Uwaga: inspekcja PR pominięta ({exc})", file=sys.stderr)

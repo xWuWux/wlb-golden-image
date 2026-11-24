@@ -18,7 +18,9 @@ pierwszym Laboratorium na klastrze).
   diffu PR pod kątem rozmiaru (kategorie XS–XL), korelacji kodu wykonawczego z testami (regress-first), stref ryzyka
   architektury (firewall, AppArmor, uprawnienia, pipeline) oraz podejrzanych wzorców powłoki (chmod 777, curl | bash).
   Karta oceny i pytania pomocnicze dla recenzenta są publikowane w podsumowaniu joba `ready` (`ci/ready.sh`).
-  Testy jednostkowe: `tests/unit/test_pr_inspector.py` oraz `tests/unit/ready.bats`.
+  Inspekcja jest fail-closed: błąd `git diff` kończy CLI kodem 2, a brak `GITHUB_BASE_REF` pomija kartę
+  zamiast pokazywać fałszywe `XS/LOW`. Testy jednostkowe: `tests/unit/test_pr_inspector.py` oraz
+  `tests/unit/ready.bats`.
 
 - **CI: pin `libpkgconf=3.0.11` w `envs/python/environment.lock.yml`** — obraz (conda) zawiera bibliotekę
   `libpkgconf` obok narzędzia `pkgconf`, ale lock pinował tylko `pkgconf`. Bramka `lock_drift` etapu 5
