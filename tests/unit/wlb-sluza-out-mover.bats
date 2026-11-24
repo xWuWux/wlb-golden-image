@@ -67,6 +67,25 @@ setup() {
   [[ $queued =~ ^[0-9]{8}T[0-9]{6}Z_${ME}_processed\.zip$ ]]
 }
 
+@test "payload i potwierdzenie mają rozmiar i sha256 źródła — brak ucięcia (#20)" {
+  # Regresja buga ucięcia: porównujemy rozmiar+sha256 PRZED zapisem do śluzy i PO przyjęciu do kolejki.
+  # 1 MiB losowych danych — ucięcie zmieniłoby i rozmiar, i sha256; sha256 ma stałą długość (64 hex).
+  head -c 1048576 /dev/urandom >"$WLB_SLUZA_OUT/archiwum.zip"
+  src_size=$(stat -c %s "$WLB_SLUZA_OUT/archiwum.zip")
+  src_sha=$(sha256sum "$WLB_SLUZA_OUT/archiwum.zip" | cut -d' ' -f1)
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  queued=$(ls "$WLB_EXPORT_QUEUE")
+  payload="$WLB_EXPORT_QUEUE/$queued/payload"
+  # rozmiar i sha256 payloadu == źródła (treść nietknięta)
+  [ "$(stat -c %s "$payload")" -eq "$src_size" ]
+  [ "$(sha256sum "$payload" | cut -d' ' -f1)" = "$src_sha" ]
+  # log export_request niesie sha256 źródła (nie sumę z ucięcia)
+  calls | grep -q "sha256=$src_sha queued_as="
+  # badacz widzi realny rozmiar w potwierdzeniu przyjęcia (#208)
+  grep -rq "$src_size B" "$WLB_SLUZA_RECEIPTS"
+}
+
 @test "pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)" {
   echo x >"$WLB_SLUZA_OUT/.ukryty"
   echo x >"$WLB_SLUZA_OUT/wynik.tmp"
