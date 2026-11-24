@@ -295,3 +295,241 @@ def test_parse_error_and_failure_text_only_and_empty(tmp_path: Path) -> None:
     assert results[1].failure_message == "Assertion failed"
     assert results[2].status == "skip"
     assert results[2].skip_reason == "Tylko tekst skip"
+
+
+# --- Testy zbierania raportów i CLI collect (Phase 1, #349) -------------------
+
+
+def test_collect_reports_directory_with_pytest_and_bats(tmp_path: Path) -> None:
+    """Weryfikuje zbieranie raportów z katalogu zawierającego wyniki pytest i bats (#349)."""
+    reports_dir = tmp_path / "reports"
+    bats_dir = reports_dir / "bats"
+    bats_dir.mkdir(parents=True)
+
+    # Plik pytest.xml
+    (reports_dir / "pytest.xml").write_text(
+        '<testsuite name="pytest" tests="2">'
+        '<testcase classname="tests.unit.test_demo" name="test_one" time="0.05"/>'
+        '<testcase classname="tests.unit.test_demo" name="test_two" time="0.10">'
+        '<failure message="assert 1 == 2">Traceback</failure></testcase>'
+        "</testsuite>",
+        encoding="utf-8",
+    )
+
+    # Plik bats/report.xml
+    (bats_dir / "report.xml").write_text(
+        '<testsuites time="0.25">'
+        '<testsuite name="sample.bats" tests="2">'
+        '<testcase classname="sample.bats" name="skrypt: dziala poprawnie" time="0.12"/>'
+        '<testcase classname="sample.bats" name="skrypt: pominiety" time="0.00">'
+        '<skipped message="brak srodowiska"/></testcase>'
+        "</testsuite>"
+        "</testsuites>",
+        encoding="utf-8",
+    )
+
+    payload = fr.collect_reports(
+        reports_path=reports_dir,
+        job="4. Testy jednostkowe + pokrycie",
+        commit_sha="abcdef123456",
+        run_id="998877",
+        attempt=2,
+    )
+
+    assert payload["schema_version"] == "1.0"
+    assert payload["job"] == "4. Testy jednostkowe + pokrycie"
+    assert payload["commit_sha"] == "abcdef123456"
+    assert payload["run_id"] == "998877"
+    assert payload["attempt"] == 2
+
+    s = payload["summary"]
+    assert s["total"] == 4
+    assert s["passed"] == 2
+    assert s["failed"] == 1
+    assert s["errors"] == 0
+    assert s["skipped"] == 1
+    assert round(s["duration_s"], 2) == 0.27
+
+    tests = payload["tests"]
+    assert len(tests) == 4
+    by_id = {t["test_id"]: t for t in tests}
+
+    assert "tests.unit.test_demo::test_one" in by_id
+    assert by_id["tests.unit.test_demo::test_one"]["status"] == "pass"
+
+    assert "tests.unit.test_demo::test_two" in by_id
+    assert by_id["tests.unit.test_demo::test_two"]["status"] == "fail"
+    assert "assert 1 == 2" in by_id["tests.unit.test_demo::test_two"]["failure_message"]
+
+    assert "sample.bats::skrypt: dziala poprawnie" in by_id
+    assert by_id["sample.bats::skrypt: dziala poprawnie"]["status"] == "pass"
+
+    assert "sample.bats::skrypt: pominiety" in by_id
+    assert by_id["sample.bats::skrypt: pominiety"]["status"] == "skip"
+    assert by_id["sample.bats::skrypt: pominiety"]["skip_reason"] == "brak srodowiska"
+
+
+def test_collect_reports_deduplicate_test_ids(tmp_path: Path) -> None:
+    """Weryfikuje unikalność test_id przez doklejanie sufiksów #2, #3 przy duplikatach (#349)."""
+    p = tmp_path / "dup.xml"
+    p.write_text(
+        '<testsuite name="ts">'
+        '<testcase classname="pkg" name="dup_test"/>'
+        '<testcase classname="pkg" name="dup_test"/>'
+        '<testcase classname="pkg" name="dup_test"/>'
+        "</testsuite>",
+        encoding="utf-8",
+    )
+
+    payload = fr.collect_reports(reports_path=p)
+    assert payload["summary"]["total"] == 3
+    test_ids = [t["test_id"] for t in payload["tests"]]
+    assert test_ids == ["pkg::dup_test", "pkg::dup_test#2", "pkg::dup_test#3"]
+
+
+def test_collect_reports_nonexistent_and_empty_directory(tmp_path: Path) -> None:
+    """Weryfikuje fail-safe zachowanie przy braku katalogu lub braku plików raportów (#349)."""
+    # 1. Nieistniejący katalog
+    p1 = tmp_path / "does_not_exist"
+    res1 = fr.collect_reports(reports_path=p1, commit_sha="c1")
+    assert res1["summary"]["total"] == 0
+    assert res1["tests"] == []
+    assert res1["commit_sha"] == "c1"
+
+    # 2. Pusty katalog
+    p2 = tmp_path / "empty_dir"
+    p2.mkdir()
+    res2 = fr.collect_reports(reports_path=p2, commit_sha="c2")
+    assert res2["summary"]["total"] == 0
+    assert res2["tests"] == []
+
+
+def test_collect_reports_malformed_xml_recorded_as_error(tmp_path: Path) -> None:
+    """Weryfikuje, że uszkodzony raport XML w katalogu jest rejestrowany jako status 'error' (#349)."""
+    reports_dir = tmp_path / "reports_corrupt"
+    reports_dir.mkdir()
+    (reports_dir / "valid.xml").write_text(
+        '<testsuite name="ts"><testcase name="valid_test"/></testsuite>', encoding="utf-8"
+    )
+    (reports_dir / "corrupted.xml").write_text("<broken><<xml", encoding="utf-8")
+
+    payload = fr.collect_reports(reports_path=reports_dir)
+    s = payload["summary"]
+    assert s["total"] == 2
+    assert s["passed"] == 1
+    assert s["errors"] == 1
+
+    err_test = next(t for t in payload["tests"] if t["status"] == "error")
+    assert "malformed_report::corrupted.xml" in err_test["test_id"]
+    assert "Błąd parsowania JUnit XML" in err_test["failure_message"]
+
+
+def test_render_step_summary() -> None:
+    """Weryfikuje renderowanie podsumowania Markdown dla GITHUB_STEP_SUMMARY (#349)."""
+    payload = {
+        "schema_version": "1.0",
+        "job": "4. Testy jednostkowe",
+        "commit_sha": "1234567890abcdef",
+        "run_id": "456",
+        "attempt": 1,
+        "summary": {
+            "total": 3,
+            "passed": 1,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 1,
+            "duration_s": 1.23,
+        },
+        "tests": [
+            {
+                "test_id": "test_ok",
+                "status": "pass",
+                "duration_s": 0.5,
+                "source_stage": "stage4:unit",
+                "skip_reason": None,
+                "failure_message": None,
+            },
+            {
+                "test_id": "test_bad",
+                "status": "fail",
+                "duration_s": 0.73,
+                "source_stage": "stage4:unit",
+                "skip_reason": None,
+                "failure_message": "Błąd asercji: 1 != 2",
+            },
+            {
+                "test_id": "test_ignored",
+                "status": "skip",
+                "duration_s": 0.0,
+                "source_stage": "stage4:unit",
+                "skip_reason": "Wymaga proxy",
+                "failure_message": None,
+            },
+        ],
+    }
+
+    md = fr.render_step_summary(payload)
+    assert "### Telemetria testów (per-test, #349)" in md
+    assert "**Job:** `4. Testy jednostkowe`" in md
+    assert "**Commit:** `12345678`" in md
+    assert "| Łącznie testów | 3 |" in md
+    assert "| Passed | 1 |" in md
+    assert "| Failed | 1 |" in md
+    assert "| Skipped | 1 |" in md
+    assert "#### Testy zakończone niepowodzeniem" in md
+    assert "`test_bad`" in md
+    assert "Błąd asercji: 1 != 2" in md
+    assert "#### Testy pominięte (skipped)" in md
+    assert "`test_ignored`" in md
+    assert "Wymaga proxy" in md
+
+
+def test_cli_collect_and_summary_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Weryfikuje CLI flaky_report.py collect oraz summary (#349)."""
+    rep_dir = tmp_path / "in_reports"
+    rep_dir.mkdir()
+    (rep_dir / "sample.xml").write_text(
+        '<testsuite name="ts"><testcase name="c1" time="0.05"/></testsuite>', encoding="utf-8"
+    )
+
+    out_file = tmp_path / "out" / "flaky.json"
+    step_summary_file = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(step_summary_file))
+
+    # 1. Test polecenia collect
+    rc_collect = fr.main(
+        [
+            "collect",
+            "--reports",
+            str(rep_dir),
+            "--out",
+            str(out_file),
+            "--job",
+            "4. Unit tests",
+            "--commit",
+            "abcdef999",
+            "--run-id",
+            "1001",
+            "--attempt",
+            "1",
+            "--summary",
+        ]
+    )
+    assert rc_collect == 0
+    assert out_file.exists()
+    assert step_summary_file.exists()
+
+    step_md = step_summary_file.read_text(encoding="utf-8")
+    assert "### Telemetria testów (per-test, #349)" in step_md
+    assert "| Łącznie testów | 1 |" in step_md
+
+    stdout = capsys.readouterr().out
+    assert "### Telemetria testów (per-test, #349)" in stdout
+
+    # 2. Test polecenia summary
+    rc_summary = fr.main(["summary", str(out_file)])
+    assert rc_summary == 0
+    stdout2 = capsys.readouterr().out
+    assert "### Telemetria testów (per-test, #349)" in stdout2

@@ -316,6 +316,25 @@ fragmentu i niezależną asercję efektu. Błąd procesu, timeout i pominięty t
 Wynik wymagany dla każdego pliku macierzy to 100% par. Zakres i odpowiedzialność opisuje
 [macierz kontraktów](mutation-abstractions.md).
 
+## Telemetria testów niestabilnych (flaky) — Phase 1 (#349)
+
+W ramach Phase 1 procesu zarządzania testami niestabilnymi (#349) potok CI zbiera ustrukturyzowane wyniki per-test z etapu 4 (testy jednostkowe bats i pytest) oraz etapu 5 (akceptacja VM).
+
+1. **Gdzie leżą artefakty:**
+   - W każdym przebiegu CI job `unit` zapisuje `build/ci-logs/flaky.json` i publikuje go jako artefakt `test-results-<attempt>` (retencja 90 dni).
+   - Surowe raporty JUnit XML (`build/test-reports/bats/report.xml`, `build/test-reports/pytest.xml`) są publikowane jako artefakt `test-reports` (retencja 14 dni).
+   - W podsumowaniu joba GitHub Actions (`Step Summary`) generowana jest tabela z liczbą testów, passed, failed, skipped oraz szczegółami ewentualnych błędów.
+
+2. **Czego NIE robi Phase 1:**
+   - **Brak kwarantanny testów:** na tym etapie żaden test nie jest wyciszany ani pomijany; kwarantanna i polityka wygaszania wejdą w kolejnych fazach po zebraniu danych bazowych (baseline).
+   - **Brak zmian w bramkach wdrożeń:** wszystkie dotychczasowe bramki jakościowe i bezpieczeństwa pozostają bez zmian.
+
+3. **Lokalne generowanie raportu:**
+   ```bash
+   make unit
+   python3 ci/flaky_report.py collect --reports build/test-reports --out build/ci-logs/flaky.json
+   ```
+
 ### Property-based testing etapu 4 (#351)
 
 Testy właściwościowe Hypothesis działają w istniejącym etapie 4, bez osobnego joba:
