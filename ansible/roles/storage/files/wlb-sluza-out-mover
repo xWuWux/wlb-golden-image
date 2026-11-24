@@ -15,8 +15,21 @@ QUEUE=${WLB_EXPORT_QUEUE:-/workspace/.wlb-export-queue}
 REJECTED=${WLB_SLUZA_REJECTED:-/sluza-odrzucone}     # katalog zwrotny widoczny dla badacza (#162/IMG-008)
 RECEIPTS=${WLB_SLUZA_RECEIPTS:-/sluza-potwierdzenia} # potwierdzenia przyjęcia do kolejki, widoczne dla badacza (#208)
 SNAPSHOT="$(dirname -- "$(readlink -f -- "$0")")/wlb-export-snapshot"
-DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120}  # katalog uznajemy za kompletny po 2 min bez zmian
-FILE_SETTLE_SECONDS=${WLB_FILE_SETTLE_SECONDS:-20} # pojedynczy plik: przyjmujemy po 20 s bez zapisu (#20)
+DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
+# Pojedynczy plik przyjmujemy, gdy od OSTATNIEGO zapisu minęło >= FILE_SETTLE_SECONDS (wiek mtime). To
+# HEURYSTYKA ograniczająca typowy wyścig (kopia menedżerem plików na bieżąco bumpuje mtime, więc w trakcie
+# kopiowania plik jest „świeży" i czeka) — NIE dowód kompletności: długa pauza > próg + wznowienie albo
+# kopia zachowująca stary mtime mogą ją oszukać. Twarda gwarancja wymagałaby sygnału od nadawcy
+# (temp+rename albo manifest) — świadomie poza zakresem przy dostarczaniu drag-drop (#20). 0 wyłącza okno.
+FILE_SETTLE_SECONDS=${WLB_FILE_SETTLE_SECONDS:-20}
+
+# Walidacja progów (#20): pusty/nienumeryczny/ujemny próg po cichu wyłączyłby albo wywrócił zabezpieczenie.
+for _settle_var in DIR_SETTLE_SECONDS FILE_SETTLE_SECONDS; do
+  if [[ ! ${!_settle_var} =~ ^[0-9]+$ ]]; then
+    echo "wlb-sluza-out-mover: $_settle_var='${!_settle_var}' musi być nieujemną liczbą całkowitą" >&2
+    exit 2
+  fi
+done
 
 log() { logger -t wlb-sluza-out -p authpriv.notice -- "$*"; }
 

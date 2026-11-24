@@ -67,9 +67,10 @@ setup() {
   [[ $queued =~ ^[0-9]{8}T[0-9]{6}Z_${ME}_processed\.zip$ ]]
 }
 
-@test "payload i potwierdzenie mają rozmiar i sha256 źródła — brak ucięcia (#20)" {
-  # Regresja buga ucięcia: porównujemy rozmiar+sha256 PRZED zapisem do śluzy i PO przyjęciu do kolejki.
-  # 1 MiB losowych danych — ucięcie zmieniłoby i rozmiar, i sha256; sha256 ma stałą długość (64 hex).
+@test "payload w kolejce jest wierną kopią źródła z /sluza-out — rozmiar+sha256 (#20)" {
+  # UWAGA: to test WIERNOŚCI kopii movera (payload == to, co było w /sluza-out), NIE dowód kompletności
+  # względem tego, co badacz ZAMIERZAŁ wysłać. Gdyby plik w /sluza-out był już ucięty, oba sha by się
+  # zgadzały. Kompletność wobec intencji badacza należy do potwierdzenia (#208: „porównaj z zamierzonym").
   head -c 1048576 /dev/urandom >"$WLB_SLUZA_OUT/archiwum.zip"
   src_size=$(stat -c %s "$WLB_SLUZA_OUT/archiwum.zip")
   src_sha=$(sha256sum "$WLB_SLUZA_OUT/archiwum.zip" | cut -d' ' -f1)
@@ -84,6 +85,24 @@ setup() {
   calls | grep -q "sha256=$src_sha queued_as="
   # badacz widzi realny rozmiar w potwierdzeniu przyjęcia (#208)
   grep -rq "$src_size B" "$WLB_SLUZA_RECEIPTS"
+}
+
+@test "nienumeryczny WLB_FILE_SETTLE_SECONDS przerywa start z błędem, nie wyłącza po cichu (#20)" {
+  WLB_FILE_SETTLE_SECONDS=abc
+  echo "wynik" >"$WLB_SLUZA_OUT/wynik.csv"
+  run "$MOVER" --once
+  [ "$status" -eq 2 ]
+  [[ $output == *"musi być nieujemną liczbą całkowitą"* ]]
+  [ -e "$WLB_SLUZA_OUT/wynik.csv" ]   # nic nie zabrane przy błędnej konfiguracji
+}
+
+@test "domyślny próg (bez override) to 20 s — świeży plik NIE jest brany od razu (#20)" {
+  unset WLB_FILE_SETTLE_SECONDS      # produkcyjny domyślny FILE_SETTLE_SECONDS=20
+  echo "swieze" >"$WLB_SLUZA_OUT/wynik.csv" # mtime = teraz, dużo poniżej 20 s
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ -e "$WLB_SLUZA_OUT/wynik.csv" ]  # czeka — domyślne okno działa
+  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
 }
 
 @test "pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)" {
