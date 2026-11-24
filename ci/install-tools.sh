@@ -122,13 +122,21 @@ install_e2e() {
   command -v certutil >/dev/null || sudo apt-get install -y --no-install-recommends libnss3-tools
 }
 
+install_flaky() {
+  # Lane NIEBRAMKUJĄCY detekcji niestabilności (#349): to samo co unit + pytest-randomly/repeat.
+  # Osobny venv, bo pytest-randomly tasowałby też bramkę etapu 4, gdyby trafił do venv-unit.
+  [[ -x $TOOLS_DIR/bats/bin/bats ]] ||
+    git clone -q --depth 1 --branch "v$BATS_VERSION" https://github.com/bats-core/bats-core.git "$TOOLS_DIR/bats"
+  venv venv-flaky ci/requirements-flaky.txt
+}
+
 groups=("$@")
 ((${#groups[@]})) || groups=(lint unit security)
 for g in "${groups[@]}"; do
   case $g in
-    lint | unit | security | e2e) "install_$g" ;;
+    lint | unit | security | e2e | flaky) "install_$g" ;;
     *)
-      echo "Nieznana grupa: $g (lint | unit | security | e2e)"
+      echo "Nieznana grupa: $g (lint | unit | security | e2e | flaky)"
       exit 2
       ;;
   esac
