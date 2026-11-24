@@ -402,6 +402,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ci/install-tools.sh unit
       - run: ci/guard.sh --name "4. Testy jednostkowe" --timeout 15m --memory auto -- ci/unit.sh
+      - name: "Zbieranie wyników testów (flaky telemetria, #349)"
+        if: always()
+        run: >-
+          python3 ci/flaky_report.py collect --reports build/test-reports
+          --out build/ci-logs/flaky.json --job "4. Testy jednostkowe + pokrycie"
+          --commit "${{ github.sha }}" --run-id "${{ github.run_id }}" --attempt "${{ github.run_attempt }}"
+      # Wyniki per-test z zachowaniem prób (run_attempt) — podstawa metryk niestabilności (#349 Phase 1)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-results-${{ github.run_attempt }}
+          path: build/ci-logs/flaky.json
+          if-no-files-found: ignore
+          retention-days: 90
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-reports
+          path: build/test-reports/
+          if-no-files-found: ignore
+          retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

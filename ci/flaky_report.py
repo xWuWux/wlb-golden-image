@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 
 class FlakyReportError(Exception):
@@ -181,6 +184,176 @@ def parse_junit(path: str | Path, source_stage: str | None = None) -> list[TestR
     return results
 
 
+@dataclass
+class FlakySummary:
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    errors: int = 0
+    skipped: int = 0
+    duration_s: float = 0.0
+
+
+def collect_reports(
+    reports_path: str | Path,
+    job: str = "4. Testy jednostkowe + pokrycie",
+    commit_sha: str = "",
+    run_id: str = "",
+    attempt: int = 1,
+) -> dict[str, Any]:
+    """Zbiera i normalizuje wyniki testów z katalogu lub pliku raportów JUnit XML.
+
+    Obsługuje raporty bats (np. build/test-reports/bats/report.xml) oraz pytest (pytest.xml).
+    Gwarantuje unikalność test_id poprzez doklejanie sufiksów #2, #3 w przypadku duplikatów.
+    W przypadku braku plików zwraca pustą, zwalidowaną strukturę schema_version 1.0 (fail-safe).
+    """
+    reports_dir = Path(reports_path)
+    summary = FlakySummary()
+    tests_payload: list[dict[str, Any]] = []
+    seen_counts: dict[str, int] = {}
+
+    eff_commit = commit_sha or os.environ.get("GITHUB_SHA", "unknown")
+    eff_run_id = run_id or os.environ.get("GITHUB_RUN_ID", "0")
+    try:
+        eff_attempt = int(attempt or os.environ.get("GITHUB_RUN_ATTEMPT", 1))
+    except (ValueError, TypeError):
+        eff_attempt = 1
+
+    empty_payload: dict[str, Any] = {
+        "schema_version": "1.0",
+        "job": job,
+        "commit_sha": eff_commit,
+        "run_id": eff_run_id,
+        "attempt": eff_attempt,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "summary": asdict(summary),
+        "tests": [],
+    }
+
+    if not reports_dir.exists():
+        return empty_payload
+
+    xml_files = [reports_dir] if reports_dir.is_file() else sorted(reports_dir.glob("**/*.xml"))
+
+    if not xml_files:
+        return empty_payload
+
+    all_results: list[TestResult] = []
+    for xml_file in xml_files:
+        try:
+            results = parse_junit(xml_file)
+            all_results.extend(results)
+        except Exception as exc:
+            all_results.append(
+                TestResult(
+                    test_id=f"malformed_report::{xml_file.name}",
+                    status="error",
+                    time=0.0,
+                    source_stage="stage4:unit",
+                    failure_message=f"Błąd parsowania JUnit XML ({xml_file}): {exc}",
+                )
+            )
+
+    for r in all_results:
+        tid = r.test_id
+        if tid in seen_counts:
+            seen_counts[tid] += 1
+            tid = f"{tid}#{seen_counts[tid]}"
+        else:
+            seen_counts[tid] = 1
+
+        summary.total += 1
+        summary.duration_s += r.time
+        if r.status == "pass":
+            summary.passed += 1
+        elif r.status == "fail":
+            summary.failed += 1
+        elif r.status == "error":
+            summary.errors += 1
+        elif r.status == "skip":
+            summary.skipped += 1
+
+        tests_payload.append(
+            {
+                "test_id": tid,
+                "status": r.status,
+                "duration_s": round(r.time, 4),
+                "source_stage": r.source_stage,
+                "skip_reason": r.skip_reason,
+                "failure_message": r.failure_message,
+            }
+        )
+
+    summary.duration_s = round(summary.duration_s, 4)
+
+    return {
+        "schema_version": "1.0",
+        "job": job,
+        "commit_sha": eff_commit,
+        "run_id": eff_run_id,
+        "attempt": eff_attempt,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "summary": asdict(summary),
+        "tests": tests_payload,
+    }
+
+
+def render_step_summary(payload: dict[str, Any]) -> str:
+    """Renderuje zwięzłe podsumowanie Markdown dla GITHUB_STEP_SUMMARY."""
+    s = payload.get("summary", {})
+    job = payload.get("job", "")
+    commit = str(payload.get("commit_sha", ""))[:8]
+    attempt = payload.get("attempt", 1)
+
+    lines = [
+        "### Telemetria testów (per-test, #349)",
+        "",
+        f"**Job:** `{job}` | **Commit:** `{commit}` | **Attempt:** `{attempt}`",
+        "",
+        "| Metryka | Wartość |",
+        "|---|---|",
+        f"| Łącznie testów | {s.get('total', 0)} |",
+        f"| Passed | {s.get('passed', 0)} |",
+        f"| Failed | {s.get('failed', 0)} |",
+        f"| Errors | {s.get('errors', 0)} |",
+        f"| Skipped | {s.get('skipped', 0)} |",
+        f"| Czas trwania | {s.get('duration_s', 0.0):.2f} s |",
+        "",
+    ]
+
+    failures = [t for t in payload.get("tests", []) if t.get("status") in ("fail", "error")]
+    if failures:
+        lines.extend(
+            [
+                "#### Testy zakończone niepowodzeniem",
+                "",
+                "| Status | Test ID | Komunikat |",
+                "|---|---|---|",
+            ]
+        )
+        for f in failures:
+            msg = (f.get("failure_message") or "").replace("\n", " ").replace("|", "\\|")[:120]
+            lines.append(f"| `{f.get('status', '').upper()}` | `{f.get('test_id')}` | {msg} |")
+        lines.append("")
+
+    skipped = [t for t in payload.get("tests", []) if t.get("status") == "skip"]
+    if skipped:
+        lines.extend(
+            [
+                "#### Testy pominięte (skipped)",
+                "",
+                "| Test ID | Powód |",
+                "|---|---|",
+            ]
+        )
+        for sk in skipped:
+            reason = (sk.get("skip_reason") or "brak powodu").replace("\n", " ").replace("|", "\\|")[:120]
+            lines.append(f"| `{sk.get('test_id')}` | {reason} |")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Punkt wejścia CLI dla flaky_report.py."""
     parser = argparse.ArgumentParser(
@@ -198,6 +371,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=Path("build/ci-logs/flaky-raw.json"),
         help="Ścieżka zapisu znormalizowanego pliku JSON (domyślnie: build/ci-logs/flaky-raw.json)",
     )
+
+    collect_cmd = subparsers.add_parser(
+        "collect", help="Zbiera raporty z katalogu i generuje ustrukturyzowany flaky.json"
+    )
+    collect_cmd.add_argument("--reports", required=True, type=Path, help="Katalog lub plik raportów XML")
+    collect_cmd.add_argument(
+        "--out",
+        required=True,
+        type=Path,
+        help="Ścieżka do pliku wynikowego flaky.json (np. build/ci-logs/flaky.json)",
+    )
+    collect_cmd.add_argument("--job", default="4. Testy jednostkowe + pokrycie", help="Nazwa joba CI")
+    collect_cmd.add_argument("--commit", default="", help="SHA commita")
+    collect_cmd.add_argument("--run-id", default="", help="ID przebiegu GitHub Actions")
+    collect_cmd.add_argument("--attempt", type=int, default=1, help="Numer próby (attempt)")
+    collect_cmd.add_argument("--summary", action="store_true", help="Wypisz podsumowanie Markdown na stdout")
+
+    summary_cmd = subparsers.add_parser("summary", help="Generuje podsumowanie Markdown ze wskazanego pliku flaky.json")
+    summary_cmd.add_argument("json_file", type=Path, help="Ścieżka do pliku flaky.json")
 
     args = parser.parse_args(argv)
 
@@ -222,6 +414,50 @@ def main(argv: Sequence[str] | None = None) -> int:
         except OSError as exc:
             print(f"BŁĄD zapisu {args.output}: {exc}", file=sys.stderr)
             return 1
+
+    elif args.command == "collect":
+        collected_payload = collect_reports(
+            reports_path=args.reports,
+            job=args.job,
+            commit_sha=args.commit,
+            run_id=args.run_id,
+            attempt=args.attempt,
+        )
+
+        out_json = json.dumps(collected_payload, indent=2, ensure_ascii=False)
+        try:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
+            args.out.write_text(out_json + "\n", encoding="utf-8")
+        except OSError as exc:
+            print(f"BŁĄD zapisu {args.out}: {exc}", file=sys.stderr)
+            return 1
+
+        md_summary = render_step_summary(collected_payload)
+        step_summary_env = os.environ.get("GITHUB_STEP_SUMMARY")
+        if step_summary_env:
+            try:
+                with open(step_summary_env, "a", encoding="utf-8") as f:
+                    f.write(md_summary + "\n")
+            except OSError as exc:
+                print(f"Ostrzeżenie: nie udało się zapisać do GITHUB_STEP_SUMMARY: {exc}", file=sys.stderr)
+
+        if args.summary:
+            print(md_summary)
+        else:
+            print(f"Zebrano {collected_payload['summary']['total']} testów -> {args.out}")
+
+    elif args.command == "summary":
+        if not args.json_file.exists():
+            print(f"BŁĄD: plik {args.json_file} nie istnieje", file=sys.stderr)
+            return 1
+        try:
+            loaded_payload = json.loads(args.json_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"BŁĄD odczytu {args.json_file}: {exc}", file=sys.stderr)
+            return 1
+
+        md_summary = render_step_summary(loaded_payload)
+        print(md_summary)
 
     return 0
 
