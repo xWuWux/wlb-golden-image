@@ -27,7 +27,7 @@ Obraz jest budowany przez **CI** (GitHub Actions) z kodu w tym repozytorium; `Ma
 | Cloud-init | Kiedy | Co robi | Klucz SSH |
 |---|---|---|---|
 | **build-time** (`packer/cloud-init/user-data*.pkrtpl.yaml`) | podczas budowy w CI | tworzy **tymczasowego** użytkownika `packer`, żeby Packer mógł się połączyć i odpalić Ansible | testowy klucz CI — **usuwany** przed zapieczętowaniem obrazu (`userdel -r packer` + `cloud-init clean`) |
-| **deploy-time** (`cloud-init/lab-user-data.example.yaml`) | przy wdrożeniu VM | tworzy konto `wlbadmin`, wstrzykuje **prawdziwy** klucz admina, pisze `lab.env` | klucz operatora platformy (spoza repo) |
+| **deploy-time** (`cloud-init/lab-user-data.example.yaml`) | przy wdrożeniu VM | tworzy konto `wlbadmin`, wstrzykuje **prawdziwy** klucz admina, pisze `/etc/wlb/lab.env` | klucz operatora platformy (spoza repo) |
 
 Obraz jest „czysty": `cloud-init clean --seed` kasuje stan build-time, więc deploy-time cloud-init uruchamia się od nowa na pierwszym boocie docelowej VM.
 
@@ -80,7 +80,7 @@ flowchart TD
 - `3.5` i `4` czytają **raporty bezpieczeństwa** z etapu 3, dlatego idą po nim.
 - `5a` (budowa bazy) wymaga `lint` **i** `unit` — nie budujemy obrazu, dopóki kod nie przejdzie testów.
 - `5` (integracja) buduje flavory **na bazie** z `5a` i uruchamia je jako prawdziwe VM.
-- `6a/6b` są pomijane poza ścieżką pełną (zależnie od `changes.sh` i limitów konta).
+- Etapy 6a/6b są pomijane poza ścieżką pełną (zależnie od `changes.sh` i limitów konta).
 
 ### Tabela zależności i warunków etapów
 
@@ -91,15 +91,15 @@ Odwzorowanie `.github/workflows/ci.yml` (stan main). **Bramkuje** = job jest w `
 | 1. Lint (`lint`) | — | zawsze | tak | wyjścia `image` / `flavors` (sterują etapami 5–6) |
 | 2. Build test (`build-check`) | `lint` | zawsze | tak | — |
 | 3. Security (`security`) | `build-check` | zawsze | tak | SARIF (semgrep, checkov) |
-| 3r. Code scanning (`security-report`) | `security` | `!cancelled()` i `security` ∈ {success, failure} | tak | publikacja SARIF do GitHub Code Scanning |
+| 3r. Code scanning (`security-report`) | `security` | !cancelled() i `security` ∈ {success, failure} | tak | publikacja SARIF do GitHub Code Scanning |
 | 3.5. Kontrakty obrazu (`observability`) | `security` | zawsze | tak | — (kontrakt obserwowalności + Wazuh) |
 | 4. Testy jednostkowe (`unit`) | `observability` | zawsze | tak | `coverage`, `test-reports`, `flaky.json` |
 | 4b. Mutacje (`mutation`) | `unit` | zawsze | tak | `mutation` |
-| 5a. Budowa bazy (`build-base`) | `lint`, `unit` | `needs.lint.outputs.image == 'true'` | tak (gdy biegnie) | `image-<run_id>` (bazowy qcow2) |
+| 5a. Budowa bazy (`build-base`) | `lint`, `unit` | `needs.lint.outputs.image == 'true'` | tak (gdy biegnie) | `image-*` (bazowy qcow2) |
 | 5. Integracja (`integration`) | `lint`, `unit`, `build-base` | `image == 'true'`; macierz `flavor = fromJSON(flavors)` | tak (gdy biegnie) | `acceptance.xml`, `image-sca` |
 | 6a. Benchmarki (`perf`) | `lint`, `integration` | etykieta `perf` / dispatch / nightly | tak (gdy biegnie) | wyniki benchmarków |
 | 6b. Wdrożenie tymczasowe (`ephemeral`) | `lint`, `integration` | etykieta `deploy-test` / dispatch | tak (gdy biegnie) | — (OpenStack) |
-| Gotowe do code review (`ready`) | wszystkie powyższe | zawsze (`!cancelled()`) | — (to **jest** bramka) | karta oceny (`ci/ready.sh`) |
+| Gotowe do code review (`ready`) | wszystkie powyższe | zawsze (!cancelled()) | — (to **jest** bramka) | karta oceny (`ci/ready.sh`) |
 
 **Raportowe (nie-bramkujące) elementy w bramkujących jobach:** część KROKÓW biegnie `continue-on-error` i nie czerwieni joba — m.in. skan SCA zbudowanego obrazu (`image-sca`, etap 5), Lynis oraz lustro akceptacji. To świadome „raport, nie bramka" (#138): wynik jest widoczny w podsumowaniu, ale nie blokuje. Granicę bramkujące ↔ raportowe trzyma `ci/ready.sh` i flagi `WLB_*_GATING`.
 
@@ -107,7 +107,7 @@ Odwzorowanie `.github/workflows/ci.yml` (stan main). **Bramkuje** = job jest w `
 
 ## Diagram 2 — co dzieje się wewnątrz budowy obrazu (Packer)
 
-Budowa to: start VM z seedem build-time → Ansible → sanityzacja → wyłączenie z usunięciem użytkownika `packer`. Baza powstaje pierwsza; flavory dokładają warstwę na gotowej bazie (`disk_image=true`, `base_image=wlb-general.qcow2`).
+Budowa to: start VM z seedem build-time → Ansible → sanityzacja → wyłączenie z usunięciem użytkownika `packer`. Baza powstaje pierwsza; flavory dokładają warstwę na gotowej bazie (build warstwowy: disk_image=true, base_image=wlb-general.qcow2).
 
 ```mermaid
 flowchart TD
@@ -145,7 +145,7 @@ Lista to **kolejność wykonania**, nie dowód, że każda rola zależy od bezpo
 | 11 | `monitoring` | node-exporter / metryki (#22) |
 | 12 | `lab_config` | **`wlb-firstboot`** (sekwencja pierwszego bootu), nftables, limity sesji |
 
-> Flavory (wlb-memory/histologia/radiologia) uruchamiają osobne playbooki (`ansible/{desktop,histologia,radiologia}.yml`) **na gotowej bazie** — dokładają tylko warstwę aplikacji i aktualizują metadane obrazu.
+> Flavory (wlb-memory/histologia/radiologia) uruchamiają osobne playbooki (`ansible/desktop.yml`, `ansible/histologia.yml`, `ansible/radiologia.yml`) **na gotowej bazie** — dokładają tylko warstwę aplikacji i aktualizują metadane obrazu.
 
 ### Sanityzacja (`cleanup.sh`) — co usuwa przed zapieczętowaniem
 
@@ -165,7 +165,7 @@ Lista to **kolejność wykonania**, nie dowód, że każda rola zależy od bezpo
 | 2. Build test | walidatory systemowe (`ci/*validate*`) | poprawność cloud-init / nftables / R / rsyslog przed budową | statyczny |
 | 3. Security | `ci/security.sh` → `check_package_existence.py`, bandit, semgrep, checkov | pakiety istnieją w repo Ubuntu; brak znanych anty-wzorców | statyczny + sieć |
 | 3r. Code scanning | upload SARIF | widoczność w zakładce Security GitHub (#257) | raport |
-| 3.5. Kontrakty | `ci/observability.sh` (`metrics_check`, `deployment_vars`) | metryki i zmienne wdrożeniowe spójne (`lab.env` ↔ firstboot ↔ przykłady) | statyczny |
+| 3.5. Kontrakty | `ci/observability.sh` (`metrics_check`, `deployment_vars`) | metryki i zmienne wdrożeniowe spójne (`/etc/wlb/lab.env` ↔ firstboot ↔ przykłady) | statyczny |
 | 4. Unit | pytest + bats pod **kcov** | jednostki (parsery, firstboot, eksport, …) + **pokrycie** | dynamiczny |
 | 4b. Mutacje | `ci/mutation.sh`, mutmut | testy faktycznie **zabijają** wprowadzone błędy (nie są puste) | dynamiczny |
 | 5a. Baza | `packer build` wlb-general | obraz bazowy **realnie się buduje** (e2e=false via `wlb_enable_e2e_target`) | budowa |
@@ -209,7 +209,7 @@ sequenceDiagram
 ## Wersjonowanie i artefakty
 
 - **Metadane obraz** (`/etc/wlb/image-release`): `WLB_IMAGE_NAME`, `WLB_IMAGE_VERSION`, `WLB_IMAGE_DATE`, commit — zapisywane przez `post_tasks` w `site.yml`.
-- **Artefakty CI**: `image-<run_id>` (qcow2), `build/ci-logs/*` (logi, kontrakty, SARIF), `image-sca` (SBOM + skan CVE), `coverage`, `mutation`.
+- **Artefakty CI**: `image-*` (qcow2), `build/ci-logs/*` (logi, kontrakty, SARIF), `image-sca` (SBOM + skan CVE), `coverage`, `mutation`.
 
 ### Wydanie (tag → pakiet metadanych) — co JEST w repo
 
