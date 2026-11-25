@@ -25,6 +25,26 @@ pierwszym Laboratorium na klastrze).
   dostarczaniu drag-drop jest poza zakresem. Potwierdzenie (#208) pokazuje realny rozmiar i każe badaczowi
   porównać z zamierzonym. Obejście doraźne `*.part` → rename nadal działa. Testy w `wlb-sluza-out-mover.bats`.
 
+- **Pre-Review Inspector w etapie „Gotowe do code review” (`ci/pr_inspector.py`):** dodano automatyczną inspekcję
+  diffu PR pod kątem rozmiaru (kategorie XS–XL), korelacji kodu wykonawczego z testami (regress-first), stref ryzyka
+  architektury (firewall, AppArmor, uprawnienia, pipeline) oraz podejrzanych wzorców powłoki (chmod 777, curl | bash).
+  Karta oceny i pytania pomocnicze dla recenzenta są publikowane w podsumowaniu joba `ready` (`ci/ready.sh`).
+  Inspekcja jest fail-closed: błąd `git diff` kończy CLI kodem 2, a brak `GITHUB_BASE_REF` pomija kartę
+  zamiast pokazywać fałszywe `XS/LOW`. Testy jednostkowe: `tests/unit/test_pr_inspector.py` oraz
+  `tests/unit/ready.bats`.
+
+- **#349: lane detekcji niestabilności (losowa kolejność)** — nowy, NIEBRAMKUJĄCY job `4c. Detekcja
+  niestabilności`: `ci/flaky_detect.py` uruchamia testy jednostkowe wielokrotnie z różnymi ziarnami
+  `pytest-randomly` (osobny `venv-flaky`, poza bramką etapu 4, by nie tasować bramki) i klasyfikuje
+  każdy test jako `stable_pass`, `flaky` (różny wynik między ziarnami → zależność od kolejności,
+  dominująca przyczyna flaky w Pythonie — Gruber ICST 2021) albo `broken` (padł we WSZYSTKICH
+  przebiegach → realna porażka, NIE flaky — nie wolno kwarantannować). Wykonawca zabezpieczony
+  kontraktem `RunResult` (fail-closed exit codes, czyszczenie starych raportów XML, timeout z zabijaniem
+  grupy procesów, obsługa przestrzeni nazw XML, precyzyjne wskazywanie ziarna awarii w podsumowaniu
+  i artefakty XML per-run). Report-only (nie zamienia porażki na sukces — żadnego retry-do-zielonego),
+  opt-in (nocny build / `workflow_dispatch` / etykieta PR `flaky-detect`). Lock z hashami `ci/requirements-flaky.txt`;
+  testy regresyjne w `tests/unit/test_flaky_detect.py` (30 testów).
+
 - **CI: pin `libpkgconf=3.0.11` w `envs/python/environment.lock.yml`** — obraz (conda) zawiera bibliotekę
   `libpkgconf` obok narzędzia `pkgconf`, ale lock pinował tylko `pkgconf`. Bramka `lock_drift` etapu 5
   czerwieniła przez to KAŻDY PR budujący obraz („DRYF: libpkgconf 3.0.11 tylko w obrazie"). Dopięcie

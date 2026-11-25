@@ -456,6 +456,47 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  flaky-detect:
+    name: "4c. Detekcja niestabilności (kolejność)"
+    # Lane NIEBRAMKUJĄCY (#349): POZA needs bramki „ready" + continue-on-error → czerwień nigdy nie
+    # blokuje merge. Opt-in: nocny pełny build (wt.), ręcznie (workflow_dispatch) lub etykieta PR
+    # „flaky-detect". pytest-randomly tasuje kolejność — wykrywa zależność od kolejności (Gruber ICST
+    # 2021: dominująca przyczyna flaky w Pythonie), niewidoczną dla ponawiania w tej samej kolejności.
+    needs: lint
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 2') ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'flaky-detect'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: ubuntu:26.04
+    continue-on-error: true
+    env:
+      CI: "true"
+    steps:
+      - name: Zależności testów
+        # sqlite3: testy DR huba (#306); te same zależności co etap 4, by detekcja biegła w tym środowisku.
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+            ca-certificates curl git jq psmisc python3 python3-venv sqlite3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ci/install-tools.sh flaky
+      - name: "Detekcja niestabilności przez losową kolejność"
+        # venv-flaky ma pytest-randomly; .tools na PATH dla testów wołających bats/narzędzia.
+        run: |
+          export PATH="$PWD/.tools/bin:$PWD/.tools/bats/bin:$PATH"
+          .tools/venv-flaky/bin/python ci/flaky_detect.py --target tests/unit --runs 5
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: flaky-detect-${{ github.run_attempt }}
+          path: |
+            build/ci-logs/flaky-detect.json
+            build/test-reports/flaky-detect/
+          if-no-files-found: ignore
+          retention-days: 90
+
   build-base:
     name: "5a. Budowa bazy"
     needs: [lint, unit]
@@ -689,9 +730,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - run: ci/ready.sh
         env:
           NEEDS: ${{ toJSON(needs) }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
       # kategoria każdego nieudanego joba i ścieżka z docs/ci-runbook.md (ponowienie: ci-retry.yml)
       - name: Diagnoza niepowodzenia
         if: failure()
