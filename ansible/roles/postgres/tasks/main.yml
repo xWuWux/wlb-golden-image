@@ -4,6 +4,14 @@
 
 # KLUCZOWE: zapobiega utworzeniu domyślnego klastra w /var/lib/postgresql przy instalacji pakietu.
 # Klaster powstaje dopiero w wlb-postgres-setup, na trwałym /workspace. Musi być PRZED apt install.
+- name: Katalog konfiguracji postgresql-common przed instalacją pakietów (#271)
+  ansible.builtin.file:
+    path: /etc/postgresql-common
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Wyłącz automatyczny klaster postgresql-common (klaster na /workspace, nie /var/lib) (#271)
   ansible.builtin.copy:
     dest: /etc/postgresql-common/createcluster.conf
