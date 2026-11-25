@@ -34,8 +34,8 @@ setup() {
   printf '16\n' >"$PGDATA/PG_VERSION"
   run bash "$SCRIPT"
   [ "$status" -eq 0 ]
-  refute called 'pg_createcluster'
-  [[ "$output" == *"pominięto tworzenie"* ]]
+  refute called 'pg_createcluster'                  # dane istnieją + CONFDIR obecny -> bez initdb/adopcji
+  [[ "$output" == *"konfiguracja WLB nałożona"* ]]
 }
 
 @test "setup: istniejący klaster — nakłada konfigurację gdy CONFDIR istnieje (#271)" {
@@ -46,6 +46,18 @@ setup() {
   # install wywołany na plikach konfiguracji WLB (conf.d / pg_hba / pg_ident)
   calls | grep -q "install.*50-wlb.conf"
   calls | grep -q "install.*pg_hba.conf"
+}
+
+@test "setup: istniejący klaster bez CONFDIR (świeży dysk) rejestruje datadir i nakłada konfigurację (#369 P1)" {
+  # Dane są (PG_VERSION), ale katalog konfiguracji zniknął po wymianie dysku systemowego. Wcześniej
+  # skrypt kończył się „sukcesem" bez konfiguracji WLB. Teraz adoptuje datadir (bez initdb) i konfiguruje.
+  rm -rf "$CONFDIR"
+  mkdir -p "$PGDATA"
+  printf '16\n' >"$PGDATA/PG_VERSION"
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  calls | grep -qE "pg_createcluster 16 main --datadir=$PGDATA" # adopcja istniejącego datadir (NIE initdb)
+  calls | grep -q "install.*50-wlb.conf"                        # konfiguracja WLB nałożona, nie cichy sukces
 }
 
 @test "setup: katalog roboczy niezamontowany -> die, bez pg_createcluster (#271)" {

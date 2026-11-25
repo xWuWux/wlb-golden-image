@@ -97,20 +97,24 @@ GRANT ALL ON SCHEMA public TO "$role";
 SQL
 
   # ~/.pgpass dla DBeavera/psql-TCP (peer działa tylko po sokecie; JDBC idzie po TCP -> wymaga hasła).
-  if [[ -d "$home" ]]; then
+  if [[ -d "$home" && ! -L "$home" ]]; then
     pgpass="$home/.pgpass"
-    # Zapis atomowy: .tmp (umask 077) -> chown/chmod -> mv. Awaria w połowie nie zostawia częściowego
-    # .pgpass; hasło PG ustawiono WCZEŚNIEJ (ALTER ROLE), więc kolejny boot reconciliuje spójnie (#369).
+    # Plik tymczasowy w SECRET_DIR (katalog roota), NIE w katalogu badacza (#369 P1): badacz mógłby
+    # podstawić .pgpass.tmp -> /etc/shadow, a `printf >` podążyłoby za symlinkiem i root nadpisałby cel.
+    # W katalogu roota symlink-atak nie grozi; mktemp otwiera z O_EXCL. Następnie mv ZASTĘPUJE nazwę
+    # $home/.pgpass (nie pisze przez ewentualny symlink .pgpass) — atomowo i bez podążania za dowiązaniem.
+    local pgtmp
+    pgtmp=$(mktemp "$SECRET_DIR/.wlb-pgpass.${role}.XXXXXX") || die "nie udało się utworzyć pliku tymczasowego .pgpass dla $role"
     (
       umask 077
-      printf '127.0.0.1:5432:%s:%s:%s\n' "$db" "$role" "$pw" >"$pgpass.tmp"
+      printf '127.0.0.1:5432:%s:%s:%s\n' "$db" "$role" "$pw" >"$pgtmp"
     )
-    chown "$osuser:$osuser" "$pgpass.tmp"
-    chmod 0600 "$pgpass.tmp"
-    mv -f "$pgpass.tmp" "$pgpass"
+    chown "$osuser:$osuser" "$pgtmp"
+    chmod 0600 "$pgtmp"
+    mv -f "$pgtmp" "$pgpass"
     log "konto $osuser: rola $role, baza $db, .pgpass w $pgpass"
   else
-    log "konto $osuser: rola $role, baza $db (brak $home — .pgpass pominięty)"
+    log "konto $osuser: rola $role, baza $db (brak katalogu $home lub jest dowiązaniem — .pgpass pominięty)"
   fi
 }
 
