@@ -79,6 +79,34 @@ nie w kodzie obrazu. Stage 4b jest **bramkujący**: wynik Pythona poniżej `PYTH
    i test bats, który MUSI ją zabić. Nowy wiersz dodawaj razem z testem; `ci/mutation-bash.sh --check`
    pilnuje, że fragment do mutacji nadal występuje w pliku dokładnie raz (tabela nie może się rozjechać).
 
+## flaky-detect
+
+**Job `4c. Detekcja niestabilności` zgłosił testy flaky lub broken (stage 4c).** Ten lane jest
+**NIEBRAMKUJĄCY** (`continue-on-error`, poza `needs` bramki „Gotowe do code review”) — jego czerwień
+nigdy nie blokuje merge. Służy tylko do wykrywania niestabilności, a nie do zazielenienia bramki:
+celowo nie zamienia porażki na sukces (żadnego retry-do-zielonego).
+
+Jak działa: `ci/flaky_detect.py` uruchamia `tests/unit` kilka razy z różnymi ziarnami `pytest-randomly`
+(losowa kolejność testów) i klasyfikuje każdy test:
+
+- `flaky` — różny wynik między ziarnami. Prawie zawsze **zależność od kolejności / stan dzielony**
+  (dominująca przyczyna flaky w Pythonie: Gruber i in., ICST 2021). Napraw przyczynę, nie objaw:
+  izoluj stan (fixture per-test, rollback), zamień `sleep` na warunek gotowości, nie polegaj na
+  kolejności kolekcji. Odtworzenie podane w podsumowaniu: `PYTEST_RANDOMLY_SEED=<seed> pytest -p randomly tests/unit`.
+- `broken` — test padł we **WSZYSTKICH** przebiegach. To **NIE** jest flaky, tylko realna porażka
+  (albo test, albo kod). **Nie wolno go kwarantannować ani ukrywać** — napraw jak zwykły FAIL.
+
+Opt-in: nocny pełny build (wt., cron `0 3 * * 2`), ręcznie (`workflow_dispatch`) lub etykieta PR
+`flaky-detect`. Artefakty: `flaky-detect.json` oraz per-run raporty JUnit XML `flaky-detect-seed*.xml`.
+Lokalnie: `.tools/venv-flaky/bin/python ci/flaky_detect.py --target tests/unit --runs 5` (dodaj
+`--gate` dla niezerowego kodu wyjścia przy flaky (kod 2) / broken (kod 1) — tylko lokalnie, nigdy w CI).
+Parametry bezpieczeństwa wykonawcy (`RunResult`): `--timeout` (domyślnie 600s, zabija grupę procesów `SIGKILL`),
+`--min-tests` (domyślnie 1, chroni przed fałszywym GREEN przy błędach kolekcji/pustym raporcie) oraz czyszczenie starych raportów XML.
+
+Uwaga bezpieczeństwa: test z bramki bezpieczeństwa/izolacji, który „zzieleniał po innym ziarnie”,
+mógł przejść **dlatego, że inny test zostawił stan** — to sygnał złamanej izolacji, nie kosmetyka.
+Takich testów nie kwarantannujemy (patrz #349, kategorie `tier:security|compliance|isolation`).
+
 ## oom
 
 **Brak pamięci.** Strażnik zabił proces po przekroczeniu limitu (adnotacja `OOM: <etap>`).
