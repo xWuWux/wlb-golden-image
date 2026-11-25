@@ -8,9 +8,10 @@ load helpers
   [ "$(median 30 10 20)" -eq 20 ]
 }
 
-@test "median: parzysta liczba próbek — dolna środkowa (#10)" {
+@test "median: parzysta liczba próbek — średnia dwóch środkowych (#10)" {
   source "$REPO_ROOT/tests/lib/remote-common.sh"
-  [ "$(median 40 10 30 20)" -eq 20 ]
+  [ "$(median 40 10 30 20)" = "25.000" ]
+  [ "$(median 15 10)" = "12.500" ]
 }
 
 @test "median: jedna próbka (#10)" {
