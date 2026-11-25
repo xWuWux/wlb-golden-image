@@ -264,6 +264,39 @@ repo_with_base() {
   has_line "histologia=false"
 }
 
+@test "perf: zmiana aparatury pomiarowej wyzwala 6a bez etykiety — bramka #10/#381" {
+  for file in ci/perf.sh ci/perf-budget.env ci/perf_summary.py tests/perf-remote.sh \
+    tests/lib/local-common.sh tests/lib/remote-common.sh tests/unit/test_perf_integrity.py \
+    tests/unit/test_perf_summary.py; do
+    repo_with_base "$file"
+    for event in pull_request merge_group; do
+      run env EVENT="$event" LABELS='[]' bash "$CHANGES"
+      [ "$status" -eq 0 ]
+      has_line "image=true" # 6a mierzy obraz z etapu 5a — baza musi się zbudować
+      has_line "perf=true"
+    done
+  done
+}
+
+@test "perf: zmiana spoza aparatury (dokumentacja) NIE wyzwala 6a (#10/#86)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "perf=false"
+  has_line "image=false"
+}
+
+@test "perf: zmiana zawartości obrazu (rola base) buduje obraz, ale NIE wyzwala 6a na PR (#10/#86)" {
+  # Świadome zawężenie: perf_change dotyczy tylko aparatury pomiarowej, nie treści obrazu. Zmiana roli base
+  # wymusza image=true (integracja #63), ale 6a na PR zostaje opt-in (etykieta perf) — build nocny i tak
+  # mierzy wydajność całego obrazu; szersza bramka na PR przepalałaby minuty (#86).
+  repo_with_base ansible/roles/base/tasks/main.yml
+  run env EVENT=pull_request LABELS='[]' bash "$CHANGES"
+  [ "$status" -eq 0 ]
+  has_line "image=true" # treść obrazu → integracja
+  has_line "perf=false" # ale nie benchmark
+}
+
 @test "PR i merge_group: sieć i harness wymagają KVM bez etykiety (#63, #16)" {
   for file in ansible/roles/base/tasks/main.yml ansible/roles/lab_config/files/wlb-firstboot \
     ansible/roles/tljh/templates/config.j2 cloud-init/lab.env.example tests/proxy_sink.py \
