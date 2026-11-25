@@ -16,15 +16,22 @@ REJECTED=${WLB_SLUZA_REJECTED:-/sluza-odrzucone}     # katalog zwrotny widoczny 
 RECEIPTS=${WLB_SLUZA_RECEIPTS:-/sluza-potwierdzenia} # potwierdzenia przyjęcia do kolejki, widoczne dla badacza (#208)
 SNAPSHOT="$(dirname -- "$(readlink -f -- "$0")")/wlb-export-snapshot"
 DIR_SETTLE_SECONDS=${WLB_DIR_SETTLE_SECONDS:-120} # katalog uznajemy za kompletny po 2 min bez zmian
-# Pojedynczy plik przyjmujemy, gdy od OSTATNIEGO zapisu minęło >= FILE_SETTLE_SECONDS (wiek mtime). To
-# HEURYSTYKA ograniczająca typowy wyścig (kopia menedżerem plików na bieżąco bumpuje mtime, więc w trakcie
-# kopiowania plik jest „świeży" i czeka) — NIE dowód kompletności: długa pauza > próg + wznowienie albo
-# kopia zachowująca stary mtime mogą ją oszukać. Twarda gwarancja wymagałaby sygnału od nadawcy
-# (temp+rename albo manifest) — świadomie poza zakresem przy dostarczaniu drag-drop (#20). 0 wyłącza okno.
+# Pojedynczy plik przyjmujemy po DWUETAPOWYM badaniu niezmienności rozmiaru+mtime (Apache Camel
+# readLock=changed, #20/#379): (1) od OSTATNIEGO zapisu minęło >= FILE_SETTLE_SECONDS (wiek mtime), ORAZ
+# (2) rozmiar i mtime są identyczne w dwóch próbkach odległych o STABILITY_SAMPLE_SECONDS. Sam wiek mtime
+# NIE wystarcza: kopia zachowująca atrybuty (cp -p, rsync -a, tar -x, drag-drop z zewnętrznego archiwum)
+# tworzy w /sluza-out wpis, który OD PIERWSZEJ sekundy ma mtime z przeszłości — przeszedłby mimo trwającego
+# zapisu; próbka rozmiaru łapie wtedy rosnący plik niezależnie od mtime. To nadal HEURYSTYKA, nie dowód
+# kompletności: przestój zapisu (I/O throttling) dłuższy niż próg I okno próbki może ją oszukać. Twarda
+# gwarancja wymagałaby sygnału od nadawcy (temp+rename albo manifest) — świadomie poza zakresem przy
+# dostarczaniu drag-drop (#20). FILE_SETTLE_SECONDS=0 wyłącza całe okno (bez wieku mtime i bez próbki).
 FILE_SETTLE_SECONDS=${WLB_FILE_SETTLE_SECONDS:-20}
+# Odstęp drugiej próbki rozmiaru+mtime (readLock=changed). 0 = bez drugiej próbki (tylko wiek mtime,
+# słabsze — nie łapie kopii cp -p/rsync -a z zachowanym mtime). Działa tylko gdy FILE_SETTLE_SECONDS>0.
+STABILITY_SAMPLE_SECONDS=${WLB_STABILITY_SAMPLE_SECONDS:-1}
 
 # Walidacja progów (#20): pusty/nienumeryczny/ujemny próg po cichu wyłączyłby albo wywrócił zabezpieczenie.
-for _settle_var in DIR_SETTLE_SECONDS FILE_SETTLE_SECONDS; do
+for _settle_var in DIR_SETTLE_SECONDS FILE_SETTLE_SECONDS STABILITY_SAMPLE_SECONDS; do
   if [[ ! ${!_settle_var} =~ ^[0-9]+$ ]]; then
     echo "wlb-sluza-out-mover: $_settle_var='${!_settle_var}' musi być nieujemną liczbą całkowitą" >&2
     exit 2
@@ -171,7 +178,7 @@ queue_entry() {
 }
 
 sweep() {
-  local entry newest mtime
+  local entry newest s1 m1 s2 m2 now
   # Nie ponawiaj przyjęć po przerwanym przejęciu/kopii. Źródło może nadal być
   # w /sluza-out (EXDEV/ENOSPC); ponawianie tworzyłoby kolejne częściowe kopie.
   for entry in "$QUEUE"/.incoming.*; do
@@ -185,12 +192,23 @@ sweep() {
     if [[ -f $entry && ! -L $entry ]]; then
       # plik wciąż otwarty przez proces badacza — poczekaj na zamknięcie
       fuser -s -- "$entry" 2>/dev/null && continue
-      # Stabilność (#20): kopiowanie menedżerem plików (Thunar/GIO) ma okna, w których duży plik NIE
-      # jest otwarty — fuser trafia wtedy w środek zapisu i zabiera UCIĘTE archiwum. Jak dla katalogów:
-      # przyjmujemy plik dopiero, gdy mtime przestaje się zmieniać (brak zapisu od FILE_SETTLE_SECONDS).
+      # Stabilność (#20/#379): kopiowanie menedżerem plików (Thunar/GIO) ma okna, w których duży plik NIE
+      # jest otwarty — fuser trafia wtedy w środek zapisu i zabiera UCIĘTE archiwum. Dwuetapowo, jak
+      # readLock=changed w Apache Camel: (1) wiek mtime >= FILE_SETTLE_SECONDS odfiltrowuje bieżącą kopię
+      # menedżerem (ta bumpuje mtime); (2) próbka rozmiaru+mtime po STABILITY_SAMPLE_SECONDS łapie plik,
+      # który wciąż rośnie, NAWET gdy ma mtime z przeszłości (cp -p, rsync -a, tar -x) — sam wiek mtime
+      # by go przepuścił. Zmiana rozmiaru LUB mtime między próbkami = wciąż zapis -> czekamy na kolejny cykl.
       if ((FILE_SETTLE_SECONDS > 0)); then
-        mtime=$(stat -c %Y -- "$entry" 2>/dev/null) || continue
-        (($(date +%s) - mtime >= FILE_SETTLE_SECONDS)) || continue
+        s1=$(stat -c %s -- "$entry" 2>/dev/null) || continue
+        m1=$(stat -c %Y -- "$entry" 2>/dev/null) || continue
+        now=$(date +%s)
+        ((now >= m1 && now - m1 >= FILE_SETTLE_SECONDS)) || continue
+        if ((STABILITY_SAMPLE_SECONDS > 0)); then
+          sleep "$STABILITY_SAMPLE_SECONDS"
+          s2=$(stat -c %s -- "$entry" 2>/dev/null) || continue
+          m2=$(stat -c %Y -- "$entry" 2>/dev/null) || continue
+          [[ $s1 == "$s2" && $m1 == "$m2" ]] || continue
+        fi
       fi
       queue_entry "$entry" || return 0
     elif [[ -d $entry && ! -L $entry ]]; then
