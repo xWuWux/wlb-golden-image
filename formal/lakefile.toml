@@ -1,0 +1,16 @@
+name = "wlb_logic"
+version = "0.1.0"
+defaultTargets = ["ExportDecision", "Release", "compare-release"]
+
+[leanOptions]
+warningAsError = true
+
+[[lean_lib]]
+name = "Release"
+
+[[lean_exe]]
+name = "compare-release"
+root = "Bridge"
+
+[[lean_lib]]
+name = "ExportDecision"

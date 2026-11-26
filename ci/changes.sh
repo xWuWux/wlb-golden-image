@@ -186,6 +186,17 @@ ephemeral=false
 # etap 6 potrzebuje obrazu z etapu 5
 [[ $image == true ]] || perf=false ephemeral=false
 
+# 4c checks release and export decision contracts. A failed diff requires the proof.
+formal=true
+if [[ -n $BASE && $EVENT != schedule && $EVENT != workflow_dispatch ]] &&
+  git diff --quiet "$BASE" HEAD -- formal release packer Makefile ci/verify_platform_images.py \
+    ci/changes.sh ci/ready.sh .github/workflows/ci.yml tests/unit/platform_image_cases.py \
+    ansible/roles/storage/files/wlb-export ansible/roles/storage/files/wlb-export-snapshot ansible/roles/storage/files/wlb-sluza-out-mover \
+    'tests/unit/test_verify_platform_images*.py'; then
+  formal=false
+fi
+
+echo "formal=$formal"
 echo "image=$image"
 echo "radiologia=$radiologia"
 echo "memory=$memory"
