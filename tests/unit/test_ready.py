@@ -28,6 +28,15 @@ class RequiredCheckTests(unittest.TestCase):
         )
         self._run_cases(cases)
 
+    def test_formal_proof_outcomes_352(self) -> None:
+        # A required proof cannot disappear behind a green summary (#352).
+        for status in ("failure", "skipped", "cancelled", None):
+            with self.subTest(status=status):
+                self.assertEqual(self._run({"formal-logic": status}).returncode, 1)
+        self.assertEqual(self._run({"formal-logic": "skipped"}, formal="false").returncode, 0)
+        self.assertEqual(self._run({"formal-logic": "failure"}, formal="false").returncode, 1)
+        self.assertEqual(self._run({"formal-logic": "skipped"}, formal=None).returncode, 1)
+
     # --- publikacja Code scanning wymagana, gdy etap 3 wykonał skan (#257) ---
     def test_code_scanning_publication_outcomes_257(self) -> None:
         cases = (
@@ -44,12 +53,25 @@ class RequiredCheckTests(unittest.TestCase):
         self.assertIn("3r. Publikacja Code scanning | ⏭️ skipped |", out.stdout)
         self.assertNotIn("3r. Publikacja Code scanning | ⏭️ skipped — **blokuje**", out.stdout)
 
-    def _run(self, overrides: dict[str, str | None], image: bool = False) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, overrides: dict[str, str | None], image: bool = False, formal: str | None = "true"
+    ) -> subprocess.CompletedProcess[str]:
         needs = {
             key: {"result": "success"}
-            for key in ("lint", "build-check", "security", "security-report", "observability", "unit", "mutation")
+            for key in (
+                "lint",
+                "build-check",
+                "security",
+                "security-report",
+                "observability",
+                "unit",
+                "mutation",
+                "formal-logic",
+            )
         }
         needs["lint"]["outputs"] = {"image": str(image).lower()}
+        if formal is not None:
+            needs["lint"]["outputs"]["formal"] = formal
         needs.update({key: {"result": "skipped"} for key in ("integration", "perf", "ephemeral")})
         for job, result in overrides.items():
             if result is None:
