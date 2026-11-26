@@ -117,6 +117,11 @@ for _ in $(seq 1 30); do
 done
 expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
 expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
+for _ in $(seq 1 10); do
+  # shellcheck disable=SC2010
+  if ls "$QUEUE" | grep -q "_jupyter-${R1}_wynik-test.csv$"; then break; fi
+  sleep 1
+done
 expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-${R1}_wynik-test.csv\$'"
 # shellcheck disable=SC2016  # argumenty rozwija wewnętrzny bash
 expect_ok "Manifest i integralność kopii w kolejce (#20)" \
