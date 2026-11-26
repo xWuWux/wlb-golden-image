@@ -5,7 +5,7 @@ structure Variant where
   name : String
   parent : Option String
 
-/-- A decoded and uniquely keyed schema-1 record. -/
+/-- A decoded schema-1 record; accepts checks uniqueness of the record names. -/
 structure Image where
   name : String
   version : String
@@ -24,7 +24,8 @@ def matchesEntry (target : String) (observe : Observe) (v : Variant) (i : Image)
 
 /-- Both directions matter: a missing or an extra variant invalidates a candidate. -/
 def accepts (target : String) (observe : Observe) (catalog : List Variant) (images : List Image) : Bool :=
-  catalog.all (fun v => images.any (matchesEntry target observe v)) &&
+  decide (catalog.map Variant.name).Nodup && decide (images.map Image.name).Nodup &&
+    catalog.all (fun v => images.any (matchesEntry target observe v)) &&
     images.all (fun i => catalog.any (fun v => matchesEntry target observe v i))
 
 /-- Declarative obligations, independent of the Boolean search through the lists. -/
@@ -44,28 +45,29 @@ theorem matches_iff (t : String) (o : Observe) (v : Variant) (i : Image) :
 /-- Soundness and completeness for every finite catalog, candidate, target and observation. -/
 theorem accepts_iff (t : String) (o : Observe) (cs : List Variant) (imgs : List Image) :
     accepts t o cs imgs = true ↔
+      (cs.map Variant.name).Nodup ∧ (imgs.map Image.name).Nodup ∧
       (∀ v ∈ cs, ∃ i ∈ imgs, ValidEntry t o v i) ∧
       (∀ i ∈ imgs, ∃ v ∈ cs, ValidEntry t o v i) := by
-  simp [accepts, List.all_eq_true, List.any_eq_true, matches_iff]
+  simp [accepts, List.all_eq_true, List.any_eq_true, matches_iff, and_assoc]
 
 theorem required_present {t o cs imgs} (ok : accepts t o cs imgs = true) {v} (hv : v ∈ cs) :
     ∃ i ∈ imgs, i.name = v.name ∧ i.version = t ∧ o v.name = some i.digest := by
-  obtain ⟨i, hi, h⟩ := ((accepts_iff ..).mp ok).1 v hv
+  obtain ⟨i, hi, h⟩ := ((accepts_iff ..).mp ok).2.2.1 v hv
   exact ⟨i, hi, h.1, h.2.1, h.2.2.1⟩
 
 theorem no_extra {t o cs imgs} (ok : accepts t o cs imgs = true) {i} (hi : i ∈ imgs) :
     ∃ v ∈ cs, i.name = v.name := by
-  obtain ⟨v, hv, h⟩ := ((accepts_iff ..).mp ok).2 i hi
+  obtain ⟨v, hv, h⟩ := ((accepts_iff ..).mp ok).2.2.2 i hi
   exact ⟨v, hv, h.1⟩
 
 theorem parent_identity {t o cs imgs} (ok : accepts t o cs imgs = true) {v p}
     (hv : v ∈ cs) (hp : v.parent = some p) :
     ∃ i ∈ imgs, i.name = v.name ∧ ∃ d, o p = some d ∧ i.baseDigest = some d := by
-  obtain ⟨i, hi, h⟩ := ((accepts_iff ..).mp ok).1 v hv
+  obtain ⟨i, hi, h⟩ := ((accepts_iff ..).mp ok).2.2.1 v hv
   exact ⟨i, hi, h.1, by simpa [hp] using h.2.2.2⟩
 
 theorem reorder {t o cs cs' imgs imgs'} (hc : List.Perm cs cs') (hi : List.Perm imgs imgs') :
     accepts t o cs imgs = true ↔ accepts t o cs' imgs' = true := by
-  simp only [accepts_iff, hc.mem_iff, hi.mem_iff]
+  simp only [accepts_iff, hc.mem_iff, hi.mem_iff, (hc.map Variant.name).nodup_iff, (hi.map Image.name).nodup_iff]
 
 end Release

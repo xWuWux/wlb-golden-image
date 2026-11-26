@@ -287,7 +287,8 @@ repo_with_base() {
 }
 
 @test "dowody wydania: zmiana konsumenta, katalogu lub dowodu wymaga 4d (#352)" {
-  for path in formal/Release.lean ansible/roles/storage/files/wlb-export release/image-catalog.json ci/verify_platform_images.py tests/unit/platform_image_cases.py; do
+  for path in formal/Release.lean ansible/roles/storage/tasks/main.yml release/image-catalog.json \
+    ci/verify_platform_images.py ci/release.sh .github/workflows/release.yml tests/unit/platform_image_cases.py tests/unit/test_formal_adapter.py; do
     repo_with_base "$path"
     run env EVENT=merge_group bash "$CHANGES"
     [ "$status" -eq 0 ]

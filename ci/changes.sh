@@ -190,8 +190,8 @@ ephemeral=false
 formal=true
 if [[ -n $BASE && $EVENT != schedule && $EVENT != workflow_dispatch ]] &&
   git diff --quiet "$BASE" HEAD -- formal release packer Makefile ci/verify_platform_images.py \
-    ci/changes.sh ci/ready.sh .github/workflows/ci.yml tests/unit/platform_image_cases.py \
-    ansible/roles/storage/files/wlb-export ansible/roles/storage/files/wlb-export-snapshot ansible/roles/storage/files/wlb-sluza-out-mover \
+    ci/changes.sh ci/ready.sh ci/release.sh .github/workflows/{ci,release}.yml ansible/roles/storage \
+    tests/unit/platform_image_cases.py tests/unit/test_formal_adapter.py \
     'tests/unit/test_verify_platform_images*.py'; then
   formal=false
 fi

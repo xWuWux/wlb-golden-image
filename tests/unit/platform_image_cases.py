@@ -7,6 +7,7 @@ from pathlib import Path
 from ci.verify_platform_images import CATALOG
 
 FAULTS = {
+    "duplicate-variant": "duplicate JSON key",
     "root-base": "unexpected base digest",
     "absent-file": "expected a nonempty regular image file",
     "missing": "image set differs from the release catalog",
@@ -50,8 +51,13 @@ def stage_candidate(tmp_path: Path, fault: str) -> Path:
         derived.unlink()
     elif fault == "reordered":
         records = dict(reversed(records.items()))
-    elif fault != "none":
+    elif fault not in ("none", "duplicate-variant"):
         raise ValueError(f"unknown test case: {fault}")
     manifest = tmp_path / "candidate.json"
-    manifest.write_text(json.dumps({"schema": 1, "version": "1.2.0", "images": records}))
+    if fault == "duplicate-variant":
+        entries = [*records.items(), (child, records[child])]
+        pairs = ", ".join(f"{json.dumps(key)}: {json.dumps(value)}" for key, value in entries)
+        manifest.write_text('{"schema": 1, "version": "1.2.0", "images": {' + pairs + "}}")
+    else:
+        manifest.write_text(json.dumps({"schema": 1, "version": "1.2.0", "images": records}))
     return manifest
