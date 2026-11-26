@@ -217,6 +217,10 @@ def run_mover(tmp_path, name="result", content=b"reviewed", *, fail=False):
         "WLB_EXPORT_QUEUE": str(queue),
         "WLB_IMAGE_CONF": str(tmp_path / "missing"),
         "WLB_DIR_SETTLE_SECONDS": "0",
+        # Mover ma domyślnie FILE_SETTLE_SECONDS=20 i drugą próbkę; te testy
+        # sprawdzają kolejkę/awarie, nie okno stabilności — jawnie je wyłączamy.
+        "WLB_FILE_SETTLE_SECONDS": "0",
+        "WLB_STABILITY_SAMPLE_SECONDS": "0",
         "TEST_LOG": str(tmp_path / "log"),
     }
     return source, queue, env
