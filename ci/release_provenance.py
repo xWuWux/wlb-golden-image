@@ -7,11 +7,21 @@ na przypadkowym qcow2 z `output/`.
 
 Waliduje:
   - metadane `image-release` (nazwa, wersja, data, commit, dirty=0) i ich zgodność
-    z katalogiem artefaktów oraz tagiem/HEAD przekazanym przez release.sh;
+    z katalogiem artefaktów oraz tagiem/HEAD przekazanym przez release.sh; wartości
+    mogą być w cudzysłowach pojedynczych albo podwójnych (format dotenv);
+  - obraz leży dokładnie w `<repo-root>/output/<pełna-nazwa>/<pełna-nazwa>.qcow2`
+    (bez heurystyki nazwy katalogu dziadka i bez podążania za symlinkiem obrazu);
   - manifest leży w katalogu obrazu (bez `find ... | head -1`);
   - `custom_data` manifestu (wersja, data, commit, dirty, build_run);
   - `files[]` manifestu: dokładnie jeden qcow2 o nazwie i rozmiarze obrazu;
-  - `.qcow2.sha256`: 64 hex, wskazuje ten sam plik i zgadza się z rzeczywistą sumą.
+  - `.qcow2.sha256`: wpis dla tego pliku w formacie GNU `sha256sum` (64 hex,
+    opcjonalny znacznik `*`), także w pliku zbiorczym z komentarzami i innymi
+    plikami; duplikat wpisu dla tego obrazu to błąd (niejednoznaczność).
+
+To bramka **spójności** wewnątrz potoku CI, nie podpis kryptograficzny: `image-release`,
+manifest Packera i suma leżą w tym samym katalogu roboczym runnera. Kompromitacja runnera
+może podmienić wszystkie trzy. Proweniencja authenticity (SLSA/in-toto, cosign/KMS) należy
+do prac wydawniczych #12b/#224 — patrz `docs/wersjonowanie-wydan.md`.
 
 Kod 0 = obraz związany z manifestem i sumą; 2 = nie można tego wykazać (fail-closed).
 """
@@ -43,6 +53,13 @@ class ProvenanceError(ValueError):
     """Obraz nie jest jednoznacznie powiązany z manifestem i sumą wydania."""
 
 
+def _unquote(value: str) -> str:
+    """Usuwa parę otaczających cudzysłowów, tak jak POSIX/dotenv (bez interpretacji escape'ów)."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
 def read_metadata(path: Path) -> dict[str, str]:
     """Czyta `image-release` jako KEY=VALUE; duplikat klucza to błąd (niejednoznaczność)."""
     try:
@@ -63,7 +80,7 @@ def read_metadata(path: Path) -> dict[str, str]:
             raise ProvenanceError(f"{path}:{number}: nieprawidłowa nazwa klucza: {key!r}")
         if key in values:
             raise ProvenanceError(f"{path}:{number}: duplikat klucza {key}")
-        values[key] = raw.strip()
+        values[key] = _unquote(raw.strip())
 
     missing = [key for key in REQUIRED_KEYS if not values.get(key)]
     if missing:
@@ -72,14 +89,13 @@ def read_metadata(path: Path) -> dict[str, str]:
 
 
 def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
+    # file_digest czyta plik w pętli C (bez wywołania Pythona na każdy blok); dla obrazu
+    # 15–30 GB to istotnie mniej narzutu niż `for chunk in iter(...)`.
     try:
         with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
+            return hashlib.file_digest(handle, "sha256").hexdigest()
     except OSError as exc:
         raise ProvenanceError(f"nie można policzyć sumy {path}: {exc}") from exc
-    return digest.hexdigest()
 
 
 def read_manifest(path: Path) -> dict:
@@ -139,20 +155,49 @@ def validate_build(manifest: dict, image: Path, metadata: dict[str, str], versio
     return build
 
 
-def validate_checksum(checksum: Path, image: Path) -> str:
+def parse_checksum_entries(checksum: Path) -> list[tuple[str, str]]:
+    """Czyta plik sum w formacie GNU `sha256sum`: `<64 hex> [ *]<plik>`, linia po linii.
+
+    Dopuszcza puste linie i komentarze (`#`). Każdy inny wiersz musi mieć poprawną sumę
+    i nazwę pliku — uszkodzony wiersz zatrzymuje wydanie zamiast być po cichu pominięty.
+    """
     try:
-        fields = checksum.read_text(encoding="utf-8").split()
+        lines = checksum.read_text(encoding="utf-8").splitlines()
     except OSError as exc:
         raise ProvenanceError(f"nie można odczytać sumy {checksum}: {exc}") from exc
-    if len(fields) != 2:
-        raise ProvenanceError(f"{checksum}: oczekiwano '<sha256>  <plik>', jest {fields!r}")
-    digest, filename = fields
-    if filename.startswith("*"):
-        filename = filename[1:]
-    if not SHA256_RE.fullmatch(digest):
-        raise ProvenanceError(f"{checksum}: suma nie jest 64 małymi cyframi hex")
-    if Path(filename).name != image.name:
-        raise ProvenanceError(f"{checksum}: suma dotyczy {filename!r}, a nie {image.name!r}")
+
+    entries: list[tuple[str, str]] = []
+    for number, line in enumerate(lines, 1):
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        fields = text.split(None, 1)
+        if len(fields) != 2:
+            raise ProvenanceError(f"{checksum}:{number}: oczekiwano '<sha256>  <plik>', jest {text!r}")
+        digest, filename = fields
+        if filename.startswith("\\"):
+            # GNU coreutils poprzedza backslashem nazwy wymagające escapowania.
+            filename = filename[1:]
+        filename = filename.lstrip("*")
+        if not SHA256_RE.fullmatch(digest):
+            raise ProvenanceError(f"{checksum}:{number}: suma nie jest 64 małymi cyframi hex")
+        if not filename:
+            raise ProvenanceError(f"{checksum}:{number}: brak nazwy pliku")
+        entries.append((digest, filename))
+    if not entries:
+        raise ProvenanceError(f"{checksum}: brak wpisów sumy")
+    return entries
+
+
+def validate_checksum(checksum: Path, image: Path) -> str:
+    entries = parse_checksum_entries(checksum)
+    matching = [(digest, filename) for digest, filename in entries if Path(filename).name == image.name]
+    if not matching:
+        names = ", ".join(repr(filename) for _, filename in entries)
+        raise ProvenanceError(f"{checksum}: brak wpisu dla {image.name!r} (są: {names})")
+    if len(matching) > 1:
+        raise ProvenanceError(f"{checksum}: wiele wpisów dla {image.name!r} — niejednoznaczna suma")
+    digest, _filename = matching[0]
     actual = sha256_file(image)
     if actual != digest:
         raise ProvenanceError(f"{checksum}: suma {digest} nie zgadza się z obrazem {image} ({actual})")
@@ -164,9 +209,13 @@ def validate(args: argparse.Namespace) -> dict[str, str]:
     image = Path(args.image)
     manifest = Path(args.manifest)
     checksum = Path(args.checksum)
+    repo_root = Path(args.repo_root)
 
     if not artifacts.is_dir():
         raise ProvenanceError(f"katalog artefaktów nie istnieje: {artifacts}")
+    if not repo_root.is_dir():
+        raise ProvenanceError(f"katalog repozytorium nie istnieje: {repo_root}")
+    repo_root = repo_root.resolve()
     metadata = read_metadata(artifacts / "image-release")
 
     name = metadata["WLB_IMAGE_NAME"]
@@ -195,24 +244,27 @@ def validate(args: argparse.Namespace) -> dict[str, str]:
     full_name = f"{name}-{args.version}-{date}"
     if artifacts.name != full_name:
         raise ProvenanceError(f"katalog artefaktów {artifacts.name!r} nie odpowiada metadanym {full_name!r}")
-    if image.name != f"{full_name}.qcow2" or image.parent.name != full_name:
-        raise ProvenanceError(f"obraz {image} nie leży w output/{full_name}/{full_name}.qcow2")
-    if image.parent.parent.name != "output":
-        raise ProvenanceError(f"obraz {image} nie leży w katalogu output/")
+    expected_image = repo_root / "output" / full_name / f"{full_name}.qcow2"
     if image.is_symlink():
         raise ProvenanceError(f"obraz {image} jest symlinkiem — nie weryfikujemy celu")
+    image_resolved = image.resolve()
+    if image_resolved != expected_image:
+        raise ProvenanceError(f"obraz {image} nie leży w {expected_image} (względem --repo-root {repo_root})")
     if not image.is_file():
         raise ProvenanceError(f"obraz nie istnieje: {image}")
+    image = image_resolved
 
     expected_manifest = image.parent / "packer-manifest.json"
-    if manifest.is_symlink() or manifest.resolve() != expected_manifest.resolve():
+    if manifest.is_symlink() or manifest.resolve() != expected_manifest:
         raise ProvenanceError(f"manifest {manifest} nie jest manifestem tego obrazu ({expected_manifest})")
     if not manifest.is_file():
         raise ProvenanceError(f"manifest nie istnieje: {manifest}")
 
     expected_checksum = image.with_name(image.name + ".sha256")
-    if checksum.is_symlink() or checksum.resolve() != expected_checksum.resolve():
+    if checksum.is_symlink() or checksum.resolve() != expected_checksum:
         raise ProvenanceError(f"suma {checksum} nie jest sumą tego obrazu ({expected_checksum})")
+    if not checksum.is_file():
+        raise ProvenanceError(f"suma nie istnieje: {checksum}")
 
     manifest_data = read_manifest(manifest)
     validate_build(manifest_data, image, metadata, args.version)
@@ -226,6 +278,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--image", required=True, metavar="IMG", help="qcow2 wydania")
     parser.add_argument("--manifest", required=True, metavar="JSON", help="packer-manifest.json")
     parser.add_argument("--checksum", required=True, metavar="FILE", help="<obraz>.qcow2.sha256")
+    parser.add_argument("--repo-root", required=True, metavar="DIR", help="katalog repozytorium (baza output/)")
     parser.add_argument("--version", required=True, metavar="X.Y.Z", help="wersja z tagu")
     parser.add_argument("--commit", required=True, metavar="SHA", help="pełny SHA HEAD")
     return parser.parse_args(argv)

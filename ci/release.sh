@@ -66,6 +66,7 @@ step "Proweniencja obrazu (#277)"
 python3 ci/release_provenance.py \
   --artifacts "$ARTIFACTS" --image "$RELEASE_IMAGE" \
   --manifest "$MANIFEST" --checksum "$CHECKSUM" \
+  --repo-root "$REPO_ROOT" \
   --version "$VERSION" --commit "$COMMIT" ||
   die "obraz nie jest powiązany z manifestem i sumą wydania (#277)"
 endstep
