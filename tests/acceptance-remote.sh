@@ -111,9 +111,18 @@ expect_fail "Zapis do /sluza-in" as $R1 touch /sluza-in/proba
 
 echo "== 5. /sluza-out tylko do zapisu =="
 expect_ok "Zapis do /sluza-out" as $R1 sh -c 'echo "wynik" > /sluza-out/wynik-test.csv'
-sleep 5
+# 20 s settle + cykl inotify/30 s (oraz 1 s próbki stabilności) daje do ~51 s; 60 s to deterministyczna górna granica pełnego cyklu usługi
+for _ in $(seq 1 60); do
+  if as $R1 test ! -e /sluza-out/wynik-test.csv; then break; fi
+  sleep 1
+done
 expect_fail "Plik w /sluza-out nie jest już widoczny" as $R1 cat /sluza-out/wynik-test.csv
 expect_fail "Listowanie /sluza-out zabronione" as $R1 ls /sluza-out
+for _ in $(seq 1 10); do
+  # shellcheck disable=SC2010
+  if ls "$QUEUE" | grep -q "_jupyter-${R1}_wynik-test.csv$"; then break; fi
+  sleep 1
+done
 expect_ok "Plik trafił do kolejki zatwierdzenia" bash -c "ls '$QUEUE' | grep -q '_jupyter-${R1}_wynik-test.csv\$'"
 # shellcheck disable=SC2016  # argumenty rozwija wewnętrzny bash
 expect_ok "Manifest i integralność kopii w kolejce (#20)" \
@@ -143,8 +152,9 @@ expect_ok "Badacz widzi katalog /sluza-potwierdzenia (#208)" as $R1 ls /sluza-po
 ZN208="ZNACZNIK208ABCD"  # znacznik treści — nie wolno go znaleźc w potwierdzeniu
 SZ208=$((${#ZN208} + 2)) # zawartość pliku: a<znacznik>b
 as $R1 bash -c "printf 'a%sb' '$ZN208' > /sluza-out/potwierdzenie-test.txt"
+# 20 s settle + cykl inotify/30 s (oraz 1 s próbki stabilności) daje do ~51 s; 60 s to deterministyczna górna granica pełnego cyklu usługi
 for _ in $( # deterministycznie: czekamy na plik potwierdzenia, nie na ślepy sleep
-  seq 1 20
+  seq 1 60
 ); do
   compgen -G '/sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.*' >/dev/null && break
   sleep 1
