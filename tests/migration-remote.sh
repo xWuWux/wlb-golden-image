@@ -14,7 +14,7 @@ case $1 in
     # wniosek o eksport czekający na Kontrolera w chwili wymiany obrazu (#4)
     as "$USER_NAME" sh -c 'echo wniosek > /sluza-out/przed-migracja.csv' || exit 1
     queue=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
-    for _ in $(seq 1 15); do
+    for _ in $(seq 1 30); do
       compgen -G "$queue/*_przed-migracja.csv" >/dev/null && break
       sleep 1
     done

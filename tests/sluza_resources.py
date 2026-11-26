@@ -190,7 +190,13 @@ def main(login: str) -> None:
         queue.mkdir()
         (source / "sample").write_bytes(b"x" * 1024**2)
         code = f"""import os, subprocess
-os.environ.update(WLB_SLUZA_OUT={str(source)!r}, WLB_EXPORT_QUEUE={str(queue)!r}, WLB_IMAGE_CONF='/dev/null')
+os.environ.update(
+    WLB_SLUZA_OUT={str(source)!r},
+    WLB_EXPORT_QUEUE={str(queue)!r},
+    WLB_IMAGE_CONF='/dev/null',
+    WLB_FILE_SETTLE_SECONDS='0',
+    WLB_STABILITY_SAMPLE_SECONDS='0',
+)
 subprocess.run(['/usr/local/sbin/wlb-sluza-out-mover', '--once'], check=True)
 """
         assert probe(root, "mover", code, []) == ("success", "0")
