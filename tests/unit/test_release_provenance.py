@@ -80,6 +80,7 @@ def make_release(tmp_path: Path, *, image_bytes: bytes = b"qcow2-data") -> Simpl
         checksum=checksum,
         manifest=manifest,
         artifacts=artifacts,
+        repo_root=tmp_path,
         version=VERSION,
         commit=COMMIT,
     )
@@ -91,6 +92,7 @@ def argv(release: SimpleNamespace, **overrides) -> list[str]:
         "image": str(release.image),
         "manifest": str(release.manifest),
         "checksum": str(release.checksum),
+        "repo_root": str(release.repo_root),
         "version": release.version,
         "commit": release.commit,
     }
@@ -104,6 +106,8 @@ def argv(release: SimpleNamespace, **overrides) -> list[str]:
         values["manifest"],
         "--checksum",
         values["checksum"],
+        "--repo-root",
+        values["repo_root"],
         "--version",
         values["version"],
         "--commit",
@@ -169,7 +173,7 @@ def test_manifest_must_describe_exactly_one_image(provenance, tmp_path, capsys) 
     ("content", "message"),
     [
         ("nie-hex  plik.qcow2\n", "64 małymi cyframi hex"),
-        ("0" * 64 + "  inny.qcow2\n", "suma dotyczy"),
+        ("0" * 64 + "  inny.qcow2\n", "brak wpisu"),
         ("0" * 64 + f"  {FULL}.qcow2\n", "nie zgadza się z obrazem"),
     ],
 )
@@ -178,6 +182,54 @@ def test_checksum_must_describe_this_image(provenance, tmp_path, capsys, content
     release.checksum.write_text(content, encoding="utf-8")
     assert provenance.main(argv(release)) == 2
     assert message in capsys.readouterr().err
+
+
+def test_checksum_accepts_shared_file_with_comments_and_star(provenance, tmp_path, capsys) -> None:
+    release = make_release(tmp_path)
+    digest = hashlib.sha256(release.image.read_bytes()).hexdigest()
+    release.checksum.write_text(
+        f"# suma zbiorcza\n{digest} *{release.image.name}\n{'0' * 64}  inny.qcow2\n",
+        encoding="utf-8",
+    )
+    assert provenance.main(argv(release)) == 0
+
+
+def test_duplicate_checksum_entry_is_rejected(provenance, tmp_path, capsys) -> None:
+    release = make_release(tmp_path)
+    digest = hashlib.sha256(release.image.read_bytes()).hexdigest()
+    release.checksum.write_text(
+        f"{digest}  {release.image.name}\n{digest}  {release.image.name}\n",
+        encoding="utf-8",
+    )
+    assert provenance.main(argv(release)) == 2
+    assert "wiele wpisów" in capsys.readouterr().err
+
+
+def test_image_outside_repo_root_is_rejected(provenance, tmp_path, capsys) -> None:
+    release = make_release(tmp_path)
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    assert provenance.main(argv(release, repo_root=str(other_root))) == 2
+    assert "nie leży w" in capsys.readouterr().err
+
+
+def test_quoted_metadata_values_are_accepted(provenance, tmp_path, capsys) -> None:
+    release = make_release(tmp_path)
+    (release.artifacts / "image-release").write_text(
+        "\n".join(
+            [
+                "WLB_IMAGE_NAME='wlb-general'",
+                f'WLB_IMAGE_VERSION="{VERSION}"',
+                f"WLB_IMAGE_DATE='{DATE}'",
+                f'WLB_GIT_COMMIT="{COMMIT}"',
+                "WLB_GIT_DIRTY='0'",
+                'WLB_BUILD_RUN="local"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert provenance.main(argv(release)) == 0
 
 
 def test_artifacts_directory_must_match_metadata(provenance, tmp_path, capsys) -> None:

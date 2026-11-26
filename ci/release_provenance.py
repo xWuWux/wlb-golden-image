@@ -278,6 +278,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--image", required=True, metavar="IMG", help="qcow2 wydania")
     parser.add_argument("--manifest", required=True, metavar="JSON", help="packer-manifest.json")
     parser.add_argument("--checksum", required=True, metavar="FILE", help="<obraz>.qcow2.sha256")
+    parser.add_argument("--repo-root", required=True, metavar="DIR", help="katalog repozytorium (baza output/)")
     parser.add_argument("--version", required=True, metavar="X.Y.Z", help="wersja z tagu")
     parser.add_argument("--commit", required=True, metavar="SHA", help="pełny SHA HEAD")
     return parser.parse_args(argv)
