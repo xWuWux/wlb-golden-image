@@ -14,7 +14,8 @@ case $1 in
     # wniosek o eksport czekający na Kontrolera w chwili wymiany obrazu (#4)
     as "$USER_NAME" sh -c 'echo wniosek > /sluza-out/przed-migracja.csv' || exit 1
     queue=$(sed -n 's/^WLB_EXPORT_QUEUE=//p' /etc/wlb/image.conf)
-    for _ in $(seq 1 45); do
+    # 20 s settle + cykl inotify/30 s (oraz 1 s próbki stabilności) daje do ~51 s; 60 s to deterministyczna górna granica pełnego cyklu usługi
+    for _ in $(seq 1 60); do
       compgen -G "$queue/*_przed-migracja.csv" >/dev/null && break
       sleep 1
     done
