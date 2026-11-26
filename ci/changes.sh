@@ -186,7 +186,7 @@ ephemeral=false
 # etap 6 potrzebuje obrazu z etapu 5
 [[ $image == true ]] || perf=false ephemeral=false
 
-# 4c checks release and export decision contracts. A failed diff requires the proof.
+# 4d checks release and export decision contracts. A failed diff requires the proof.
 formal=true
 if [[ -n $BASE && $EVENT != schedule && $EVENT != workflow_dispatch ]] &&
   git diff --quiet "$BASE" HEAD -- formal release packer Makefile ci/verify_platform_images.py \

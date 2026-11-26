@@ -299,7 +299,7 @@ _Wygenerowano skryptem `ci/mapa-testy.py` z drzewa `tests/` (2026-11-20). Odświ
 - `tests/unit/test_flaky_report.py` — `test_cli_output_write_error`, `test_cli_parse_fail_closed_on_malformed`, `test_cli_parse_fail_closed_on_missing`, `test_cli_parse_success`, `test_direct_execution_subprocess`, `test_parse_acceptance_sample`, `test_parse_direct_testcase_under_testsuites`, `test_parse_empty_file_fail_closed`, `test_parse_error_and_failure_text_only_and_empty`, `test_parse_error_status_distinguished`, `test_parse_explicit_source_stage`, `test_parse_invalid_root_element_fail_closed`, `test_parse_malformed_fail_closed`, `test_parse_missing_file_fail_closed`, `test_parse_missing_testcase_name_fail_closed`, `test_parse_oserror_handling`, `test_parse_pytest_subtests_multi_failure`, `test_parse_skipped_with_reason`, `test_parse_testsuites_hierarchy`, `test_parse_time_fallback`
 
 ### #352 — Proof of Concept: Lean 4 weryfikacja formalna modelu logiki wydania WLB  ·  _otwarte_
-- `tests/unit/changes.bats` — `dowody wydania: dokumentacja pomija 4c, nieznana baza i harmonogram go wymagają (#352)`, `dowody wydania: zmiana konsumenta, katalogu lub dowodu wymaga 4c (#352)`
+- `tests/unit/changes.bats` — `dowody wydania: dokumentacja pomija 4d, nieznana baza i harmonogram go wymagają (#352)`, `dowody wydania: zmiana konsumenta, katalogu lub dowodu wymaga 4d (#352)`
 - `tests/unit/test_ready.py` — `test_formal_proof_outcomes_352`
 
 ## Uwagi

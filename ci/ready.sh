@@ -21,7 +21,7 @@ stages = [
     ("observability", "3.5. Kontrakty obrazu", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
     ("mutation", "4b. Testy mutacyjne", True),
-    ("formal-logic", "4c. Dowody logiki WLB", needs["lint"].get("outputs", {}).get("formal") != "false"),
+    ("formal-logic", "4d. Dowody logiki WLB", needs["lint"].get("outputs", {}).get("formal") != "false"),
 ]
 if "build-base" in needs:
     stages.append(("build-base", "5a. Budowa bazy", image))

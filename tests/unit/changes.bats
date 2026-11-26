@@ -286,7 +286,7 @@ repo_with_base() {
   done
 }
 
-@test "dowody wydania: zmiana konsumenta, katalogu lub dowodu wymaga 4c (#352)" {
+@test "dowody wydania: zmiana konsumenta, katalogu lub dowodu wymaga 4d (#352)" {
   for path in formal/Release.lean ansible/roles/storage/files/wlb-export release/image-catalog.json ci/verify_platform_images.py tests/unit/platform_image_cases.py; do
     repo_with_base "$path"
     run env EVENT=merge_group bash "$CHANGES"
@@ -295,7 +295,7 @@ repo_with_base() {
   done
 }
 
-@test "dowody wydania: dokumentacja pomija 4c, nieznana baza i harmonogram go wymagają (#352)" {
+@test "dowody wydania: dokumentacja pomija 4d, nieznana baza i harmonogram go wymagają (#352)" {
   repo_with_base docs/x.md
   run env EVENT=pull_request bash "$CHANGES"
   has_line "formal=false"

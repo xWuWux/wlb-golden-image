@@ -1,6 +1,6 @@
 # Runbook CI: co robić, gdy pipeline nie przechodzi
 
-Etap 4c `make formal-logic` sprawdza dowody w Lean i porównuje decyzję modelu wydania z Pythonem. Zakres twierdzeń, wyzwalacze CI, wymagania do uruchomienia i pomiary opisuje [kontrakt weryfikacji formalnej](../formal/README.md).
+Etap 4d `make formal-logic` sprawdza dowody w Lean i porównuje decyzję modelu wydania z Pythonem. Zakres twierdzeń, wyzwalacze CI, wymagania do uruchomienia i pomiary opisuje [kontrakt weryfikacji formalnej](../formal/README.md).
 
 
 Kiedy PR nie przechodzi, job **„Gotowe do code review”** dołącza sekcję **„Diagnoza przebiegu”**.

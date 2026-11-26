@@ -1,6 +1,6 @@
-# Jakie własności WLB sprawdza etap 4c?
+# Jakie własności WLB sprawdza etap 4d?
 
-Decyzja techniczna do [#350](https://github.com/xWuWux/wlb-golden-image/issues/350). Etap 4c sprawdza dwa modele o różnym związku z kodem. Pierwszy można dziś porównać z działającym walidatorem. Drugi wyznacza warunki odbioru przyszłego mechanizmu decyzji eksportowej w [#20](https://github.com/xWuWux/wlb-golden-image/issues/20).
+Decyzja techniczna do [#350](https://github.com/xWuWux/wlb-golden-image/issues/350). Etap 4d sprawdza dwa modele o różnym związku z kodem. Pierwszy można dziś porównać z działającym walidatorem. Drugi wyznacza warunki odbioru przyszłego mechanizmu decyzji eksportowej w [#20](https://github.com/xWuWux/wlb-golden-image/issues/20).
 
 | Obszar | Twierdzenie lub kryterium odbioru | Obecna siła wniosku |
 |---|---|---|
@@ -14,7 +14,7 @@ Decyzja techniczna do [#350](https://github.com/xWuWux/wlb-golden-image/issues/3
 
 Z katalogu repozytorium wykonać `make formal-logic` z Pythonem 3.11+ i wersją Lean z `formal/lean-toolchain` (Elan wybierze ją po wejściu do katalogu). Lake buduje modele i program porównawczy bez zewnętrznych bibliotek. Audyt odczytuje przechodnie zależności twierdzeń z jądra Lean, sprawdza obecność nazwanych twierdzeń i odrzuca własne aksjomaty w obu przestrzeniach nazw. Dopuszczone są `propext` i `Quot.sound`. Ostrzeżenia podczas budowy są błędami. Recenzent nadal musi ocenić sens zdań, założenia oraz zmiany w audycie.
 
-CI uruchamia 4c dla zmian modeli, walidatora, katalogu, Packera, wspólnych danych testowych, skryptów śluzy i mechanizmu bramkowania. Przy błędzie porównania git, w harmonogramie i przy ręcznym uruchomieniu etap jest wymagany. Zwykłe PR oraz kolejka scalania stosują ten sam warunek. Status „Gotowe do code review” sprawdza wynik. Pobranie narzędzia w izolowanym jobie ma przypiętą wersję i SHA-256 archiwum dla Linux x86_64. Wyjście klasyfikatora `formal` ma wartości tekstowe `true` lub `false`. Jedynie jawne `false` pozwala pominąć job. Limit joba wynosi 10 minut łącznie z pobraniem.
+CI uruchamia 4d dla zmian modeli, walidatora, katalogu, Packera, wspólnych danych testowych, skryptów śluzy i mechanizmu bramkowania. Przy błędzie porównania git, w harmonogramie i przy ręcznym uruchomieniu etap jest wymagany. Zwykłe PR oraz kolejka scalania stosują ten sam warunek. Status „Gotowe do code review” sprawdza wynik. Pobranie narzędzia w izolowanym jobie ma przypiętą wersję i SHA-256 archiwum dla Linux x86_64. Wyjście klasyfikatora `formal` ma wartości tekstowe `true` lub `false`. Jedynie jawne `false` pozwala pominąć job. Limit joba wynosi 10 minut łącznie z pobraniem.
 
 ### Wydanie obrazów
 
@@ -44,6 +44,6 @@ CI uruchamia 4c dla zmian modeli, walidatora, katalogu, Packera, wspólnych dany
 
 Na Linux x86_64 z już rozpakowanym Lean zmierzone `make formal-logic` zajęło 4,38 s po `lake clean` i 2,03 s przy powtórzeniu. Archiwum narzędzia ma 343 842 845 bajtów. Te pomiary pomijają transfer i kolejkę GitHub Actions. Próby negatywne: usunięcie wymagania decyzji Kontrolera uniemożliwiło zamknięcie dowodu, dodanie aksjomatu zatrzymało audyt, a pominięcie sprawdzenia wersji w kopii Pythona zostało wykryte przez porównanie.
 
-Koszt stały PoC to jeden przypięty toolchain i jego audyt po aktualizacji. Nowy wariant zgodny z tym samym schematem korzysta z istniejących dowodów. Nowe pole polityki wymaga zmiany typu, twierdzenia, adaptera i danych testowych. Wartość kosztu osobowego wymaga pomiaru przez zespół: przy pierwszej zmianie schematu zapisać osobno czas autora i recenzenta, a w CI porównać czas 4c dla zimnego oraz powtórnego uruchomienia. Rozwijać model tam, gdzie da się wskazać właściciela reguły i jej produkcyjny punkt wymuszenia.
+Koszt stały PoC to jeden przypięty toolchain i jego audyt po aktualizacji. Nowy wariant zgodny z tym samym schematem korzysta z istniejących dowodów. Nowe pole polityki wymaga zmiany typu, twierdzenia, adaptera i danych testowych. Wartość kosztu osobowego wymaga pomiaru przez zespół: przy pierwszej zmianie schematu zapisać osobno czas autora i recenzenta, a w CI porównać czas 4d dla zimnego oraz powtórnego uruchomienia. Rozwijać model tam, gdzie da się wskazać właściciela reguły i jej produkcyjny punkt wymuszenia.
 
 Źródła do porównania: [Cedar, weryfikacja modelu Lean i testy różnicowe z Rust](https://arxiv.org/abs/2407.01688), [IronFleet, powiązanie specyfikacji z implementacją](https://www.microsoft.com/en-us/research/publication/ironfleet-proving-practical-distributed-systems-correct/), [AWS, zastosowanie TLA+](https://www.amazon.science/publications/how-amazon-web-services-uses-formal-methods), [IAM Access Analyzer, własności polityki IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-analyzer-checks-validating-policies.html), [Azure TRE Airlock, przegląd wniosku](https://microsoft.github.io/AzureTRE/v0.25.0/using-tre/tre-for-research/review-airlock-request/), [OpenSAFELY, kontrola wyników przed wydaniem](https://docs.opensafely.org/using-opensafely/viewing-and-releasing-outputs/viewing-and-releasing-with-airlock/).
