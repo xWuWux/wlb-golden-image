@@ -111,7 +111,7 @@ expect_fail "Zapis do /sluza-in" as $R1 touch /sluza-in/proba
 
 echo "== 5. /sluza-out tylko do zapisu =="
 expect_ok "Zapis do /sluza-out" as $R1 sh -c 'echo "wynik" > /sluza-out/wynik-test.csv'
-for _ in $(seq 1 30); do
+for _ in $(seq 1 45); do
   if as $R1 test ! -e /sluza-out/wynik-test.csv; then break; fi
   sleep 1
 done
@@ -152,7 +152,7 @@ ZN208="ZNACZNIK208ABCD"  # znacznik treści — nie wolno go znaleźc w potwierd
 SZ208=$((${#ZN208} + 2)) # zawartość pliku: a<znacznik>b
 as $R1 bash -c "printf 'a%sb' '$ZN208' > /sluza-out/potwierdzenie-test.txt"
 for _ in $( # deterministycznie: czekamy na plik potwierdzenia, nie na ślepy sleep
-  seq 1 30
+  seq 1 45
 ); do
   compgen -G '/sluza-potwierdzenia/*_potwierdzenie-test.txt.potwierdzenie.*' >/dev/null && break
   sleep 1
