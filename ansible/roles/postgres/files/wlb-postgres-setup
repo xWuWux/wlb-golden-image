@@ -48,8 +48,15 @@ if [[ -f "$PGDATA/PG_VERSION" ]]; then
   # Dysk roboczy z istniejącym klastrem (wymiana dysku systemowego): NIE initdb — chronimy dane.
   chown postgres:postgres "$PGDATA"
   chmod 0700 "$PGDATA"
-  [[ -d "$CONFDIR" ]] && apply_wlb_config
-  log "klaster istnieje w $PGDATA (PG_VERSION=$(cat "$PGDATA/PG_VERSION")); pominięto tworzenie"
+  if [[ ! -d "$CONFDIR" ]]; then
+    # Dane są, ale katalog konfiguracji zniknął (świeży dysk systemowy). Wcześniej skrypt kończył się
+    # „sukcesem" BEZ konfiguracji WLB — klaster nie wystartowałby/nie miałby ustawień WLB (#369 P1).
+    # pg_createcluster ADOPTUJE niepusty datadir z PG_VERSION (konfiguruje istniejący klaster, BEZ initdb).
+    pg_createcluster "$PGVER" main --datadir="$PGDATA" >/dev/null ||
+      die "rejestracja istniejącego klastra w $CONFDIR nie powiodła się (dane w $PGDATA nietknięte)"
+  fi
+  apply_wlb_config
+  log "klaster istnieje w $PGDATA (PG_VERSION=$(cat "$PGDATA/PG_VERSION")); konfiguracja WLB nałożona"
   exit 0
 fi
 

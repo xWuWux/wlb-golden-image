@@ -50,8 +50,32 @@ EOF
   # format: 127.0.0.1:5432:db_u01:u01:<32 znaki hasła>
   run cat "$pgpass"
   [[ "$output" =~ ^127\.0\.0\.1:5432:db_u01:u01:[A-Za-z0-9]{32}$ ]]
-  # właściciel ustawiany przez chown (stub) na jupyter-u01:jupyter-u01
-  calls | grep -q "chown jupyter-u01:jupyter-u01 $pgpass"
+  # właściciel ustawiany przez chown (stub) na jupyter-u01:jupyter-u01 — na pliku tymczasowym w SECRET_DIR
+  # (potem mv do .pgpass zachowuje własność w obrębie tego samego FS, #369 P1).
+  calls | grep -qE "chown jupyter-u01:jupyter-u01 $SECRET/\.wlb-pgpass\.u01\."
+}
+
+@test "provision: symlink .pgpass.tmp podstawiony przez badacza jest IGNOROWANY (#369 P1)" {
+  # Stary wektor: root pisał .pgpass.tmp w katalogu badacza; symlink .pgpass.tmp -> ofiara dawał nadpisanie.
+  victim="$SANDBOX/ofiara"
+  printf 'nie-ruszaj\n' >"$victim"
+  ln -s "$victim" "$HOMEBASE/jupyter-u01/.pgpass.tmp"
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$victim")" = "nie-ruszaj" ]        # ofiara nietknięta — nie piszemy już .pgpass.tmp w $home
+  [ -f "$HOMEBASE/jupyter-u01/.pgpass" ] && [ ! -L "$HOMEBASE/jupyter-u01/.pgpass" ]
+}
+
+@test "provision: istniejący symlink .pgpass nie powoduje zapisu poza docelowym plikiem (#369 P1)" {
+  # Pozostały wektor: .pgpass jako symlink -> ofiara. mv musi ZASTĄPIĆ symlink, nie pisać przez niego.
+  victim="$SANDBOX/ofiara"
+  printf 'nie-ruszaj\n' >"$victim"
+  ln -s "$victim" "$HOMEBASE/jupyter-u01/.pgpass"
+  run bash "$SCRIPT"
+  [ "$status" -eq 0 ]
+  [ "$(cat "$victim")" = "nie-ruszaj" ]        # ofiara nietknięta
+  [ ! -L "$HOMEBASE/jupyter-u01/.pgpass" ]      # .pgpass to realny plik, nie symlink
+  [[ $(cat "$HOMEBASE/jupyter-u01/.pgpass") =~ ^127\.0\.0\.1:5432:db_u01:u01: ]]
 }
 
 @test "provision: hasło idempotentne — istniejący pwfile reużyty, .pgpass spójny (#271)" {

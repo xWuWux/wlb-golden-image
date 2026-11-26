@@ -8,6 +8,7 @@
 #                                          zgodne z kodem)
 #   4. Testy jednostkowe + progi pokrycia  ci/unit.sh
 #   4b. Testy mutacyjne (bramkujące)       ci/mutation.sh — mutmut + tabela mutacji powłoki
+#   4d. Modele wydania i decyzji eksportowej              make formal-logic (zmiany kontraktu, harmonogram i uruchomienie ręczne)
 #   5. Integracja i migracja (KVM)         ci/integration.sh    — NIE na każdym PR (koszt, #86):
 #                                          PR sieci/utwardzenia, push main, etykieta lub ręcznie;
 #                                          także: czy zdarzenia z kontraktu docierają do SIEM
@@ -60,6 +61,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
+      formal: ${{ steps.changes.outputs.formal }}
       image: ${{ steps.changes.outputs.image }}
       radiologia: ${{ steps.changes.outputs.radiologia }}
       memory: ${{ steps.changes.outputs.memory }}
@@ -91,6 +93,28 @@ jobs:
           IN_EPHEMERAL: ${{ inputs.ephemeral }}
           SCHEDULE: ${{ github.event.schedule }}
         run: ci/changes.sh | tee -a "$GITHUB_OUTPUT"
+
+  formal-logic:
+    name: "4d. Modele wydania i decyzji eksportowej"
+    needs: lint
+    if: needs.lint.outputs.formal != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Pobierz przypięty Lean dla Linux x86_64
+        working-directory: formal
+        run: |
+          version=$(sed -n 's/^leanprover\/lean4:v//p' lean-toolchain)
+          archive="$RUNNER_TEMP/lean-linux.tar.zst"
+          curl --fail --location --silent --show-error --retry 2 -o "$archive" \
+            "https://github.com/leanprover/lean4/releases/download/v$version/lean-$version-linux.tar.zst"
+          echo "6fe3ce97a58f44e2b3567d455b994eacec5bfe9ae7774f2a573444480ba813fe  $archive" | sha256sum --check
+          tar --zstd -xf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/lean-$version-linux/bin" >>"$GITHUB_PATH"
+      - run: make formal-logic
 
   build-check:
     name: "2. Build test"
@@ -724,7 +748,7 @@ jobs:
 
   ready:
     name: "Gotowe do code review"
-    needs: [lint, build-check, security, security-report, observability, unit, mutation, build-base, integration, perf, ephemeral]
+    needs: [lint, build-check, security, security-report, observability, unit, mutation, formal-logic, build-base, integration, perf, ephemeral]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5

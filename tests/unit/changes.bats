@@ -307,3 +307,23 @@ repo_with_base() {
     has_line "image=true"
   done
 }
+
+@test "dowody wydania: zmiana konsumenta, katalogu lub dowodu wymaga 4d (#352)" {
+  for path in formal/Release.lean ansible/roles/storage/tasks/main.yml release/image-catalog.json \
+    ci/verify_platform_images.py ci/release.sh .github/workflows/release.yml tests/unit/platform_image_cases.py tests/unit/test_formal_adapter.py; do
+    repo_with_base "$path"
+    run env EVENT=merge_group bash "$CHANGES"
+    [ "$status" -eq 0 ]
+    has_line "formal=true"
+  done
+}
+
+@test "dowody wydania: dokumentacja pomija 4d, nieznana baza i harmonogram go wymagają (#352)" {
+  repo_with_base docs/x.md
+  run env EVENT=pull_request bash "$CHANGES"
+  has_line "formal=false"
+  run env EVENT=pull_request BASE=missing-revision bash "$CHANGES"
+  has_line "formal=true"
+  run env EVENT=schedule bash "$CHANGES"
+  has_line "formal=true"
+}
