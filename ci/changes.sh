@@ -98,7 +98,7 @@ perf_change() {
   local changed
   [[ -n $1 ]] || return 0
   changed=$(git diff --name-only "$1" HEAD) || return 0
-  grep -qE '^(ci/perf\.sh$|ci/perf-budget\.env$|ci/perf_summary\.py$|tests/perf-remote\.sh$|tests/lib/(local|remote)-common\.sh$|tests/unit/test_perf_(integrity|summary)\.py$)' <<<"$changed"
+  grep -qE '^(ci/perf\.sh$|ci/perf-budget\.env$|ci/perf_summary\.py$|tests/perf-remote\.sh$|tests/lib/(local|remote)-common\.sh$|tests/unit/perf-helpers\.bats$|tests/unit/test_perf_(integrity|summary)\.py$)' <<<"$changed"
 }
 
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.

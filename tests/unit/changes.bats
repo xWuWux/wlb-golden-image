@@ -266,8 +266,8 @@ repo_with_base() {
 
 @test "perf: zmiana aparatury pomiarowej wyzwala 6a bez etykiety — bramka #10/#381" {
   for file in ci/perf.sh ci/perf-budget.env ci/perf_summary.py tests/perf-remote.sh \
-    tests/lib/local-common.sh tests/lib/remote-common.sh tests/unit/test_perf_integrity.py \
-    tests/unit/test_perf_summary.py; do
+    tests/lib/local-common.sh tests/lib/remote-common.sh tests/unit/perf-helpers.bats \
+    tests/unit/test_perf_integrity.py tests/unit/test_perf_summary.py; do
     repo_with_base "$file"
     for event in pull_request merge_group; do
       run env EVENT="$event" LABELS='[]' bash "$CHANGES"
