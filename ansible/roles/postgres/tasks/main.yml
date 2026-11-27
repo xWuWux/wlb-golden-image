@@ -63,6 +63,7 @@
   loop:
     - wlb-postgres-setup.service
     - wlb-postgres-provision.service
+    - wlb-postgres-provision.path
   notify: Reload postgres systemd
 
 - name: Katalog drop-in klastra — kolejność, izolacja, pamięć (wersja {{ wlb_pg_version }})
@@ -88,3 +89,6 @@
   loop:
     - wlb-postgres-setup.service
     - wlb-postgres-provision.service
+    # .path obserwuje /workspace i wyzwala provisioning, gdy konto badacza pojawia się przy spawnie
+    # (konto dodane po boocie dostaje bazę+rolę+.pgpass bez restartu VM, #369 wariant B).
+    - wlb-postgres-provision.path

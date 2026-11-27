@@ -2,8 +2,11 @@
 # wlb-postgres-provision — tworzy rolę i bazę per konto badacza (uNN) + hasło i ~/.pgpass (#271).
 #
 # Uruchamiany przez wlb-postgres-provision.service: Type=oneshot, After=postgresql@16-main.service
-# (klaster musi ŻYĆ — tu wykonujemy SQL). Idempotentny: istniejące role/bazy nie są odtwarzane,
-# hasło generowane RAZ i zapisane w /root (0600), z niego spójny ~/.pgpass.
+# (klaster musi ŻYĆ — tu wykonujemy SQL). Wyzwalany (a) przy boocie (WantedBy) oraz (b) ZDARZENIOWO
+# przez wlb-postgres-provision.path, gdy przy pierwszym spawnie badacza pojawia się /workspace/jupyter-uNN
+# (#369 wariant B) — dzięki temu konto dodane po boocie dostaje stan bez restartu. Idempotentny:
+# istniejące role/bazy nie są odtwarzane, hasło generowane RAZ i zapisane w /root (0600), z niego
+# spójny ~/.pgpass; wielokrotne wyzwolenia (path-unit) są bezpieczne — przetwarzamy tylko brakujące.
 #
 # Model (research #271): rola DB = uNN, baza db_uNN OWNER uNN, nasłuch 127.0.0.1 scram-sha-256.
 # Konto systemowe to jupyter-uNN (prefiks TLJH, HOME=/workspace); pg_ident mapuje je na rolę uNN.

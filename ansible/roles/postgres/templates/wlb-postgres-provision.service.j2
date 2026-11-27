@@ -7,8 +7,14 @@ ConditionPathExists={{ wlb_pg_data_dir }}/PG_VERSION
 
 [Service]
 Type=oneshot
-RemainAfterExit=yes
+# CELOWO bez RemainAfterExit=yes (#369 wariant B): usługa jest wyzwalana wielokrotnie przez
+# wlb-postgres-provision.path przy pojawieniu się kolejnych kont badaczy. RemainAfterExit=yes
+# zostawiłby ją w stanie „active (exited)", a wtedy systemd NIE wystartowałby jej ponownie na
+# kolejne zdarzenie path-unit. Bez RemainAfterExit po każdym przebiegu wraca do „inactive" i może
+# zostać wyzwolona od nowa. provision jest idempotentny, więc ponowne starty są bezpieczne.
 ExecStart=/usr/local/sbin/wlb-postgres-provision
 
 [Install]
+# Start przy boocie (przypadek wymiany dysku: firstboot odtwarza konta z istniejących home → provision
+# je obsługuje). Konta tworzone LENIWIE przy spawnie łapie wlb-postgres-provision.path.
 WantedBy=multi-user.target
