@@ -22,7 +22,10 @@ pierwszym Laboratorium na klastrze).
   konto dodane PO budowie/boocie dostaje bazę+rolę+`.pgpass` bez restartu VM (administracja żywego
   Laboratorium, wariant B). `wlb-postgres-provision.service` straciło `RemainAfterExit=yes`, żeby path-unit
   mógł je wyzwalać wielokrotnie; start przy boocie (WantedBy) zostaje dla przypadku wymiany dysku. Test
-  `72-pediatria.sh` spawnuje u01/u02 i czeka na provisioning przed asercjami bazy.
+  `72-pediatria.sh` spawnuje u01/u02 i czeka na provisioning przed asercjami bazy. Ponieważ path-unit może
+  odpalić provisioning zbieżnie, `wlb-postgres-provision` serializuje przebiegi przez `flock`
+  (`WLB_PG_LOCK`, limit `WLB_PG_LOCK_WAIT`): bez tego dwa równoległe przebiegi mogłyby wygenerować różne
+  hasła i rozjechać `ALTER ROLE` z zapisanym `.pgpass`.
 
 - **CI: `httpx==0.29.0` w locku obrazu (dryf etapu 5, #386)** — JupyterLab 4.6.4 wymaga `httpx<1,>=0.25`,
   a TLJH instaluje go pipem; obraz z 27.11 ma `httpx==0.29.0`, podczas gdy

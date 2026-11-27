@@ -250,6 +250,36 @@ EOF
       exit 0
     '
 
+  # --- DIAGNOSTYKA #369 (NIE bramkuje): dlaczego wrapper/JDBC pada mimo działającego provisioningu ------
+  # CI `expect_ok` nie zrzuca stderr padającego polecenia. Prowizjoning już ZASTAJE konta (peer + .pgpass
+  # zielone), więc te 4 FAIL to osobna warstwa (wrapper/auth). Zrzucamy stan do logu etapu 5; każde
+  # polecenie zabezpieczone `|| true`, a potoki kończą się na `sed`, żeby set -e/pipefail nie wywrócił suite.
+  echo "=== DIAG DBeaver/pgJDBC badacz $R1 (nie bramkuje, #369) ==="
+  echo "DIAG id: $(as "$R1" id 2>&1 || true)"
+  # shellcheck disable=SC2016  # $HOME ma się rozwinąć w powłoce badacza (sudo -H), nie lokalnie
+  echo "DIAG HOME: $(as "$R1" bash -c 'printf %s "$HOME"' 2>&1 || true)"
+  echo "DIAG .pgpass (hasło zamaskowane):"
+  # shellcheck disable=SC2016  # $HOME rozwijany w powłoce badacza
+  as "$R1" bash -c 'ls -ld "$HOME/.pgpass" 2>&1; sed -E "s/:[^:]*$/:<REDACTED>/" "$HOME/.pgpass" 2>&1 || true' 2>&1 | sed 's/^/  /' || true
+  echo "DIAG rola/baza w PG (superuser):"
+  sudo -u postgres psql -tAc "SELECT 'rola='||rolname FROM pg_roles WHERE rolname='$R1'; SELECT 'baza='||datname FROM pg_database WHERE datname='db_$R1'" 2>&1 | sed 's/^/  /' || true
+  echo "DIAG czy hasło z .pgpass autoryzuje rolę przez TCP/SCRAM (wykrywa wyścig ALTER ROLE vs .pgpass):"
+  # shellcheck disable=SC2016  # $HOME i awk \$5 rozwijane w powłoce badacza, nie lokalnie
+  as "$R1" bash -c '
+    pw=$(awk -F: "{print \$5}" "$HOME/.pgpass" 2>/dev/null)
+    PGPASSWORD="$pw" psql -h 127.0.0.1 -p 5432 -U "'"$R1"'" -d "db_'"$R1"'" -tAc "SELECT 1" 2>&1 || true
+  ' 2>&1 | sed 's/^/  /' || true
+  echo "DIAG świeży przebieg wrappera (usuwamy profil, uruchamiamy, zrzucamy rc i stderr):"
+  # shellcheck disable=SC2016  # $HOME/$f/$rc rozwijane w powłoce badacza
+  as "$R1" bash -c '
+    f="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json"
+    rm -f "$f" 2>/dev/null || true
+    env WLB_DBEAVER_SKIP_EXEC=1 /usr/local/bin/dbeaver; rc=$?
+    echo "wrapper rc=$rc"
+    ls -ld "$f" 2>&1 || true
+  ' 2>&1 | sed 's/^/  /' || true
+  echo "=== koniec DIAG #369 ==="
+
   # --- Kafelek pulpitu XFCE ---------------------------------------------------------------
   expect_ok "Kafelek DBeaver obecny w /usr/share/applications/wlb-dbeaver.desktop" \
     test -f /usr/share/applications/wlb-dbeaver.desktop

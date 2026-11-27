@@ -30,6 +30,7 @@ EOF
   export WLB_PG_SECRET_DIR="$SECRET"
   export WLB_PG_HOME_BASE="$HOMEBASE"
   export WLB_PG_GETENT="cat $SANDBOX/passwd"
+  export WLB_PG_LOCK="$SANDBOX/provision.lock" # blokada w piaskownicy (nie /run) — testy nie są rootem
 }
 
 @test "provision: tworzy rolę uNN i bazę db_uNN OWNER uNN w SQL (#271)" {
@@ -119,6 +120,25 @@ EOF
   grep -q 'CREATE ROLE "u02"' "$PSQL_LOG"
   [ -f "$HOMEBASE/jupyter-u01/.pgpass" ]
   [ -f "$HOMEBASE/jupyter-u02/.pgpass" ]
+}
+
+@test "provision: zajęta blokada -> pomija przebieg, nic nie prowizjonuje (serializacja path-unit, #369)" {
+  command -v flock >/dev/null 2>&1 || skip "brak flock"
+  # Zajmij i TRZYMAJ blokadę w procesie testu (fd 8); równoległy przebieg skryptu musi odpuścić.
+  exec 8>"$SANDBOX/provision.lock"
+  flock 8
+  WLB_PG_LOCK_WAIT=1 run bash "$SCRIPT"
+  exec 8>&- # zwolnij blokadę
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pomijam"* ]] # zalogował pominięcie, nie wywrócił się
+  [ ! -s "$PSQL_LOG" ]           # żaden SQL — blokada zapobiegła równoległej provizji
+}
+
+@test "provision: po zwolnieniu blokady kolejny przebieg prowizjonuje normalnie (#369)" {
+  command -v flock >/dev/null 2>&1 || skip "brak flock"
+  run bash "$SCRIPT" # blokada wolna -> normalny przebieg
+  [ "$status" -eq 0 ]
+  grep -q 'CREATE ROLE "u01"' "$PSQL_LOG"
 }
 
 @test "provision W2: dokładnie 1 konto -> brak ostrzeżenia (model RESEARCHERS_PER_VM=1, #369)" {
