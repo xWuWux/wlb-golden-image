@@ -4,6 +4,14 @@
 if grep -qx "WLB_IMAGE_NAME=wlb-pediatria" /etc/wlb/image-release 2>/dev/null; then
   echo "== Stos bazy danych i DBeaver (PostgreSQL 16 + DBeaver CE, #271) =="
 
+  # KLUCZOWE (#369): część testów poniżej uruchamia polecenia badacza przez `as` wewnątrz `bash -c '...'`
+  # (expect_ok tego wymaga, bo łączy kilka kroków). `as` to FUNKCJA powłoki z remote-common.sh, a świeży
+  # `bash -c` jej NIE dziedziczy → „as: command not found" → wrapper/JDBC nigdy nie startował i 4 testy
+  # DBeaver/pgJDBC padały (a negatywny przechodził z błędnego powodu). Eksport funkcji udostępnia ją
+  # podpowłokom `bash -c`. (Diagnostyka #369 potwierdziła: provisioning, .pgpass i TCP/SCRAM działają —
+  # to był wyłącznie problem widoczności `as` w podpowłoce, nie produktu.)
+  export -f as
+
   # --- Usługa systemowa PostgreSQL --------------------------------------------------------
   expect_ok "Usługa PostgreSQL 16 aktywna (postgresql@16-main)" \
     systemctl is-active --quiet postgresql@16-main
