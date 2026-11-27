@@ -14,6 +14,19 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#271/#369: provisioning PostgreSQL per badacz jest teraz ZDARZENIOWY (po pierwszym spawnie).** Konto
+  systemowe `jupyter-uNN` i jego katalog `/workspace/jupyter-uNN` powstają leniwie przy pierwszym spawnie
+  serwera badacza (TLJH), więc `wlb-postgres-provision` uruchamiany tylko przy boocie nie zastawał konta i
+  nie tworzył roli/bazy/`.pgpass` (10 FAIL w akceptacji pediatrii). Dodano `wlb-postgres-provision.path`
+  (`PathChanged=/workspace`), który wyzwala idempotentny provisioning, gdy pojawia się katalog konta —
+  konto dodane PO budowie/boocie dostaje bazę+rolę+`.pgpass` bez restartu VM (administracja żywego
+  Laboratorium, wariant B). `wlb-postgres-provision.service` straciło `RemainAfterExit=yes`, żeby path-unit
+  mógł je wyzwalać wielokrotnie; start przy boocie (WantedBy) zostaje dla przypadku wymiany dysku. Test
+  `72-pediatria.sh` spawnuje u01/u02 i czeka na provisioning przed asercjami bazy. Ponieważ path-unit może
+  odpalić provisioning zbieżnie, `wlb-postgres-provision` serializuje przebiegi przez `flock`
+  (`WLB_PG_LOCK`, limit `WLB_PG_LOCK_WAIT`): bez tego dwa równoległe przebiegi mogłyby wygenerować różne
+  hasła i rozjechać `ALTER ROLE` z zapisanym `.pgpass`.
+
 - **CI: `httpx==0.29.0` w locku obrazu (dryf etapu 5, #386)** — JupyterLab 4.6.4 wymaga `httpx<1,>=0.25`,
   a TLJH instaluje go pipem; obraz z 27.11 ma `httpx==0.29.0`, podczas gdy
   `envs/python/environment.lock.yml` pinował conda `httpx=0.28.1`. Bramka `lock_drift` czerwieniła

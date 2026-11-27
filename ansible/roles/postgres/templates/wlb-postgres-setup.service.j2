@@ -1,0 +1,16 @@
+[Unit]
+Description=WLB: utworzenie klastra PostgreSQL {{ wlb_pg_version }} na /workspace (#271)
+# Po firstboot (konta jupyter-uNN istnieją w /etc/passwd), po zamontowaniu dysku roboczego,
+# PRZED startem klastra (ta usługa tylko tworzy katalog danych i rejestruje klaster).
+After=wlb-firstboot.service local-fs.target remote-fs.target
+RequiresMountsFor={{ wlb_pg_data_dir | dirname }}
+Before=postgresql@{{ wlb_pg_version }}-main.service
+ConditionPathExists=/etc/wlb/postgres/50-wlb.conf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/wlb-postgres-setup
+
+[Install]
+WantedBy=multi-user.target

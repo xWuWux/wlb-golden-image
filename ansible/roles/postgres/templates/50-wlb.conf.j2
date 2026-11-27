@@ -1,0 +1,18 @@
+# Zarządzane przez Ansible (rola postgres, #271). Dołączane przez postgresql.conf (conf.d).
+# Nasłuch TYLKO loopback — brak dostępu sieciowego; zapora i drop-in systemd to dublują.
+listen_addresses = '127.0.0.1'
+port = 5432
+password_encryption = scram-sha-256
+ssl = off
+
+shared_buffers = {{ wlb_pg_shared_buffers }}
+work_mem = {{ wlb_pg_work_mem }}
+maintenance_work_mem = {{ wlb_pg_maintenance_work_mem }}
+max_connections = {{ wlb_pg_max_connections }}
+
+# Audyt: metadane i schemat (DDL), czas i blokady — NIE treść SELECT (dane osobowe, §21/RODO).
+log_connections = on
+log_disconnections = on
+log_statement = '{{ wlb_pg_log_statement }}'
+log_min_duration_statement = {{ wlb_pg_log_min_duration_ms }}
+log_lock_waits = on

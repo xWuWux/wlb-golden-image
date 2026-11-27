@@ -1,0 +1,97 @@
+---
+# Rola dbeaver (#271): instalacja DBeaver CE z pgJDBC offline i profilem per-badacz.
+# Klient bazodanowy dla flavora wlb-pediatria; wymaga środowiska graficznego (rola desktop).
+
+- name: Pobierz instalator deb DBeaver CE {{ wlb_dbeaver_version }}
+  ansible.builtin.get_url:
+    url: "{{ wlb_dbeaver_deb_url }}"
+    dest: /tmp/dbeaver-ce.deb
+    checksum: "sha256:{{ wlb_dbeaver_deb_sha256 }}"
+    mode: "0644"
+  register: dbeaver_deb_dl
+  until: dbeaver_deb_dl is succeeded
+  retries: 3
+  delay: 30
+
+- name: Instalacja DBeaver CE z pakietu .deb
+  ansible.builtin.apt:
+    deb: /tmp/dbeaver-ce.deb
+    state: present
+
+- name: Sprzątanie instalatora .deb DBeaver CE
+  ansible.builtin.file:
+    path: /tmp/dbeaver-ce.deb
+    state: absent
+
+- name: Katalog na sterowniki bazodanowe offline
+  ansible.builtin.file:
+    path: /opt/wlb/drivers/postgres
+    state: directory
+    mode: "0755"
+
+- name: Pobierz sterownik PostgreSQL JDBC offline jar {{ wlb_pgjdbc_version }}
+  ansible.builtin.get_url:
+    url: "{{ wlb_pgjdbc_jar_url }}"
+    dest: "/opt/wlb/drivers/postgres/postgresql-{{ wlb_pgjdbc_version }}.jar"
+    checksum: "sha256:{{ wlb_pgjdbc_jar_sha256 }}"
+    mode: "0644"
+  register: dbeaver_pgjdbc_dl
+  until: dbeaver_pgjdbc_dl is succeeded
+  retries: 3
+  delay: 30
+
+- name: Konfiguracja sterowników offline DBeaver (wlb-drivers.xml) (#271)
+  ansible.builtin.template:
+    src: wlb-drivers.xml.j2
+    dest: /usr/share/dbeaver-ce/wlb-drivers.xml
+    mode: "0644"
+
+- name: Ogranicz pamięć sterty DBeaver do -Xmx512m (#271)
+  ansible.builtin.lineinfile:
+    path: /usr/share/dbeaver-ce/dbeaver.ini
+    regexp: '^-Xmx'
+    line: "-Xmx512m"
+
+- name: Flagi air-gap, sterowników offline i wyłączenie telemetrii/AI w dbeaver.ini (#271)
+  ansible.builtin.lineinfile:
+    path: /usr/share/dbeaver-ce/dbeaver.ini
+    insertafter: "^-vmargs"
+    line: "{{ item }}"
+  loop:
+    - "-Ddbeaver.drivers.configuration-file=/usr/share/dbeaver-ce/wlb-drivers.xml"
+    - "-Dpolicy.software.update.disabled=true"
+    - "-Dpolicy.software.install.disabled=true"
+    - "-Dpolicy.usage.stats.disabled=true"
+    - "-Ddbeaver.usage.statistics.disabled=true"
+    - "-Dai.disabled=true"
+
+- name: Katalog konfiguracji szablonów DBeaver w WLB
+  ansible.builtin.file:
+    path: /etc/wlb/dbeaver
+    state: directory
+    mode: "0755"
+
+- name: Szablon profilu połączenia DBeaver (data-sources.template.json)
+  ansible.builtin.copy:
+    src: data-sources.template.json
+    dest: /etc/wlb/dbeaver/data-sources.template.json
+    mode: "0644"
+
+- name: Wrapper /usr/local/bin/dbeaver (automatyczna konfiguracja per-badacz) (#271)
+  ansible.builtin.copy:
+    src: dbeaver-wrapper
+    dest: /usr/local/bin/dbeaver
+    mode: "0755"
+
+- name: Kafelek pulpitu XFCE dla DBeaver CE
+  ansible.builtin.copy:
+    src: wlb-dbeaver.desktop
+    dest: /usr/share/applications/wlb-dbeaver.desktop
+    mode: "0644"
+
+- name: Ukryj domyślny kafelek dbeaver-ce.desktop w menu (zastąpiony przez wlb-dbeaver.desktop)
+  ansible.builtin.lineinfile:
+    path: /usr/share/applications/dbeaver-ce.desktop
+    insertafter: "^\\[Desktop Entry\\]"
+    line: "NoDisplay=true"
+    state: present

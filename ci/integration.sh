@@ -97,6 +97,7 @@ jlab_flavor() {
     acceptance-memory) echo memory ;;
     acceptance-radiologia) echo radiologia ;;
     acceptance-histologia) echo histologia ;;
+    acceptance-pediatria) echo pediatria ;;
     *) echo general ;; # baza: BEZ Desktop/RStudio (regresja lekkości, #105)
   esac
 }
@@ -577,6 +578,37 @@ radiologia_flavor() {
   WLB_E2E_DESKTOP=required acceptance "$rad_img" acceptance-radiologia
 }
 
+# Flavor wlb-pediatria (#271): opt-in (etykieta build-pediatria / zmiana plików flavora / nocny build —
+# workflow ustawia WLB_BUILD_PEDIATRIA=1). Buduje warstwowo na obrazie bazowym i uruchamia akceptację
+# (adaptacyjne 72-pediatria + 40-pulpit wykryją flavor). Łapie init klastra PG na /workspace i realne
+# połączenie DBeaver/JDBC przez .pgpass — tego nie dowiedzie test jednostkowy.
+pediatria_flavor() {
+  [[ ${WLB_BUILD_PEDIATRIA:-0} == 1 ]] || {
+    if [[ ${FLAVOR:-all} == pediatria ]]; then
+      echo "BŁĄD: flavor 'pediatria' uruchomiony pojedynczo z macierzy, ale WLB_BUILD_PEDIATRIA=0 — desync changes.sh(flavors)↔ci.yml; nieopt-inowy flavor nie powinien być jobem (#317/P1-5)." >&2
+      return 1
+    fi
+    echo "pominięto: brak etykiety build-pediatria ani zmiany plików flavora (#271)"
+    return 0
+  }
+  local ped_full="wlb-pediatria-$IMAGE_VERSION-$IMAGE_DATE" ped_img
+  ped_img="$REPO_ROOT/output/$ped_full/$ped_full.qcow2"
+  rm -rf "output/$ped_full"
+  echo "== Build flavora wlb-pediatria (base_image=$IMAGE) =="
+  if ! PACKER_LOG=1 PACKER_LOG_PATH="$LOGS/packer-pediatria.log" packer build -color=false -only='wlb-pediatria.*' \
+    -var "image_version=$IMAGE_VERSION" -var "image_date=$IMAGE_DATE" \
+    -var "build_cpus=$BUILD_CPUS" -var "build_memory=$BUILD_MEMORY" \
+    -var "git_commit=$GIT_COMMIT" -var "git_describe=$GIT_DESCRIBE" \
+    -var "git_dirty=$GIT_DIRTY" -var "build_run=$BUILD_RUN" -var "base_image=$IMAGE" \
+    -var "wlb_enable_e2e_target=true" packer/; then
+    echo "build flavora wlb-pediatria nieudany (packer-pediatria.log w artefaktach etapu 5)"
+    return 1
+  fi
+  ci/image-size-report.sh "$ped_img" "$ped_full" || return 1
+  echo "== Akceptacja wlb-pediatria =="
+  WLB_E2E_DESKTOP=required acceptance "$ped_img" acceptance-pediatria
+}
+
 # Flavor wlb-memory (#105): opt-in (etykieta build-memory / zmiana plików flavora / nocny build —
 # workflow ustawia WLB_BUILD_MEMORY=1). Buduje warstwowo na obrazie bazowym i uruchamia tę samą
 # akceptację (adaptacyjne 45-memory + 40-pulpit wykryją flavor). Potwierdza instalację LibreOffice Calc
@@ -698,6 +730,9 @@ case $FLAVOR in
     ;;
   radiologia)
     run_check "Flavor wlb-radiologia: build + akceptacja (#135)" radiologia_flavor
+    ;;
+  pediatria)
+    run_check "Flavor wlb-pediatria: build + akceptacja (#271)" pediatria_flavor
     ;;
   mirror)
     run_check "Wariant cloud-init: mirror pakietów (#288 klasa 4)" acceptance_mirror

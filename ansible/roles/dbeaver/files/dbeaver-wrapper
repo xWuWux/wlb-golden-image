@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# /usr/local/bin/dbeaver — wrapper DBeaver CE z automatyczną konfiguracją połączenia WLB (#271).
+# Przy pierwszym uruchomieniu dla konta badacza (jupyter-uNN) instancjonuje profil połączenia
+# ~/.local/share/DBeaverData/workspace6/General/.dbeaver/data-sources.json z szablonu,
+# pobierając hasło z ~/.pgpass (save-password: true, bez monitów o hasło w DBeaverze).
+#
+# ARCHITEKTURA I MODEL BEZPIECZEŃSTWA AUTH:
+# 1. Wymóg warstwy GUI DBeaver: Choć pgJDBC 42.7.14 natywnie obsługuje ~/.pgpass na poziomie
+#    sterownika (co weryfikuje Test 2 w 72-pediatria.sh), warstwa desktopowa DBeaver CE (Eclipse RCP)
+#    przy save-password=false lub braku userPassword wyświetla modalne okno dialogowe z promptem
+#    o hasło. Badacz w środowisku WLB nie zna losowo generowanego hasła SCRAM (32 znaki),
+#    więc one-click access ("klik-klik") ze skrótu na pulpicie wymaga obecności hasła w profilu.
+# 2. Równoważność uprawnień (0600): Plik data-sources.json jest tworzony z uprawnieniami 0600
+#    i właścicielem jupyter-uNN:jupyter-uNN — dokładnie takimi samymi jak ~/.pgpass (0600).
+#    Żadne inne konto w systemie nie ma do niego dostępu.
+# 3. Szablon w repozytorium (data-sources.template.json) zawiera wyłącznie placeholder @PASSWORD@,
+#    dzięki czemu repozytorium Git i artefakty obrazu są w 100% wolne od poświadczeń.
+
+set -euo pipefail
+
+CURRENT_USER="${WLB_TEST_USER:-$(id -un)}"
+# Wyodrębnienie nazwy roli: jupyter-uNN -> uNN (dla kont badaczy prefiks jupyter- jest usuwany)
+ROLE=$(printf '%s' "$CURRENT_USER" | sed 's/^jupyter-//')
+DB="db_${ROLE}"
+
+TARGET_DIR="$HOME/.local/share/DBeaverData/workspace6/General/.dbeaver"
+TARGET_FILE="$TARGET_DIR/data-sources.json"
+TEMPLATE_FILE="${WLB_DBEAVER_TEMPLATE:-/etc/wlb/dbeaver/data-sources.template.json}"
+
+if [[ ! -f "$TARGET_FILE" && -f "$TEMPLATE_FILE" ]]; then
+  mkdir -p "$TARGET_DIR"
+  PGPASS_FILE="${WLB_PGPASS_FILE:-$HOME/.pgpass}"
+  DB_PASS=""
+  if [[ -f "$PGPASS_FILE" ]]; then
+    # Format .pgpass: hostname:port:database:username:password
+    DB_PASS=$(awk -F: -v h="127.0.0.1" -v p="5432" -v d="$DB" -v u="$ROLE" \
+      '$1 == h && $2 == p && ($3 == d || $3 == "*") && ($4 == u || $4 == "*") { print $5; exit }' "$PGPASS_FILE")
+  fi
+
+  # Bezpieczna instancjacja JSON:
+  # Podstawienie przez python3 (odporne na dowolne znaki w haśle, eliminujące sprzężenie
+  # na wyłącznie alfanumeryczne hasła z wlb-postgres-provision i błędy formatowania JSON).
+  # W przypadku środowiska bez python3 — fallback na sed (zakłada hasło alfanumeryczne [A-Za-z0-9]{32}).
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import json, sys
+
+template_path, target_path, role, db, password = sys.argv[1:6]
+with open(template_path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+conn = data.get("connections", {}).get("wlb-local-postgres", {})
+conn["name"] = f"Baza lokalna ({db})"
+cfg = conn.setdefault("configuration", {})
+cfg["database"] = db
+cfg["url"] = f"jdbc:postgresql://127.0.0.1:5432/{db}"
+cfg["user"] = role
+cfg["password"] = password
+auth = cfg.setdefault("auth-properties", {})
+auth["user"] = role
+auth["userName"] = role
+auth["userPassword"] = password
+auth["password"] = password
+
+with open(target_path + ".tmp", "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+' "$TEMPLATE_FILE" "$TARGET_FILE" "$ROLE" "$DB" "$DB_PASS"
+  else
+    # Fallback sed: zakłada hasło alfanumeryczne z wlb-postgres-provision ([A-Za-z0-9]{32})
+    sed \
+      -e "s/@ROLE@/${ROLE}/g" \
+      -e "s/@USER@/${ROLE}/g" \
+      -e "s/@DB@/${DB}/g" \
+      -e "s/@PASSWORD@/${DB_PASS}/g" \
+      "$TEMPLATE_FILE" >"${TARGET_FILE}.tmp"
+  fi
+  chmod 0600 "${TARGET_FILE}.tmp"
+  mv "${TARGET_FILE}.tmp" "$TARGET_FILE"
+fi
+
+if [[ "${WLB_DBEAVER_SKIP_EXEC:-0}" == "1" ]]; then
+  exit 0
+fi
+
+exec /usr/share/dbeaver-ce/dbeaver "$@"

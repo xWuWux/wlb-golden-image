@@ -137,6 +137,21 @@
     <group>wlb_ev_monitoring.message,wlb_config_change,</group>
   </rule>
 
+  <!-- ===== PostgreSQL badacza (#271) ===== -->
+  <rule id="100137" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-postgres-setup$</field>
+    <description>WLB: komunikat tworzenia klastra PostgreSQL (wlb-postgres-setup)</description>
+    <group>wlb_ev_postgres.setup_message,</group>
+  </rule>
+
+  <rule id="100138" level="3">
+    <if_sid>100101</if_sid>
+    <field name="wlb.app" type="pcre2">^wlb-postgres-provision$</field>
+    <description>WLB: komunikat provisioningu bazy badacza (wlb-postgres-provision)</description>
+    <group>wlb_ev_postgres.provision_message,</group>
+  </rule>
+
   <!-- ===== JupyterHub ===== -->
   <rule id="100117" level="3">
     <if_sid>100101</if_sid>

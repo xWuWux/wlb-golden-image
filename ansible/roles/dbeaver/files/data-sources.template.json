@@ -1,0 +1,49 @@
+{
+  "folders": {},
+  "connections": {
+    "wlb-local-postgres": {
+      "provider": "postgresql",
+      "driver": "postgres-jdbc",
+      "name": "Baza lokalna (@DB@)",
+      "save-password": true,
+      "read-only": false,
+      "configuration": {
+        "host": "127.0.0.1",
+        "port": "5432",
+        "database": "@DB@",
+        "url": "jdbc:postgresql://127.0.0.1:5432/@DB@",
+        "user": "@ROLE@",
+        "password": "@PASSWORD@",
+        "configurationType": "MANUAL",
+        "type": "dev",
+        "auth-model": "native",
+        "auth-properties": {
+          "user": "@ROLE@",
+          "userName": "@ROLE@",
+          "userPassword": "@PASSWORD@",
+          "password": "@PASSWORD@"
+        },
+        "provider-properties": {
+          "@dbeaver-show-non-default-db@": "false",
+          "@dbeaver-show-template-db@": "false"
+        }
+      }
+    }
+  },
+  "connection-types": {
+    "dev": {
+      "name": "Development",
+      "color": "255,255,255",
+      "description": "Lokalna baza badacza",
+      "auto-commit": true,
+      "confirm-execute": false,
+      "confirm-data-change": false,
+      "smart-commit": false,
+      "smart-commit-recover": false,
+      "auto-close-transactions": true,
+      "close-transactions-period": 1800,
+      "auto-close-connections": true,
+      "close-connections-period": 14400
+    }
+  }
+}

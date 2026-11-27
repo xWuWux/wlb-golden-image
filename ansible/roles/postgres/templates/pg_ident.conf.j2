@@ -1,0 +1,5 @@
+# Zarządzane przez Ansible (rola postgres, #271). Mapa 'wlb' dla auth peer.
+# Regex (wiodący /): konto OS jupyter-uNN -> rola DB uNN (\1). Dynamiczne — bez wpisów per konto.
+# MAPNAME   SYSTEM-USERNAME        PG-USERNAME
+wlb         /^{{ wlb_pg_account_prefix }}(u\d+)$   \1
+wlb         postgres               postgres

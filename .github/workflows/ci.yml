@@ -66,6 +66,7 @@ jobs:
       radiologia: ${{ steps.changes.outputs.radiologia }}
       memory: ${{ steps.changes.outputs.memory }}
       histologia: ${{ steps.changes.outputs.histologia }}
+      pediatria: ${{ steps.changes.outputs.pediatria }}
       flavors: ${{ steps.changes.outputs.flavors }}
       perf: ${{ steps.changes.outputs.perf }}
       ephemeral: ${{ steps.changes.outputs.ephemeral }}
@@ -648,6 +649,9 @@ jobs:
           # Flavor wlb-histologia analogicznie opt-in (etykieta build-histologia / zmiana plików flavora /
           # nocny build) — pulpit + Calc + RStudio + jamovi-Flatpak na realnym obrazie (#108).
           WLB_BUILD_HISTOLOGIA: ${{ needs.lint.outputs.histologia == 'true' && '1' || '0' }}
+          # Flavor wlb-pediatria analogicznie opt-in (etykieta build-pediatria / zmiana plików flavora /
+          # nocny build) — pulpit + PostgreSQL 16 + DBeaver CE na realnym obrazie (#271).
+          WLB_BUILD_PEDIATRIA: ${{ needs.lint.outputs.pediatria == 'true' && '1' || '0' }}
           # Bramka regresji Lynis (#288): domyślnie raport; vars.WLB_LYNIS_GATING=1 promuje,
           # vars.WLB_LYNIS_BASELINE nadpisuje baseline (domyślnie 72).
           WLB_LYNIS_GATING: ${{ vars.WLB_LYNIS_GATING || '0' }}

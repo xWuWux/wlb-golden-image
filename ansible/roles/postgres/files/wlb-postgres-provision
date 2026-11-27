@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# wlb-postgres-provision — tworzy rolę i bazę per konto badacza (uNN) + hasło i ~/.pgpass (#271).
+#
+# Uruchamiany przez wlb-postgres-provision.service: Type=oneshot, After=postgresql@16-main.service
+# (klaster musi ŻYĆ — tu wykonujemy SQL). Wyzwalany (a) przy boocie (WantedBy) oraz (b) ZDARZENIOWO
+# przez wlb-postgres-provision.path, gdy przy pierwszym spawnie badacza pojawia się /workspace/jupyter-uNN
+# (#369 wariant B) — dzięki temu konto dodane po boocie dostaje stan bez restartu. Idempotentny:
+# istniejące role/bazy nie są odtwarzane, hasło generowane RAZ i zapisane w /root (0600), z niego
+# spójny ~/.pgpass; wielokrotne wyzwolenia (path-unit) są bezpieczne — przetwarzamy tylko brakujące.
+#
+# Model (research #271): rola DB = uNN, baza db_uNN OWNER uNN, nasłuch 127.0.0.1 scram-sha-256.
+# Konto systemowe to jupyter-uNN (prefiks TLJH, HOME=/workspace); pg_ident mapuje je na rolę uNN.
+# Izolacja LOGICZNA (nie twarda) — bezpieczna przy RESEARCHERS_PER_VM=1; przy >1 patrz #271.
+#
+# Zmienne (nadpisywalne w testach):
+#   WLB_PG_ACCOUNT_PREFIX  prefiks konta OS (domyślnie jupyter-)
+#   WLB_PG_HOME_BASE       baza katalogów domowych (domyślnie /workspace)
+#   WLB_PG_SECRET_DIR      katalog na hasła PG (domyślnie /root)
+#   WLB_PG_LOCK            plik blokady serializującej przebiegi (domyślnie /run/wlb-postgres-provision.lock)
+#   WLB_PG_LOCK_WAIT       limit oczekiwania na blokadę w s (domyślnie 60; po przekroczeniu pomija przebieg)
+#   WLB_PG_PSQL            polecenie psql superusera (domyślnie: sudo -u postgres psql)
+#   WLB_PG_GETENT          polecenie listujące konta (domyślnie: getent passwd)
+#   WLB_PG_CONN_LIMIT / WLB_PG_STATEMENT_TIMEOUT / WLB_PG_IDLE_TIMEOUT / WLB_PG_TEMP_FILE_LIMIT / WLB_PG_WORK_MEM
+set -euo pipefail
+
+PREFIX=${WLB_PG_ACCOUNT_PREFIX:-jupyter-}
+HOME_BASE=${WLB_PG_HOME_BASE:-/workspace}
+SECRET_DIR=${WLB_PG_SECRET_DIR:-/root}
+GETENT=${WLB_PG_GETENT:-getent passwd}
+CONN_LIMIT=${WLB_PG_CONN_LIMIT:-5}
+STATEMENT_TIMEOUT=${WLB_PG_STATEMENT_TIMEOUT:-30min}
+IDLE_TIMEOUT=${WLB_PG_IDLE_TIMEOUT:-10min}
+TEMP_FILE_LIMIT=${WLB_PG_TEMP_FILE_LIMIT:-2GB}
+WORK_MEM=${WLB_PG_WORK_MEM:-16MB}
+
+log() {
+  logger -t wlb-postgres-provision -p daemon.notice -- "$*" 2>/dev/null || true
+  echo "wlb-postgres-provision: $*"
+}
+die() {
+  echo "wlb-postgres-provision BŁĄD: $*" >&2
+  exit 1
+}
+# Ostrzeżenie bezpieczeństwa widoczne w SIEM (authpriv) — używane przy konfiguracji poza modelem.
+warn() {
+  logger -t wlb-postgres-provision -p authpriv.warning -- "$*" 2>/dev/null || true
+  echo "wlb-postgres-provision OSTRZEŻENIE: $*" >&2
+}
+
+# psql superusera. Jedno miejsce — testy podstawiają WLB_PG_PSQL. -v ON_ERROR_STOP=1: błąd = niezerowy kod.
+psql_super() { ${WLB_PG_PSQL:-sudo -u postgres psql} -v ON_ERROR_STOP=1 -tAqX "$@"; }
+
+# Nazwa roli DB z konta OS: jupyter-u01 -> u01 (odcięcie prefiksu).
+role_of() { printf '%s' "${1#"$PREFIX"}"; }
+
+provision_account() {
+  local osuser=$1 role db pwfile pw home pgpass
+  role=$(role_of "$osuser")
+  db="db_$role"
+  pwfile="$SECRET_DIR/wlb-pg-${role}-initial-password"
+  home="$HOME_BASE/$osuser"
+
+  # Hasło generowane RAZ (idempotencja + stabilny .pgpass). Reużywane przy kolejnych przebiegach.
+  if [[ -f "$pwfile" ]]; then
+    pw=$(cat "$pwfile")
+  else
+    # `|| true`: head zamyka potok po 32 bajtach, tr dostaje SIGPIPE; pod pipefail to niezerowy kod.
+    pw=$(tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c 32) || true
+    [[ ${#pw} -eq 32 ]] || die "nie udało się wygenerować hasła dla $role"
+    (
+      umask 077
+      printf '%s' "$pw" >"$pwfile"
+    )
+  fi
+
+  # Rola: utwórz jeśli brak; zawsze ustaw hasło (ze stałego pwfile) i limity. Brak CREATEDB/ROLE/SUPERUSER.
+  psql_super <<SQL
+DO \$\$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$role') THEN
+    CREATE ROLE "$role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT $CONN_LIMIT;
+  END IF;
+END \$\$;
+ALTER ROLE "$role" LOGIN CONNECTION LIMIT $CONN_LIMIT PASSWORD '$pw';
+ALTER ROLE "$role" SET statement_timeout = '$STATEMENT_TIMEOUT';
+ALTER ROLE "$role" SET idle_in_transaction_session_timeout = '$IDLE_TIMEOUT';
+ALTER ROLE "$role" SET temp_file_limit = '$TEMP_FILE_LIMIT';
+ALTER ROLE "$role" SET work_mem = '$WORK_MEM';
+SQL
+
+  # Baza db_uNN OWNER uNN — CREATE DATABASE nie może być w transakcji/DO, stąd \gexec.
+  psql_super <<SQL
+SELECT 'CREATE DATABASE "$db" OWNER "$role"'
+ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '$db')\gexec
+REVOKE CONNECT ON DATABASE "$db" FROM PUBLIC;
+GRANT CONNECT ON DATABASE "$db" TO "$role";
+SQL
+
+  # Schemat public tylko dla właściciela (odbieramy USAGE/CREATE od PUBLIC).
+  psql_super -d "$db" <<SQL
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT ALL ON SCHEMA public TO "$role";
+SQL
+
+  # ~/.pgpass dla DBeavera/psql-TCP (peer działa tylko po sokecie; JDBC idzie po TCP -> wymaga hasła).
+  if [[ -d "$home" && ! -L "$home" ]]; then
+    pgpass="$home/.pgpass"
+    # Plik tymczasowy w SECRET_DIR (katalog roota), NIE w katalogu badacza (#369 P1): badacz mógłby
+    # podstawić .pgpass.tmp -> /etc/shadow, a `printf >` podążyłoby za symlinkiem i root nadpisałby cel.
+    # W katalogu roota symlink-atak nie grozi; mktemp otwiera z O_EXCL. Następnie mv ZASTĘPUJE nazwę
+    # $home/.pgpass (nie pisze przez ewentualny symlink .pgpass) — atomowo i bez podążania za dowiązaniem.
+    local pgtmp
+    pgtmp=$(mktemp "$SECRET_DIR/.wlb-pgpass.${role}.XXXXXX") || die "nie udało się utworzyć pliku tymczasowego .pgpass dla $role"
+    (
+      umask 077
+      printf '127.0.0.1:5432:%s:%s:%s\n' "$db" "$role" "$pw" >"$pgtmp"
+    )
+    chown "$osuser:$osuser" "$pgtmp"
+    chmod 0600 "$pgtmp"
+    mv -f "$pgtmp" "$pgpass"
+    log "konto $osuser: rola $role, baza $db, .pgpass w $pgpass"
+  else
+    log "konto $osuser: rola $role, baza $db (brak katalogu $home lub jest dowiązaniem — .pgpass pominięty)"
+  fi
+}
+
+# Serializacja (#369 wariant B): wlb-postgres-provision.path może odpalić provisioning WIELOKROTNIE i
+# zbieżnie (spawny u01/u02, zbieg ze startem przy boocie). Dwa równoległe przebiegi bez locka mogłyby
+# wygenerować RÓŻNE hasła dla tej samej roli i rozjechać `ALTER ROLE ... PASSWORD` z zapisanym `.pgpass`
+# (badacz miałby .pgpass z innym hasłem niż rola → odmowa TCP/SCRAM). flock blokująco (z limitem) szereguje
+# przebiegi; każdy i tak ponownie skanuje getent, więc konto dodane w międzyczasie też zostanie obsłużone.
+exec 9>"${WLB_PG_LOCK:-/run/wlb-postgres-provision.lock}"
+flock -w "${WLB_PG_LOCK_WAIT:-60}" 9 || {
+  log "inny provisioning trzyma blokadę > ${WLB_PG_LOCK_WAIT:-60}s — pomijam (tamten przebieg obsłuży konta)"
+  exit 0
+}
+
+mapfile -t accounts < <($GETENT | awk -F: -v p="$PREFIX" '$1 ~ "^" p "u[0-9]+$" {print $1}' | sort -u)
+if ((${#accounts[@]} == 0)); then
+  log "brak kont ${PREFIX}uNN — nic do zrobienia"
+  exit 0
+fi
+# #369 (decyzja właściciela — wariant W2): izolacja per-uNN jest LOGICZNA (poufność zachowana: db_uNN
+# OWNER uNN + REVOKE PUBLIC + peer/scram), ale NIE zasobowa — jeden współdzielony klaster na współdzielonym
+# /workspace. Przy >1 koncie badacz MOŻE wyczerpać dysk/pamięć/połączenia pozostałym (DoS, nie wyciek).
+# Modelem WLB jest RESEARCHERS_PER_VM=1; przy >1 NIE blokujemy (każdy badacz musi móc podłączyć DBeavera do
+# swojej bazy), lecz emitujemy twarde ostrzeżenie do SIEM, żeby operator wiedział o braku izolacji zasobów.
+if ((${#accounts[@]} > 1)); then
+  warn "WLB_PG_SHARED_CLUSTER: ${#accounts[@]} kont badaczy na jednej VM — izolacja logiczna (poufność OK), BEZ izolacji zasobów (dysk/pamięć/połączenia współdzielone, #369). Zalecany model: RESEARCHERS_PER_VM=1 / osobna VM per badacz."
+fi
+for acct in "${accounts[@]}"; do
+  provision_account "$acct"
+done
+log "sprowizjonowano kont: ${#accounts[@]}"

@@ -134,6 +134,28 @@ events:
     acceptance: false
     wazuh_rule: 100116
 
+  - name: postgres.setup_message
+    description: >-
+      Komunikaty wlb-postgres-setup (#271): utworzenie klastra PostgreSQL na trwałym /workspace/pgdata
+      przy pierwszym boocie oraz błędy. Tekst dla administratora (usługa roota, oneshot przed startem klastra).
+    source: { tag: wlb-postgres-setup, file: ansible/roles/postgres/files/wlb-postgres-setup }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
+    format: text
+    pattern: ".+"
+    acceptance: false
+    wazuh_rule: 100137
+
+  - name: postgres.provision_message
+    description: >-
+      Komunikaty wlb-postgres-provision (#271): nadanie roli i bazy per badacz (uNN) oraz ostrzeżenia
+      (np. WLB_PG_SHARED_CLUSTER — wielu badaczy na jednej VM). Tekst dla administratora (usługa roota).
+    source: { tag: wlb-postgres-provision, file: ansible/roles/postgres/files/wlb-postgres-provision }
+    trusted: { input: imuxsock, uid: "^0$" } # usługa roota
+    format: text
+    pattern: ".+"
+    acceptance: false
+    wazuh_rule: 100138
+
   - name: monitoring.message
     description: >-
       Komunikaty wlb-monitoring (#22): włączenie/wyłączenie ekspozycji metryk VM dla sieci monitoringu

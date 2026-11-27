@@ -17,6 +17,9 @@ SHELL_SCRIPTS=(
   tests/*.sh tests/lib/*.sh
   ansible/roles/lab_config/files/wlb-firstboot
   ansible/roles/storage/files/wlb-sluza-out-mover
+  ansible/roles/postgres/files/wlb-postgres-setup
+  ansible/roles/postgres/files/wlb-postgres-provision
+  ansible/roles/dbeaver/files/dbeaver-wrapper
   ansible/roles/monitoring/files/wlb-monitoring
   ansible/roles/tljh/files/wlb-hub-db-backup
   ansible/roles/tljh/files/wlb-hub-db-restore

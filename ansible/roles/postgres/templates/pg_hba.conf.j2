@@ -1,0 +1,6 @@
+# Zarządzane przez Ansible (rola postgres, #271). Zasada: żadnego 0.0.0.0/::/trust.
+# local  = socket Unix, peer z mapą wlb (jupyter-uNN -> rola uNN); psql lokalnie bez hasła.
+# host   = TYLKO loopback 127.0.0.1, scram-sha-256 (DBeaver/JDBC po TCP wymaga hasła z .pgpass).
+# TYPE   DATABASE   USER   ADDRESS         METHOD
+local    all        all                    peer map=wlb
+host     all        all    127.0.0.1/32    scram-sha-256

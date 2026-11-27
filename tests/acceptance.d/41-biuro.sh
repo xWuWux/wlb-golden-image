@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # Adaptacyjna: standard biurowy pulpitu (#269, #270, #272) — LibreOffice Writer, czytnik PDF (evince)
-# i edytor tekstu (mousepad) na KAŻDYM flavorze z pulpitem (decyzja PO: Opcja A, bez wyjątku dla radiologii).
-# wlb-general jest headless, więc nie dotyczy.
-if grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia|histologia)' /etc/wlb/image-release 2>/dev/null; then
+# i edytor tekstu (mousepad) na KAŻDYM flavorze z pulpitem (decyzja PO: Opcja A, bez wyjątku). Dotyczy też
+# wlb-pediatria (#271): nakłada rolę `desktop`, która dostarcza ten sam zestaw biurowy. wlb-general jest
+# headless, więc nie dotyczy.
+if grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia|histologia|pediatria)' /etc/wlb/image-release 2>/dev/null; then
   echo "== Standard biurowy pulpitu: LibreOffice Writer (#269), czytnik PDF (#270) i edytor tekstu (#272) =="
   expect_ok "LibreOffice obecny (binarka)" test -x /usr/bin/libreoffice
   # Kafelek stockowy z libreoffice-common — bez własnego .desktop (jak Calc w 45-memory/47-histologia).

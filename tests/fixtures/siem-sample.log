@@ -15,6 +15,10 @@
 <13>1 2026-10-30T10:29:22.860825+01:00 lab-test01 wlb-firstboot - - [wlb@32473 input="imuxsock" uid="0" gid="0" pid="1692"]  Laboratorium lab-test01 skonfigurowane
 # monitoring.message (syntetyczny — format logger -t wlb-monitoring z narzędzia roota, #22)
 <13>1 2026-11-10T10:12:03.104512+01:00 lab-test01 wlb-monitoring - - [wlb@32473 input="imuxsock" uid="0" gid="0" pid="4120"]  metryki VM: nasłuch na 0.0.0.0:9100, dostęp tylko z 198.51.100.2/32 (#22)
+# postgres.setup_message (syntetyczny — logger -t wlb-postgres-setup z usługi roota, #271)
+<13>1 2026-11-10T10:11:50.231004+01:00 lab-test01 wlb-postgres-setup - - [wlb@32473 input="imuxsock" uid="0" gid="0" pid="880"]  klaster PostgreSQL utworzony na /workspace/pgdata (pierwszy boot)
+# postgres.provision_message (syntetyczny — logger -t wlb-postgres-provision z usługi roota, #271)
+<13>1 2026-11-10T10:12:10.512889+01:00 lab-test01 wlb-postgres-provision - - [wlb@32473 input="imuxsock" uid="0" gid="0" pid="4210"]  rola u01 i baza db_u01 gotowe; ~/.pgpass zapisany (0600)
 # hub.login
 <30>1 2026-10-30T10:29:23.939371+01:00 lab-test01 python3 1503 - [wlb@32473 input="imuxsock" uid="0" gid="0" pid="1503"]  [I 2026-10-30 10:29:23.939 JupyterHub base:988] User logged in: u01
 # hub.login_failed
