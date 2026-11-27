@@ -13,6 +13,13 @@ _mk_meminfo() {
   printf 'MemTotal:       %d kB\n' "$(($1 * 1024))" >"$BATS_TEST_TMPDIR/meminfo"
   echo "$BATS_TEST_TMPDIR/meminfo"
 }
+# _cgroot_env KORZEŃ MEMINFO — ustawia hooki testowe perf_vm_resources. Eksport w ZWYKŁEJ funkcji (nie
+# @test), więc shellcheck nie modeluje go jako podpowłoki @bats (brak SC2030/SC2031), a rozdzielenie od
+# command substitution unika SC2155. Zmienne i tak żyją tylko w ramach danego @testu (izolacja bats).
+_cgroot_env() {
+  export WLB_CGROUP_ROOT="$1"
+  export WLB_MEMINFO="$2"
+}
 
 @test "median: nieparzysta liczba próbek to wartość środkowa (#10)" {
   source "$REPO_ROOT/tests/lib/remote-common.sh"
@@ -59,7 +66,7 @@ _mk_meminfo() {
   source "$REPO_ROOT/tests/lib/local-common.sh"
   cg=$(_mk_cgroot)
   echo "200000 100000" >"$cg/cpu.max"
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 16384)"
+  _cgroot_env "$cg" "$(_mk_meminfo 16384)"
   unset VM_CPUS VM_MEMORY
   perf_vm_resources
   [ "$VM_CPUS" -eq 2 ]
@@ -70,7 +77,7 @@ _mk_meminfo() {
   nproc() { echo 3; } # stub: host ma 3 vCPU, cgroup bez limitu
   cg=$(_mk_cgroot)
   echo "max 100000" >"$cg/cpu.max"
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 16384)"
+  _cgroot_env "$cg" "$(_mk_meminfo 16384)"
   unset VM_CPUS VM_MEMORY
   perf_vm_resources
   [ "$VM_CPUS" -eq 3 ]
@@ -82,7 +89,7 @@ _mk_meminfo() {
   mkdir -p "$cg/cpu"
   echo 150000 >"$cg/cpu/cpu.cfs_quota_us"
   echo 100000 >"$cg/cpu/cpu.cfs_period_us"
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 16384)"
+  _cgroot_env "$cg" "$(_mk_meminfo 16384)"
   unset VM_CPUS VM_MEMORY
   perf_vm_resources
   [ "$VM_CPUS" -eq 2 ]
@@ -92,7 +99,7 @@ _mk_meminfo() {
   source "$REPO_ROOT/tests/lib/local-common.sh"
   cg=$(_mk_cgroot)
   echo $((6144 * 1024 * 1024)) >"$cg/memory.max" # 6144 MiB, host 32 GiB
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 32768)"
+  _cgroot_env "$cg" "$(_mk_meminfo 32768)"
   unset VM_CPUS VM_MEMORY
   perf_vm_resources
   [ "$VM_MEMORY" -eq 3584 ] # 6144 - 2560
@@ -102,7 +109,7 @@ _mk_meminfo() {
   source "$REPO_ROOT/tests/lib/local-common.sh"
   cg=$(_mk_cgroot)
   echo $((2048 * 1024 * 1024)) >"$cg/memory.max" # 2048-2560 = -512 -> clamp 1024
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 32768)"
+  _cgroot_env "$cg" "$(_mk_meminfo 32768)"
   unset VM_CPUS VM_MEMORY
   perf_vm_resources
   [ "$VM_MEMORY" -eq 1024 ]
@@ -112,7 +119,7 @@ _mk_meminfo() {
   source "$REPO_ROOT/tests/lib/local-common.sh"
   cg=$(_mk_cgroot)
   echo max >"$cg/memory.max"
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 9216)"
+  _cgroot_env "$cg" "$(_mk_meminfo 9216)"
   unset VM_CPUS VM_MEMORY
   perf_vm_resources
   [ "$VM_MEMORY" -eq 6656 ] # 9216 - 2560
@@ -123,7 +130,7 @@ _mk_meminfo() {
   cg=$(_mk_cgroot)
   echo "100000 100000" >"$cg/cpu.max"
   echo $((2048 * 1024 * 1024)) >"$cg/memory.max"
-  export WLB_CGROUP_ROOT="$cg" WLB_MEMINFO="$(_mk_meminfo 32768)"
+  _cgroot_env "$cg" "$(_mk_meminfo 32768)"
   VM_CPUS=2 VM_MEMORY=4096
   perf_vm_resources
   [ "$VM_CPUS" -eq 2 ]
