@@ -96,3 +96,8 @@ freeze: ## Kopiuje zamrożone wersje z ostatniego budowania do envs/ (do commita
 
 clean: ## Usuwa lokalne artefakty (obrazy w output/ zostają)
 	rm -rf $(BUILD_DIR)/test $(BUILD_DIR)/coverage $(BUILD_DIR)/rendered $(BUILD_DIR)/sca packer_cache
+
+.PHONY: formal-logic
+formal-logic: ## 4d. Modele wydania i decyzji eksportowej i porównanie z walidatorem Python (#352)
+	cd formal && lake build && lake env lean Audit.lean
+	PYTHONPATH=.:tests/unit python3 formal/compare.py

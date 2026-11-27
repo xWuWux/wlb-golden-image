@@ -13,6 +13,9 @@ setup() {
   stub logger
   stub chown
   stub fuser 1 # domyślnie: plik nie jest otwarty
+  export WLB_FILE_SETTLE_SECONDS=0 # domyślnie bez okna stabilności — testy sprawdzają je jawnie (#20)
+  export WLB_STABILITY_SAMPLE_SECONDS=0 # domyślnie bez drugiej próbki (bez realnego sleep); testy
+  # dwuetapowego badania rozmiaru+mtime (#379) włączają je jawnie i podstawiają atrapę sleep
   ME=$(id -un)
 }
 
@@ -42,6 +45,116 @@ setup() {
   [ "$status" -eq 0 ]
   [ -e "$WLB_SLUZA_OUT/duzy.csv" ]
   [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]  # pusta = brak wpisu widocznego dla badacza; dotfiles ignorowane
+}
+
+@test "duży plik ze świeżym mtime (kopiowanie w toku) NIE trafia do kolejki — okno stabilności (#20)" {
+  # fuser bywa pusty w oknie między zapisami menedżera plików (Thunar/GIO); bez settle śluza zabrałaby
+  # UCIĘTE archiwum (12 GB -> 8 MB). Świeży mtime (< settle) musi wstrzymać przyjęcie.
+  WLB_FILE_SETTLE_SECONDS=300
+  echo "czesc-archiwum" >"$WLB_SLUZA_OUT/processed.zip"
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ -e "$WLB_SLUZA_OUT/processed.zip" ]  # plik nietknięty, nadal u badacza
+  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]     # nic nie zabrane
+}
+
+@test "plik ze stabilnym mtime (kopiowanie zakończone) trafia do kolejki (#20)" {
+  WLB_FILE_SETTLE_SECONDS=30
+  echo "cale-archiwum" >"$WLB_SLUZA_OUT/processed.zip"
+  touch -d '-120 seconds' "$WLB_SLUZA_OUT/processed.zip" # mtime starszy niż settle = zapis zakończony
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ ! -e "$WLB_SLUZA_OUT/processed.zip" ] # zabrane po ustabilizowaniu
+  queued=$(ls "$WLB_EXPORT_QUEUE")
+  [[ $queued =~ ^[0-9]{8}T[0-9]{6}Z_${ME}_processed\.zip$ ]]
+}
+
+@test "#379: plik ze starym mtime, ale wciąż rosnący (cp -p/rsync -a) NIE jest brany — próbka rozmiaru" {
+  # Kopia zachowująca atrybuty (cp -p, rsync -a, tar -x, drag-drop z archiwum) ustawia mtime z przeszłości
+  # OD RAZU: sam wiek mtime przepuściłby plik w trakcie zapisu. Druga próbka rozmiaru (readLock=changed)
+  # łapie rosnący plik NIEZALEŻNIE od mtime — to był wektor obcięcia niewykryty przez wcześniejszą wersję.
+  WLB_FILE_SETTLE_SECONDS=30
+  WLB_STABILITY_SAMPLE_SECONDS=1
+  printf 'czesc-archiwum' >"$WLB_SLUZA_OUT/rosnacy.zip"
+  touch -d '-120 seconds' "$WLB_SLUZA_OUT/rosnacy.zip" # mtime stary -> wiek mtime przechodzi mimo zapisu
+  # atrapa sleep: w oknie próbkowania plik rośnie (kopiowanie trwa) -> s2 != s1
+  cat >"$STUBS/sleep" <<EOF
+#!/usr/bin/env bash
+printf 'dalszy-ciag' >>"$WLB_SLUZA_OUT/rosnacy.zip"
+EOF
+  chmod +x "$STUBS/sleep"
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ -e "$WLB_SLUZA_OUT/rosnacy.zip" ] # nie zabrany — rozmiar zmienił się między próbkami
+  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
+}
+
+@test "#379: plik ze starym mtime i stabilnym rozmiarem (kopia zakończona) trafia do kolejki" {
+  # cp -p zakończone: mtime stary ORAZ rozmiar niezmienny między próbkami -> przyjmujemy (brak fałszywego
+  # wstrzymania gotowego pliku o starym znaczniku czasu).
+  WLB_FILE_SETTLE_SECONDS=30
+  WLB_STABILITY_SAMPLE_SECONDS=1
+  printf 'cale-archiwum' >"$WLB_SLUZA_OUT/gotowy.zip"
+  touch -d '-120 seconds' "$WLB_SLUZA_OUT/gotowy.zip"
+  # atrapa sleep: żaden zapis w oknie -> s2 == s1, m2 == m1
+  cat >"$STUBS/sleep" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$STUBS/sleep"
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ ! -e "$WLB_SLUZA_OUT/gotowy.zip" ] # zabrany — rozmiar+mtime stabilne
+  queued=$(ls "$WLB_EXPORT_QUEUE")
+  [[ $queued =~ ^[0-9]{8}T[0-9]{6}Z_${ME}_gotowy\.zip$ ]]
+}
+
+@test "#379: nienumeryczny/ujemny WLB_STABILITY_SAMPLE_SECONDS przerywa start z błędem (#20)" {
+  WLB_STABILITY_SAMPLE_SECONDS=-1
+  echo "wynik" >"$WLB_SLUZA_OUT/wynik.csv"
+  run "$MOVER" --once
+  [ "$status" -eq 2 ]
+  [[ $output == *"STABILITY_SAMPLE_SECONDS"* ]]
+  [[ $output == *"musi być nieujemną liczbą całkowitą"* ]]
+  [ -e "$WLB_SLUZA_OUT/wynik.csv" ] # nic nie zabrane przy błędnej konfiguracji
+}
+
+@test "payload w kolejce jest wierną kopią źródła z /sluza-out — rozmiar+sha256 (#20)" {
+  # UWAGA: to test WIERNOŚCI kopii movera (payload == to, co było w /sluza-out), NIE dowód kompletności
+  # względem tego, co badacz ZAMIERZAŁ wysłać. Gdyby plik w /sluza-out był już ucięty, oba sha by się
+  # zgadzały. Kompletność wobec intencji badacza należy do potwierdzenia (#208: „porównaj z zamierzonym").
+  head -c 1048576 /dev/urandom >"$WLB_SLUZA_OUT/archiwum.zip"
+  src_size=$(stat -c %s "$WLB_SLUZA_OUT/archiwum.zip")
+  src_sha=$(sha256sum "$WLB_SLUZA_OUT/archiwum.zip" | cut -d' ' -f1)
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  queued=$(ls "$WLB_EXPORT_QUEUE")
+  payload="$WLB_EXPORT_QUEUE/$queued/payload"
+  # rozmiar i sha256 payloadu == źródła (treść nietknięta)
+  [ "$(stat -c %s "$payload")" -eq "$src_size" ]
+  [ "$(sha256sum "$payload" | cut -d' ' -f1)" = "$src_sha" ]
+  # log export_request niesie sha256 źródła (nie sumę z ucięcia)
+  calls | grep -q "sha256=$src_sha queued_as="
+  # badacz widzi realny rozmiar w potwierdzeniu przyjęcia (#208)
+  grep -rq "$src_size B" "$WLB_SLUZA_RECEIPTS"
+}
+
+@test "nienumeryczny WLB_FILE_SETTLE_SECONDS przerywa start z błędem, nie wyłącza po cichu (#20)" {
+  WLB_FILE_SETTLE_SECONDS=abc
+  echo "wynik" >"$WLB_SLUZA_OUT/wynik.csv"
+  run "$MOVER" --once
+  [ "$status" -eq 2 ]
+  [[ $output == *"musi być nieujemną liczbą całkowitą"* ]]
+  [ -e "$WLB_SLUZA_OUT/wynik.csv" ]   # nic nie zabrane przy błędnej konfiguracji
+}
+
+@test "domyślny próg (bez override) to 20 s — świeży plik NIE jest brany od razu (#20)" {
+  unset WLB_FILE_SETTLE_SECONDS      # produkcyjny domyślny FILE_SETTLE_SECONDS=20
+  echo "swieze" >"$WLB_SLUZA_OUT/wynik.csv" # mtime = teraz, dużo poniżej 20 s
+  run "$MOVER" --once
+  [ "$status" -eq 0 ]
+  [ -e "$WLB_SLUZA_OUT/wynik.csv" ]  # czeka — domyślne okno działa
+  [ -z "$(ls "$WLB_EXPORT_QUEUE")" ]
 }
 
 @test "pliki tymczasowe/ukryte są pomijane do zmiany nazwy (#33)" {

@@ -19,6 +19,31 @@ pierwszym Laboratorium na klastrze).
   (`wlb-general`), sprawdzające nieobecność 4 ścieżek targetu (`/opt/wlb/e2e`, autostart, kafelek, tmpfiles).
   Dodano testy jednostkowe w `tests/unit/test_e2e_negative_acceptance.py`.
 
+- **#20: śluza wyjściowa przyjmowała UCIĘTE pliki w trakcie kopiowania (utrata danych)** — dla pojedynczego
+  pliku jedynym warunkiem gotowości był `fuser` (czy plik jest otwarty). Kopiowanie menedżerem plików
+  (Thunar/GIO) ma okna, w których duży plik nie jest otwarty — `wlb-sluza-out-mover` trafiał wtedy w środek
+  zapisu i zabierał początek archiwum (np. 12,6 GB → 8 MB), a sumę liczył z tego, co zabrał. Teraz plik, tak
+  jak katalog, przechodzi **dwuetapowe badanie niezmienności rozmiaru+mtime** (model `readLock=changed`
+  z Apache Camel): przyjmowany jest dopiero, gdy (1) od ostatniego zapisu minęło ≥ `WLB_FILE_SETTLE_SECONDS`
+  (domyślnie 20 s) **i** (2) rozmiar oraz `mtime` są identyczne w dwóch próbkach odległych o
+  `WLB_STABILITY_SAMPLE_SECONDS` (domyślnie 1 s). Drugi warunek łapie plik wciąż rosnący **nawet przy
+  `mtime` z przeszłości** — kopia zachowująca atrybuty (`cp -p`, `rsync -a`, `tar -x`, drag-drop
+  z zewnętrznego archiwum) ustawia stary `mtime` od pierwszej sekundy, więc sam wiek `mtime` by ją
+  przepuścił w trakcie zapisu. Oba progi walidowane (pusty/nienumeryczny/ujemny przerywa start). To nadal
+  **heurystyka, nie gwarancja kompletności** — dłuższy niż próg przestój zapisu (I/O throttling) w oknie
+  próbki może ją oszukać; twarda gwarancja wymagałaby sygnału od nadawcy (temp+rename albo manifest), co
+  przy dostarczaniu drag-drop jest poza zakresem. Potwierdzenie (#208) pokazuje realny rozmiar i każe
+  badaczowi porównać z zamierzonym. Obejście doraźne `*.part` → rename nadal działa. Testy w
+  `wlb-sluza-out-mover.bats` (m.in. rosnący plik ze starym `mtime`, kopia `cp -p` zakończona).
+
+- **Pre-Review Inspector w etapie „Gotowe do code review” (`ci/pr_inspector.py`):** dodano automatyczną inspekcję
+  diffu PR pod kątem rozmiaru (kategorie XS–XL), korelacji kodu wykonawczego z testami (regress-first), stref ryzyka
+  architektury (firewall, AppArmor, uprawnienia, pipeline) oraz podejrzanych wzorców powłoki (chmod 777, curl | bash).
+  Karta oceny i pytania pomocnicze dla recenzenta są publikowane w podsumowaniu joba `ready` (`ci/ready.sh`).
+  Inspekcja jest fail-closed: błąd `git diff` kończy CLI kodem 2, a brak `GITHUB_BASE_REF` pomija kartę
+  zamiast pokazywać fałszywe `XS/LOW`. Testy jednostkowe: `tests/unit/test_pr_inspector.py` oraz
+  `tests/unit/ready.bats`.
+
 - **#349: lane detekcji niestabilności (losowa kolejność)** — nowy, NIEBRAMKUJĄCY job `4c. Detekcja
   niestabilności`: `ci/flaky_detect.py` uruchamia testy jednostkowe wielokrotnie z różnymi ziarnami
   `pytest-randomly` (osobny `venv-flaky`, poza bramką etapu 4, by nie tasować bramki) i klasyfikuje

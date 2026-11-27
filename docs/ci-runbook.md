@@ -1,5 +1,8 @@
 # Runbook CI: co robić, gdy pipeline nie przechodzi
 
+Etap 4d `make formal-logic` sprawdza dowody w Lean i porównuje decyzję modelu wydania z Pythonem. Zakres twierdzeń, wyzwalacze CI, wymagania do uruchomienia i pomiary opisuje [kontrakt weryfikacji formalnej](../formal/README.md).
+
+
 Kiedy PR nie przechodzi, job **„Gotowe do code review”** dołącza sekcję **„Diagnoza przebiegu”**.
 Każdy nieudany job ma tam jedną z kategorii opisanych niżej i link do właściwej sekcji tego dokumentu.
 Tę samą diagnozę można uruchomić lokalnie:
@@ -9,6 +12,15 @@ GITHUB_TOKEN=$(gh auth token) python3 ci/ci_failures.py diagnose --repo xWuWux/w
 gh run view <ID> --log-failed        # logi nieudanych kroków
 gh run download <ID> -D build/ci-run # artefakty: integration-logs, security-reports, coverage…
 ```
+
+Job **„Gotowe do code review”** generuje także **Automatyczną Kartę PR (Pre-Review Inspector)** (`ci/pr_inspector.py`), podsumowującą rozmiar diffu, korelacje z testami, strefy ryzyka bezpieczeństwa i pytania pomocnicze dla recenzenta. Lokalne uruchomienie:
+```bash
+python3 ci/pr_inspector.py inspect --base origin/main
+```
+
+Inspekcja jest pomijana, gdy `GITHUB_BASE_REF` jest pusty (push/merge queue), a błąd `git diff`
+kończy CLI kodem 2 zamiast generować kartę `XS/LOW`. Inspekcja pozostaje narzędziem pomocniczym
+i nie blokuje bramki gotowości.
 
 ## Zasady
 

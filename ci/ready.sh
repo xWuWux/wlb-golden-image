@@ -6,6 +6,7 @@
 set -euo pipefail
 python3 - <<'PY'
 import json, os, sys
+from pathlib import Path
 
 needs = json.loads(os.environ["NEEDS"])
 image = needs["lint"].get("outputs", {}).get("image") == "true"
@@ -20,6 +21,7 @@ stages = [
     ("observability", "3.5. Kontrakty obrazu", True),
     ("unit", "4. Testy jednostkowe + pokrycie", True),
     ("mutation", "4b. Testy mutacyjne", True),
+    ("formal-logic", "4d. Modele wydania i decyzji eksportowej", needs["lint"].get("outputs", {}).get("formal") != "false"),
 ]
 if "build-base" in needs:
     stages.append(("build-base", "5a. Budowa bazy", image))
@@ -41,6 +43,32 @@ text = "\n".join(["## Wynik pipeline'u", "", "| Etap | Wynik |", "|---|---|", *r
                   "docs/ci-runbook.md.", ""])
 print(text)
 if path := os.environ.get("GITHUB_STEP_SUMMARY"):
-    open(path, "a").write(text)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(text + "\n")
+
+# Automatyczna inspekcja PR i Karta Oceny dla recenzenta (Pre-Review Inspector)
+try:
+    sys.path.insert(0, str(Path("ci").resolve()))
+    import pr_inspector
+
+    base_ref = os.environ.get("GITHUB_BASE_REF", "").strip()
+    if not base_ref:
+        print("Uwaga: brak GITHUB_BASE_REF — inspekcja PR pominięta", file=sys.stderr)
+    else:
+        if not base_ref.startswith("origin/"):
+            base_ref = f"origin/{base_ref}"
+
+        report = pr_inspector.inspect_pr(base=base_ref, head="HEAD")
+        if report.total_files == 0:
+            raise RuntimeError("inspekcja zwróciła pusty diff")
+        inspector_md = pr_inspector.render_markdown_report(report)
+        print("\n" + inspector_md)
+        if path := os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("\n" + inspector_md + "\n")
+except Exception as exc:
+    # Inspekcja jest narzędziem pomocniczym i nie może wywrócić bramki gotowości
+    print(f"Uwaga: inspekcja PR pominięta ({exc})", file=sys.stderr)
+
 sys.exit(0 if ok else 1)
 PY
