@@ -88,12 +88,25 @@ histologia_change() {
   grep -qE '^(ansible/roles/(histo_apps|desktop|rstudio)/|ansible/histologia\.yml$|packer/wlb-histologia\.pkr\.hcl$|tests/acceptance\.d/(40-pulpit|47-histologia)\.sh$)' <<<"$changed"
 }
 
+# #10: zmiana samej APARATURY POMIAROWEJ 6a (skrypt benchmarku, budżety, ewaluator, helpery i ich testy)
+# musi ponownie przejść przez etap 6a na realnym obrazie. Bez tego regresja integralności pomiaru (np.
+# cicha zmiana walidacji próbek z #381) trafia na main BEZ uruchomienia benchmarku — bramka, którą #381
+# wprowadza, nie zadziałałaby na PR dotykającym właśnie tych plików. ZAKRES wąski i świadomy: tylko pliki
+# aparatury. Zmiany ZAWARTOŚCI obrazu (packer/base/desktop/tljh) celowo NIE wyzwalają 6a na PR — pokrywa je
+# build nocny; szersze bramkowanie przepaliłoby budżet minut (#86). Wymusza image=true (6a mierzy obraz 5a).
+perf_change() {
+  local changed
+  [[ -n $1 ]] || return 0
+  changed=$(git diff --name-only "$1" HEAD) || return 0
+  grep -qE '^(ci/perf\.sh$|ci/perf-budget\.env$|ci/perf_summary\.py$|tests/perf-remote\.sh$|tests/lib/(local|remote)-common\.sh$|tests/unit/perf-helpers\.bats$|tests/unit/test_perf_(integrity|summary)\.py$)' <<<"$changed"
+}
+
 # Etap 5: domyślnie NIE (oszczędność minut). Wyjątki wg zdarzenia poniżej.
 image=false
 case $EVENT in
   pull_request | merge_group)
     # Sieć/utwardzenie (#63/#16) oraz limity śluzy (#149) zawsze; pozostałe zmiany na etykietę (#86).
-    if network_change "$BASE" || storage_change || has_label "$INTEGRATION_LABEL" || has_label perf || has_label deploy-test; then
+    if network_change "$BASE" || storage_change || perf_change "$BASE" || has_label "$INTEGRATION_LABEL" || has_label perf || has_label deploy-test; then
       image=true
     fi
     ;;
@@ -179,6 +192,8 @@ flavors_json+="]"
 
 perf=false
 { has_label perf || [[ ${IN_PERF:-false} == true ]]; } && perf=true
+# zmiana aparatury pomiarowej na PR/merge_group wymusza 6a — bramka integralności pomiaru (#10/#381)
+[[ $EVENT == pull_request || $EVENT == merge_group ]] && perf_change "$BASE" && perf=true
 # nocny build obejmuje też benchmarki wydajności (wczesne wykrycie regresji wydajności)
 [[ $EVENT == schedule && $SCHEDULE == "$NIGHTLY_CRON" ]] && perf=true
 ephemeral=false

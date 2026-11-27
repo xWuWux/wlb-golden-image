@@ -88,13 +88,20 @@ junit_finalize() {
   } >"$WLB_JUNIT_OUT"
 }
 
-# median LICZBY... — wypisuje medianę liczb całkowitych (dolna przy parzystej liczbie próbek).
-# Używane w pomiarach wydajności (#10): wartość kanoniczna metryki to mediana powtórzeń.
+# median LICZBY... — mediana liczb całkowitych; przy parzystej liczbie próbek średnia
+# dwóch środkowych wartości (np. 10 20 30 40 -> 25). Dolna środkowa nie jest medianą
+# i przy parzystym n zaniża latencje (#10).
 median() {
   (($# > 0)) || return 1
-  local sorted
+  local sorted n
   mapfile -t sorted < <(printf '%s\n' "$@" | sort -n)
-  echo "${sorted[$(((${#sorted[@]} - 1) / 2))]}"
+  n=${#sorted[@]}
+  if ((n % 2)); then
+    echo "${sorted[$((n / 2))]}"
+  else
+    awk -v a="${sorted[$((n / 2 - 1))]}" -v b="${sorted[$((n / 2))]}" \
+      'BEGIN { printf "%.3f\n", (a + b) / 2 }'
+  fi
 }
 
 ok() {

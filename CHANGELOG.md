@@ -14,6 +14,18 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#10/#381: integralność pomiarów 6a + bramka na zmianę aparatury.** Niepełna/uszkodzona seria prób nie
+  daje już zielonej mediany (`emit` wymaga kompletu nieujemnych próbek, inaczej `ERROR` + `MEASUREMENT_FAILED`);
+  `remote_run ... || true` nie maskuje awarii zdalnego skryptu; `PERF_ENFORCE` ma ścisły parser
+  (`1/true/yes/on` vs `0/false/no/off`, śmieci = błąd konfiguracji), a brak wymaganej metryki i niezerowy
+  status zdalny blokują niezależnie od trybu enforcement. **Bramka (`perf_change` w `ci/changes.sh`):** zmiana
+  samej aparatury pomiarowej (`ci/perf.sh`, `ci/perf-budget.env`, `ci/perf_summary.py`, `tests/perf-remote.sh`,
+  `tests/lib/{local,remote}-common.sh`, testy perf) wymusza teraz etap 6a na PR — wcześniej 6a ruszał tylko na
+  etykietę/nightly, więc regresja integralności pomiaru mogła trafić na main bez uruchomienia benchmarku.
+  Zawężenie świadome: zmiany treści obrazu (packer/base/desktop) 6a na PR NIE wyzwalają (pokrywa build nocny,
+  oszczędność minut #86). Testy: `tests/unit/test_perf_integrity.py`, `test_perf_summary.py`, `changes.bats`.
+  **To poprawa wiarygodności oceny pomiaru — NIE kalibracja progów ani sizing (#10 pozostaje otwarte).**
+
 - **CI: `httpx==0.29.0` w locku obrazu (dryf etapu 5, #386)** — JupyterLab 4.6.4 wymaga `httpx<1,>=0.25`,
   a TLJH instaluje go pipem; obraz z 27.11 ma `httpx==0.29.0`, podczas gdy
   `envs/python/environment.lock.yml` pinował conda `httpx=0.28.1`. Bramka `lock_drift` czerwieniła
