@@ -249,6 +249,7 @@ ALLOWLIST_SYSTEMD_SERVICES = {
     "wlb-firstboot.service",
     "wlb-monitoring.service",
     "wlb-postgres-provision.service",
+    "wlb-postgres-provision.path",
     "wlb-postgres-setup.service",
     "wlb-sluza-out.service",
 }

@@ -1,0 +1,19 @@
+[Unit]
+Description=WLB: wyzwalaj provisioning PostgreSQL przy pojawieniu się konta badacza w {{ wlb_pg_data_dir | dirname }} (#271/#369)
+# Klaster musi istnieć, zanim jest sens wyzwalać provisioning (ten sam warunek co usługa).
+After=postgresql@{{ wlb_pg_version }}-main.service
+RequiresMountsFor={{ wlb_pg_data_dir | dirname }}
+
+[Path]
+# Konto SYSTEMOWE jupyter-uNN powstaje LENIWIE przy pierwszym spawnie serwera badacza (TLJH tworzy
+# wtedy katalog {{ wlb_pg_data_dir | dirname }}/jupyter-uNN). PathChanged obserwuje bezpośrednią
+# zawartość {{ wlb_pg_data_dir | dirname }} (inotify, NIE rekurencyjnie) i odpala wlb-postgres-provision,
+# gdy pojawia się nowy katalog konta. provision jest idempotentny, więc ponowne wyzwolenia są bezpieczne.
+# Dzięki temu konto dodane PO budowie/pierwszym boocie dostaje rolę+bazę+.pgpass bez restartu VM
+# (administracja żywego Laboratorium — #369 wariant B, event-driven). Zapis .pgpass trafia do PODkatalogu
+# konta (jupyter-uNN), więc NIE modyfikuje {{ wlb_pg_data_dir | dirname }} i nie tworzy pętli wyzwoleń.
+PathChanged={{ wlb_pg_data_dir | dirname }}
+Unit=wlb-postgres-provision.service
+
+[Install]
+WantedBy=multi-user.target

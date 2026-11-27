@@ -14,6 +14,16 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **#271/#369: provisioning PostgreSQL per badacz jest teraz ZDARZENIOWY (po pierwszym spawnie).** Konto
+  systemowe `jupyter-uNN` i jego katalog `/workspace/jupyter-uNN` powstają leniwie przy pierwszym spawnie
+  serwera badacza (TLJH), więc `wlb-postgres-provision` uruchamiany tylko przy boocie nie zastawał konta i
+  nie tworzył roli/bazy/`.pgpass` (10 FAIL w akceptacji pediatrii). Dodano `wlb-postgres-provision.path`
+  (`PathChanged=/workspace`), który wyzwala idempotentny provisioning, gdy pojawia się katalog konta —
+  konto dodane PO budowie/boocie dostaje bazę+rolę+`.pgpass` bez restartu VM (administracja żywego
+  Laboratorium, wariant B). `wlb-postgres-provision.service` straciło `RemainAfterExit=yes`, żeby path-unit
+  mógł je wyzwalać wielokrotnie; start przy boocie (WantedBy) zostaje dla przypadku wymiany dysku. Test
+  `72-pediatria.sh` spawnuje u01/u02 i czeka na provisioning przed asercjami bazy.
+
 - **#20: śluza wyjściowa przyjmowała UCIĘTE pliki w trakcie kopiowania (utrata danych)** — dla pojedynczego
   pliku jedynym warunkiem gotowości był `fuser` (czy plik jest otwarty). Kopiowanie menedżerem plików
   (Thunar/GIO) ma okna, w których duży plik nie jest otwarty — `wlb-sluza-out-mover` trafiał wtedy w środek

@@ -22,6 +22,23 @@ if grep -qx "WLB_IMAGE_NAME=wlb-pediatria" /etc/wlb/image-release 2>/dev/null; t
   expect_ok "Klaster PostgreSQL zainicjalizowany na /workspace/pgdata" \
     test -f /workspace/pgdata/PG_VERSION
 
+  # --- Provisioning kont badaczy: event-driven po pierwszym spawnie (#271/#369 wariant B) -------
+  # Konto SYSTEMOWE jupyter-uNN i jego stan PostgreSQL (rola, baza, .pgpass) NIE istnieją od boota —
+  # powstają po PIERWSZYM spawnie serwera badacza: TLJH tworzy /workspace/jupyter-uNN, a path-unit
+  # wlb-postgres-provision.path wyzwala wtedy (idempotentny) wlb-postgres-provision. Rdzeń akceptacji
+  # (acceptance-remote.sh) już spawnuje u01 i u02, więc tu tylko CZEKAMY, aż zdarzeniowy (asynchroniczny)
+  # provisioning utworzy .pgpass obu kont — bez tego poniższe asercje bazy łapałyby wyścig.
+  provisioned=0
+  for _ in $(seq 1 30); do
+    if [[ -f /workspace/jupyter-$R1/.pgpass && -f /workspace/jupyter-$R2/.pgpass ]]; then
+      provisioned=1
+      break
+    fi
+    sleep 2
+  done
+  expect_ok "Provisioning PostgreSQL wyzwolony zdarzeniowo po spawnie kont u01/u02 (path-unit, #369 B)" \
+    test "$provisioned" -eq 1
+
   # --- Dostęp i uwierzytelnianie PostgreSQL: peer i scram-sha-256 -------------------------
   # Badacz u01 (jupyter-u01) ma dostęp do swojej bazy db_u01 jako rola u01
   expect_ok "Badacz $R1 może połączyć się z własną bazą db_$R1 (peer ident)" \
