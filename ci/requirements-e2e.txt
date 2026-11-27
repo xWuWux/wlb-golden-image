@@ -91,4 +91,4 @@ playwright==1.65.2 \
     --hash=sha256:99dd0de21173375cded45f4e26a9e19b862d748b06cbb11376313758cedc220e \
     --hash=sha256:d0aec9e1c97b6f497f3d9f2ad6e1b7f299968e61239d71f100298b0690f3c776 \
     --hash=sha256:dd3e54b6a926fc6510f272797eec0707dc34ae04d564e74a7056c4a813e53270
-    # via -r requirements-e2e.in
+    # via -r ci/requirements-e2e.in

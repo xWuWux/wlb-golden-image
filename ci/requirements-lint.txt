@@ -1,8 +1,8 @@
 # WYGENEROWANE przez ci/lock-requirements.sh — NIE edytuj ręcznie (piny w ci/requirements-lint.in).
 # Lock z hashami dla Pythona 3.12; instalacja w CI z --require-hashes (#162/IMG-008 5b).
-ansible-compat==26.11.0 \
-    --hash=sha256:35cbe829e0b5a9acb85d34b8d5da2eb45acaf767f6651f90e0ab2f3a96a060bb \
-    --hash=sha256:c06a486b39ced440f9f6fb9a99583c73d9239c94ece822a27ea2242173462dda
+ansible-compat==26.11.1 \
+    --hash=sha256:d22e0a48d8d79e727b0f56db3573b02bde2189b5bfbef067230a34c0bcbff94a \
+    --hash=sha256:ed9717fde1705a58678c1503e46316a36f7392229c2444d2b2f1b6de12be9f25
     # via ansible-lint
 ansible-core==2.21.6 \
     --hash=sha256:3fa05b4b1af69f2fa19b49dde8edd5a23e693c2c1c3bda2d85fce73bd6cfc36d \
@@ -13,7 +13,7 @@ ansible-core==2.21.6 \
 ansible-lint==26.11.0 \
     --hash=sha256:74813203aa5450d720c3d86b9d0d4ddc51d30e36ac69e1f0d9f7650f5a3b5dd3 \
     --hash=sha256:b778ea87fa873384b373e8c3fe53a06b3acc7b72ac283e2d2070f76fdf9f8358
-    # via -r requirements-lint.in
+    # via -r ci/requirements-lint.in
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309 \
     --hash=sha256:d03ceb89cb322a8fd706d4fb91940737b6642aa36998fe130a9bc96c985eff32
@@ -228,9 +228,9 @@ distro==1.9.0 \
     --hash=sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed \
     --hash=sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2
     # via ansible-lint
-filelock==4.2.12 \
-    --hash=sha256:21decfec02f116ed4c954433cdb31f28c3b346b784543177b6d7059da2702ee9 \
-    --hash=sha256:7e7da24d3ac39268b0f156e56870001de44886318f092f9d851e692f7114d6dd
+filelock==4.3.1 \
+    --hash=sha256:4c5ee627c401f1863ac6a0de9a14a28d3bb5f8c730b45e2fd6e5dbc79cf34b9e \
+    --hash=sha256:79e43df8e9fe509cd83a3899a7c186c8077cbbe4d200a1ed3705c2f3bb6bc487
     # via ansible-lint
 jinja2==3.1.6 \
     --hash=sha256:0137fb05990d35f1275a587e9aee6d56da821fc83491a0fb838183be43f66d6d \
@@ -403,9 +403,9 @@ mypy-extensions==1.2.0 \
     --hash=sha256:993e7a20aa5671eb41a7132cf555af30062da99729601601b9a8382b11cae768 \
     --hash=sha256:c6e275a07f1c2fc096b62940452d0eaa3f3af7de45d704787866240a7c6d5a51
     # via black
-packaging==26.3 \
-    --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
-    --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+packaging==26.4 \
+    --hash=sha256:81383611a09c1bc0b08b76e0fd5829d7c6824c65b27a6aee339da133f4233ea2 \
+    --hash=sha256:c4b671c41ddb9bf26e543c37723610d28fb6bf7affc4da17cf048d419d2c062a
     # via
     #   ansible-compat
     #   ansible-core
@@ -545,7 +545,7 @@ pyyaml==6.0.3 \
     --hash=sha256:fa160448684b4e94d80416c0fa4aac48967a969efe22931448d853ada8baf926 \
     --hash=sha256:fc09d0aa354569bc501d4e787133afc08552722d3ab34836a80547331bb5d4a0
     # via
-    #   -r requirements-lint.in
+    #   -r ci/requirements-lint.in
     #   ansible-compat
     #   ansible-core
     #   ansible-lint
@@ -716,13 +716,17 @@ ruff==0.17.6 \
     --hash=sha256:d8b14e1473dc86ab9069cf7a2ba5041dc012f59110201844ed04cfddf07055a0 \
     --hash=sha256:fb589e032806bb942e4fb526f30b80a1a64112147ed9f1d38cc3de2e255b6f45 \
     --hash=sha256:fd661702202a89c00a4c9d0339008805fa5876bfa1c57e165495c2e62230dfbf
-    # via -r requirements-lint.in
+    # via -r ci/requirements-lint.in
 subprocess-tee==0.4.2 \
     --hash=sha256:21942e976715af4a19a526918adb03a8a27a8edab959f2d075b777e3d78f532d \
     --hash=sha256:91b2b4da3aae9a7088d84acaf2ea0abee3f4fd9c0d2eae69a9b9122a71476590
     # via
     #   ansible-compat
     #   ansible-lint
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8 \
+    --hash=sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5
+    # via referencing
 wcmatch==12.0.4 \
     --hash=sha256:23fe77fbfa3fff9e46f0f4a3d1891065270596774bd6131bd2f973fb822242a1 \
     --hash=sha256:3e61e404a90a8b6c8bca197fb9ad5f1accbb34ee206b63e0c588a2ab9aa05862
@@ -731,5 +735,5 @@ yamllint==1.38.0 \
     --hash=sha256:09e5f29531daab93366bb061e76019d5e91691ef0a40328f04c927387d1d364d \
     --hash=sha256:fc394a5b3be980a4062607b8fdddc0843f4fa394152b6da21722f5d59013c220
     # via
-    #   -r requirements-lint.in
+    #   -r ci/requirements-lint.in
     #   ansible-lint
