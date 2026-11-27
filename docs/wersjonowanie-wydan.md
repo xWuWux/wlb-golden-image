@@ -56,6 +56,12 @@ nie rootfs. Release CI robi przed buildem smoke-test bramki na małym qcow2 (czy
 przechodzi, obraz z fixture jest odrzucany), żeby zły `virt-ls` nie zablokował wydania po
 150-minutowym budowaniu.
 
+Przed bramką `ci/release_provenance.py` wiąże qcow2 z manifestem Packera i sumą: manifest musi
+leżeć w tym samym `output/<pełna-nazwa>/` co obraz, a jego `custom_data` (wersja, data, commit,
+`git_dirty=0`, `build_run`) i rozmiar wpisu `files[]` muszą zgadzać się z `image-release`.
+Plik `.qcow2.sha256` musi wskazywać ten sam obraz i zgadzać się z jego rzeczywistą sumą SHA-256.
+Dzięki temu bramka E2E nie może sprawdzić innego qcow2 niż artefakt opisany przez ten build.
+
 ## Jak wydać
 
 ```bash
