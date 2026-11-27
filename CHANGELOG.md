@@ -26,6 +26,23 @@ pierwszym Laboratorium na klastrze).
   oszczędność minut #86). Testy: `tests/unit/test_perf_integrity.py`, `test_perf_summary.py`, `changes.bats`.
   **To poprawa wiarygodności oceny pomiaru — NIE kalibracja progów ani sizing (#10 pozostaje otwarte).**
 
+- **#20: śluza wyjściowa przyjmowała UCIĘTE pliki w trakcie kopiowania (utrata danych)** — dla pojedynczego
+  pliku jedynym warunkiem gotowości był `fuser` (czy plik jest otwarty). Kopiowanie menedżerem plików
+  (Thunar/GIO) ma okna, w których duży plik nie jest otwarty — `wlb-sluza-out-mover` trafiał wtedy w środek
+  zapisu i zabierał początek archiwum (np. 12,6 GB → 8 MB), a sumę liczył z tego, co zabrał. Teraz plik, tak
+  jak katalog, przechodzi **dwuetapowe badanie niezmienności rozmiaru+mtime** (model `readLock=changed`
+  z Apache Camel): przyjmowany jest dopiero, gdy (1) od ostatniego zapisu minęło ≥ `WLB_FILE_SETTLE_SECONDS`
+  (domyślnie 20 s) **i** (2) rozmiar oraz `mtime` są identyczne w dwóch próbkach odległych o
+  `WLB_STABILITY_SAMPLE_SECONDS` (domyślnie 1 s). Drugi warunek łapie plik wciąż rosnący **nawet przy
+  `mtime` z przeszłości** — kopia zachowująca atrybuty (`cp -p`, `rsync -a`, `tar -x`, drag-drop
+  z zewnętrznego archiwum) ustawia stary `mtime` od pierwszej sekundy, więc sam wiek `mtime` by ją
+  przepuścił w trakcie zapisu. Oba progi walidowane (pusty/nienumeryczny/ujemny przerywa start). To nadal
+  **heurystyka, nie gwarancja kompletności** — dłuższy niż próg przestój zapisu (I/O throttling) w oknie
+  próbki może ją oszukać; twarda gwarancja wymagałaby sygnału od nadawcy (temp+rename albo manifest), co
+  przy dostarczaniu drag-drop jest poza zakresem. Potwierdzenie (#208) pokazuje realny rozmiar i każe
+  badaczowi porównać z zamierzonym. Obejście doraźne `*.part` → rename nadal działa. Testy w
+  `wlb-sluza-out-mover.bats` (m.in. rosnący plik ze starym `mtime`, kopia `cp -p` zakończona).
+
 - **Pre-Review Inspector w etapie „Gotowe do code review” (`ci/pr_inspector.py`):** dodano automatyczną inspekcję
   diffu PR pod kątem rozmiaru (kategorie XS–XL), korelacji kodu wykonawczego z testami (regress-first), stref ryzyka
   architektury (firewall, AppArmor, uprawnienia, pipeline) oraz podejrzanych wzorców powłoki (chmod 777, curl | bash).

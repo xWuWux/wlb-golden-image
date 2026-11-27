@@ -13,7 +13,7 @@ setup() {
 }
 
 needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
-  printf '{"lint":{"result":"%s","outputs":{"image":"false"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"%s"},"integration":{"result":"%s"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}' \
+  printf '{"lint":{"result":"%s","outputs":{"image":"false"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"formal-logic":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"%s"},"integration":{"result":"%s"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}' \
     "$1" "$2" "${3:-skipped}"
 }
 
@@ -42,14 +42,14 @@ needs_json() { # needs_json WYNIK_LINT WYNIK_MUTATION [WYNIK_INTEGRATION]
 }
 
 @test "ready: build-base w needs blokuje merge przy awarii gdy image=true (#288)" {
-  local json='{"lint":{"result":"success","outputs":{"image":"true"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"success"},"build-base":{"result":"failure"},"integration":{"result":"skipped"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}'
+  local json='{"lint":{"result":"success","outputs":{"image":"true"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"formal-logic":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"success"},"build-base":{"result":"failure"},"integration":{"result":"skipped"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}'
   run env NEEDS="$json" "$READY"
   [ "$status" -eq 1 ]
   [[ $output == *"5a. Budowa bazy"*"blokuje"* ]]
 }
 
 @test "ready: build-base w needs zaliczony gdy image=true (#288)" {
-  local json='{"lint":{"result":"success","outputs":{"image":"true"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"success"},"build-base":{"result":"success"},"integration":{"result":"success"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}'
+  local json='{"lint":{"result":"success","outputs":{"image":"true"}},"build-check":{"result":"success"},"security":{"result":"success"},"security-report":{"result":"success"},"observability":{"result":"success"},"formal-logic":{"result":"success"},"unit":{"result":"success"},"mutation":{"result":"success"},"build-base":{"result":"success"},"integration":{"result":"success"},"perf":{"result":"skipped"},"ephemeral":{"result":"skipped"}}'
   run env NEEDS="$json" "$READY"
   [ "$status" -eq 0 ]
   [[ $output == *"5a. Budowa bazy"* ]]
