@@ -14,6 +14,12 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **CI: `httpx==0.29.0` w locku obrazu (dryf etapu 5, #386)** — JupyterLab 4.6.4 wymaga `httpx<1,>=0.25`,
+  a TLJH instaluje go pipem; obraz z 27.11 ma `httpx==0.29.0`, podczas gdy
+  `envs/python/environment.lock.yml` pinował conda `httpx=0.28.1`. Bramka `lock_drift` czerwieniła
+  przez to każdy PR budujący obraz (m.in. #381/#384). Przenoszę pin do sekcji pip w wersji z obrazu;
+  pozostałe piny resolvera pip z #179 zostają bez zmian.
+
 - **#20: śluza wyjściowa przyjmowała UCIĘTE pliki w trakcie kopiowania (utrata danych)** — dla pojedynczego
   pliku jedynym warunkiem gotowości był `fuser` (czy plik jest otwarty). Kopiowanie menedżerem plików
   (Thunar/GIO) ma okna, w których duży plik nie jest otwarty — `wlb-sluza-out-mover` trafiał wtedy w środek
