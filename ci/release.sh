@@ -30,9 +30,6 @@ ARTIFACTS=${2:-$(find . -type d -path '*/build/artifacts/wlb-general-*' 2>/dev/n
   die "release: brak dpkg-status — pakiet wydania bez inwentarza systemowego (#129)"
 python3 ci/image_identity.py "$ARTIFACTS" ||
   die "release: tożsamość OS artefaktów niezweryfikowana lub niezgodna (#129)"
-# manifest i suma qcow2 leżą obok (output/<full>/) — szukamy po nazwie, niezależnie od układu
-MANIFEST=$(find . -name 'packer-manifest.json' 2>/dev/null | head -1)
-
 # Proweniencja artefaktu musi zgadzać się z tym wydaniem (wersja z tagu, commit = HEAD, czyste drzewo).
 rel_commit=$(sed -n 's/^WLB_GIT_COMMIT=//p' "$ARTIFACTS/image-release")
 rel_version=$(sed -n 's/^WLB_IMAGE_VERSION=//p' "$ARTIFACTS/image-release")
@@ -41,18 +38,57 @@ rel_dirty=$(sed -n 's/^WLB_GIT_DIRTY=//p' "$ARTIFACTS/image-release")
 [[ $rel_commit == "$COMMIT" ]] || die "obraz zbudowano z commita '${rel_commit}', a HEAD to '${COMMIT}'"
 [[ $rel_dirty == 0 ]] || die "obraz zbudowano z brudnego drzewa (WLB_GIT_DIRTY=${rel_dirty})"
 
+# #277-S3: wydanie nie może zawierać fixture E2E pulpitu. Sprawdzamy qcow2 wskazany przez
+# metadane wydania (nie flavor testowy z output/); brak obrazu to błąd (fail-closed), nie
+# „czysto”. ARTIFACTS to metadane (image-release, dpkg-status, locki) — nie rootfs, więc
+# bramka drzewa nie ma tu czego sprawdzać; ścieżki E2E są wyłącznie w obrazie.
+# Ścieżka obrazu jak w ci/integration.sh: output/<full>/<full>.qcow2.
+rel_name=$(sed -n 's/^WLB_IMAGE_NAME=//p' "$ARTIFACTS/image-release")
+rel_date=$(sed -n 's/^WLB_IMAGE_DATE=//p' "$ARTIFACTS/image-release")
+[[ $rel_name =~ ^wlb-[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
+  die "image-release: nieprawidłowa nazwa obrazu '${rel_name}'"
+[[ $rel_date =~ ^[0-9]{8}$ ]] ||
+  die "image-release: data musi mieć format YYYYMMDD, jest '${rel_date}'"
+FULL_NAME="${rel_name}-${VERSION}-${rel_date}"
+[[ $(basename "$ARTIFACTS") == "$FULL_NAME" ]] ||
+  die "katalog artefaktów '$(basename "$ARTIFACTS")' nie odpowiada metadanym wydania '${FULL_NAME}'"
+RELEASE_DIR="output/${FULL_NAME}"
+RELEASE_IMAGE="${RELEASE_DIR}/${FULL_NAME}.qcow2"
+MANIFEST="${RELEASE_DIR}/packer-manifest.json"
+CHECKSUM="${RELEASE_IMAGE}.sha256"
+[[ -f $RELEASE_IMAGE ]] ||
+  die "brak obrazu ${RELEASE_IMAGE} — nie można zweryfikować braku fixture E2E (#277)"
+[[ -s $MANIFEST ]] ||
+  die "brak manifestu ${MANIFEST} — nie można powiązać obrazu z buildem (#277)"
+[[ -s $CHECKSUM ]] ||
+  die "brak sumy ${CHECKSUM} — nie można powiązać obrazu z buildem (#277)"
+step "Proweniencja obrazu (#277)"
+python3 ci/release_provenance.py \
+  --artifacts "$ARTIFACTS" --image "$RELEASE_IMAGE" \
+  --manifest "$MANIFEST" --checksum "$CHECKSUM" \
+  --version "$VERSION" --commit "$COMMIT" ||
+  die "obraz nie jest powiązany z manifestem i sumą wydania (#277)"
+endstep
+E2E_ARGS=(--image "$RELEASE_IMAGE")
+step "Bramka E2E (#277)"
+e2e_rc=0
+python3 ci/e2e_release_gate.py "${E2E_ARGS[@]}" || e2e_rc=$?
+endstep
+# Kod 3 = znaleziono artefakt E2E; kod 2 = nie można zweryfikować. Oba przerywają wydanie
+# i są przekazywane dalej bez zmiany, żeby CI mogło je rozróżnić.
+((e2e_rc == 0)) || exit "$e2e_rc"
+
 OUT=build/release
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
 # Metadane wydania (bez qcow2 — jego przechowywanie to #12b)
 cp "$ARTIFACTS/image-release" "$OUT/"
-[[ -n $MANIFEST && -s $MANIFEST ]] && cp "$MANIFEST" "$OUT/packer-manifest.json"
+cp "$MANIFEST" "$OUT/packer-manifest.json"
+cp "$CHECKSUM" "$OUT/"
 for f in environment.lock.yml renv.lock dpkg-status os-release; do
   [[ -s $ARTIFACTS/$f ]] && cp "$ARTIFACTS/$f" "$OUT/"
 done
-# suma qcow2 policzona przy budowaniu (sam obraz jest poza wydaniem w 12a)
-find . -name '*.qcow2.sha256' -exec cp {} "$OUT/" \; 2>/dev/null || true
 
 # SBOM (SPDX)
 step "SBOM"

@@ -33,4 +33,7 @@ else
     grep -qxE 'WLB_IMAGE_NAME=wlb-(memory|radiologia|histologia)' /etc/wlb/image-release
   expect_fail "Regresja: pulpit XFCE nieobecny w obrazie bazowym (#105)" bash -c "command -v startxfce4"
   expect_fail "Regresja: serwer VNC nieobecny w obrazie bazowym (#105)" bash -c "command -v Xtigervnc || command -v vncserver"
+  # Hardening #277 (S2): artefakty targetu E2E nie mogą istnieć w obrazie produkcyjnym / nie-E2E.
+  # Lista ścieżek pochodzi z ci/e2e-fixture-paths.txt (wspólna z bramką wydania).
+  assert_no_e2e_fixture
 fi

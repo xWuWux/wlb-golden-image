@@ -7,7 +7,8 @@ FULL_NAME     := $(IMAGE_NAME)-$(IMAGE_VERSION)-$(IMAGE_DATE)
 
 BUILD_DIR := build
 KEY       := $(BUILD_DIR)/packer_ed25519
-PACKER_VARS := -var image_name=$(IMAGE_NAME) -var image_version=$(IMAGE_VERSION) -var image_date=$(IMAGE_DATE)
+PACKER_VARS := -var image_name=$(IMAGE_NAME) -var image_version=$(IMAGE_VERSION) -var image_date=$(IMAGE_DATE) \
+	-var wlb_build_profile=production -var wlb_enable_e2e_target=false
 
 # Narzędzia z make tools (przypięte wersje Packera i Ansible) — bez ręcznego export PATH
 export PATH := $(CURDIR)/.tools/bin:$(CURDIR)/.tools/venv-lint/bin:$(PATH)

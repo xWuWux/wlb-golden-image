@@ -14,6 +14,11 @@ pierwszym Laboratorium na klastrze).
 
 ## Niewydane
 
+- **Hardening targetu E2E pulpitu — asercje negatywne w obrazie produkcyjnym (#277, S2):**
+  dodano bramkujące asercje negatywne `test ! -e` w `tests/acceptance.d/40-pulpit.sh` dla obrazu nie-E2E
+  (`wlb-general`), sprawdzające nieobecność 4 ścieżek targetu (`/opt/wlb/e2e`, autostart, kafelek, tmpfiles).
+  Dodano testy jednostkowe w `tests/unit/test_e2e_negative_acceptance.py`.
+
 - **CI: `httpx==0.29.0` w locku obrazu (dryf etapu 5, #386)** — JupyterLab 4.6.4 wymaga `httpx<1,>=0.25`,
   a TLJH instaluje go pipem; obraz z 27.11 ma `httpx==0.29.0`, podczas gdy
   `envs/python/environment.lock.yml` pinował conda `httpx=0.28.1`. Bramka `lock_drift` czerwieniła
@@ -136,6 +141,11 @@ pierwszym Laboratorium na klastrze).
   zawiera `pkgconf 3.0.11` jako zależność, której nie było w `envs/python/environment.lock.yml` —
   `ci/lock_drift.py` słusznie zgłaszał `DRYF: pkgconf tylko w obrazie` i blokował etap 5 na **wszystkich**
   PR-ach. Dopisano `pkgconf=3.0.11` do sekcji conda locka (lock = obraz). Klasa jak soupsieve (#311).
+- **Dryf locka: `libpkgconf` — biblioteka obok `pkgconf` (#360, etap 5):** conda dostarcza
+  `libpkgconf 3.0.11` jako osobną zależność od `pkgconf 3.0.11`; lock miał tylko pakiet CLI, więc
+  `ci/lock_drift.py` zgłaszał `DRYF: libpkgconf 3.0.11 tylko w obrazie (conda)` i blokował etap 5.
+  Dopisano `libpkgconf=3.0.11` do sekcji conda (między `libpciaccess` a `libpng`). Ta sama zasada:
+  lock = obraz; weryfikacja na locku z artefaktu daje 0 przy 423 pakietach.
 - **Logowanie przez Microsoft Entra ID (`AUTH_MODE=entra`, #18):** `WlbEntraAuthenticator`
   (podklasa `AzureAdOAuthenticator`, oauthenticator 17 z TLJH 2.0) loguje na konto wskazane
   w rejestrze przypisań `(tid, oid) -> konto` (`/etc/wlb/entra-accounts`, root 0600, tylko
@@ -175,6 +185,13 @@ pierwszym Laboratorium na klastrze).
   oraz kafelek w menu (`/usr/share/applications/wlb-e2e-mouse.desktop`). Target instalowany
   WYŁĄCZNIE dla buildów testowych/E2E pod flagą roli `wlb_enable_e2e_target: true`
   (domyślnie wyłączony, nieobecny w obrazie produkcyjnym badacza).
+
+- **Bramka wydania E2E (#277-S3):** produkcja jawnie wymusza `wlb_enable_e2e_target=false`
+  przez profil Packera `wlb_build_profile=production` (domyślny); profil `test` ustawia tylko
+  CI dla flavorów E2E. `ci/release.sh` odrzuca wydanie, gdy qcow2 zawiera którąkolwiek
+  z czterech ścieżek fixture (`/opt/wlb/e2e/`, wpis autostartu, kafelek myszy, tmpfiles) —
+  kod wyjścia 3, brak możliwości sprawdzenia = kod 2 (fail-closed). Release CI robi przed
+  buildem smoke-test bramki na małym qcow2.
 
 - **Target in-session dla testów E2E pulpitu (#277-A):** deterministyczny in-session
   target weryfikacji wejścia myszy i klawiatury w sesji noVNC. Katalog markerów
