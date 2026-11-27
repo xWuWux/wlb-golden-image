@@ -112,7 +112,7 @@ fi
 
 # VM dobrana do hosta (bez nadsubskrypcji zagnieżdżonej wirtualizacji) i liczba powtórzeń (#10).
 # PERF_REPEAT dotyczy tanich metryk w VM; boot jest kosztowny, więc ma osobny PERF_BOOT_REPEAT
-# (lokalnie domyślnie 1, w CI 2) — 5 pełnych bootów łatwo przekroczyłoby limit czasu etapu 6a.
+# (lokalnie domyślnie 1, w CI 3 — zgodnie z decyzją „3 próbki dla 6a”; 3 starty mieszczą się w limicie etapu).
 perf_vm_resources
 
 # boot_to_ready: BOOT_REPEAT osobnych startów VM; mediana jako wartość, próbki do kalibracji.
