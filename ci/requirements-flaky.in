@@ -7,5 +7,5 @@
 # CELOWO trzymamy te pakiety POZA venv-unit (bramkującym): zainstalowany pytest-randomly tasowałby też
 # bramkę etapu 4, czyniąc ją niedeterministyczną. Tu, w osobnym venv-flaky, tasowanie jest zamierzone.
 -r requirements-unit.in
-pytest-randomly==3.16.0
+pytest-randomly==5.1.0
 pytest-repeat==0.9.4
